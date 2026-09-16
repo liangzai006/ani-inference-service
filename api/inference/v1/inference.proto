@@ -1,0 +1,132 @@
+syntax = "proto3";
+
+package inference.v1;
+
+option go_package = "github.com/zhangzhe-ctrl/ani-inference-service/api/inference/v1;inferencev1";
+
+import "google/protobuf/field_mask.proto";
+import "google/protobuf/timestamp.proto";
+
+message ResourceSpec {
+  map<string, string> requests = 1;
+  map<string, string> limits = 2;
+}
+
+enum RuntimeMode {
+  RUNTIME_MODE_UNSPECIFIED = 0;
+  RUNTIME_MODE_DEPLOYMENT = 1;
+  RUNTIME_MODE_LEADER_WORKER_SET = 2;
+}
+
+message RuntimeSpec {
+  RuntimeMode mode = 1;
+  // Number of workers in each LeaderWorkerSet group. It is ignored for a
+  // Deployment and must be positive for the distributed mode.
+  int32 worker_replicas = 2;
+  EndpointSpec endpoint = 3;
+}
+
+// EndpointSpec describes the optional Kubernetes Service exposed for this
+// runtime. Ports are explicit; an omitted endpoint means no Service is owned.
+message EndpointSpec {
+  int32 container_port = 1;
+  int32 service_port = 2;
+  string target_port = 3;
+  string protocol = 4;
+}
+
+message ModelArtifact {
+  string provider = 1;
+  string reference = 2;
+  string sha256 = 3;
+}
+
+message EngineSpec {
+  string type = 1;
+  string image = 2;
+  repeated string command = 3;
+  repeated string args = 4;
+}
+
+message InferenceService {
+  string id = 1;
+  string name = 2;
+  string desired_state = 3;
+  int64 generation = 4;
+  string model_version_id = 5;
+  ResourceSpec resource = 6;
+  int32 replicas = 7;
+  string runtime_phase = 8;
+  string publication_phase = 9;
+  string invocation_health = 10;
+  google.protobuf.Timestamp observed_at = 11;
+  RuntimeSpec runtime = 12;
+  ModelArtifact model_artifact = 13;
+  EngineSpec engine = 14;
+  // Latest generation whose runtime observation was durably committed.
+  // This is distinct from desired generation and readiness facts.
+  int64 applied_generation = 15;
+  string served_model_name = 16;
+}
+
+message Operation {
+  string id = 1;
+  string service_id = 2;
+  string kind = 3;
+  string phase = 4;
+  string step = 5;
+  int64 target_generation = 6;
+  string error_code = 7;
+  string error_message = 8;
+  google.protobuf.Timestamp created_at = 9;
+  google.protobuf.Timestamp completed_at = 10;
+}
+
+message CreateInferenceServiceRequest {
+  string request_id = 1;
+  string name = 2;
+  string model_version_id = 3;
+  ResourceSpec resource = 4;
+  int32 replicas = 5;
+  RuntimeSpec runtime = 6;
+  ModelArtifact model_artifact = 7;
+  EngineSpec engine = 8;
+  string served_model_name = 9;
+}
+message UpdateInferenceServiceRequest {
+  string request_id = 1;
+  string resource_id = 2;
+  int64 expected_generation = 3;
+  google.protobuf.FieldMask update_mask = 4;
+  ResourceSpec resource = 5;
+  int32 replicas = 6;
+  RuntimeSpec runtime = 7;
+  ModelArtifact model_artifact = 8;
+  EngineSpec engine = 9;
+  string served_model_name = 10;
+}
+message ServiceCommandRequest { string request_id = 1; string resource_id = 2; int64 expected_generation = 3; }
+message GetInferenceServiceRequest { string resource_id = 1; }
+message ListInferenceServicesRequest { int32 page_size = 1; string page_token = 2; }
+message ListInferenceServicesResponse { repeated InferenceService services = 1; string next_page_token = 2; }
+message OperationResponse { InferenceService resource = 1; Operation operation = 2; }
+message GetOperationRequest { string operation_id = 1; }
+message ListOperationsRequest {
+  int32 page_size = 1;
+  string page_token = 2;
+  string resource_id = 3;
+}
+message ListOperationsResponse { repeated Operation operations = 1; string next_page_token = 2; }
+
+service InferenceServiceManager {
+  rpc CreateInferenceService(CreateInferenceServiceRequest) returns (OperationResponse);
+  rpc GetInferenceService(GetInferenceServiceRequest) returns (InferenceService);
+  rpc ListInferenceServices(ListInferenceServicesRequest) returns (ListInferenceServicesResponse);
+  rpc UpdateInferenceService(UpdateInferenceServiceRequest) returns (OperationResponse);
+  rpc StartInferenceService(ServiceCommandRequest) returns (OperationResponse);
+  rpc StopInferenceService(ServiceCommandRequest) returns (OperationResponse);
+  rpc RestartInferenceService(ServiceCommandRequest) returns (OperationResponse);
+  rpc DeleteInferenceService(ServiceCommandRequest) returns (OperationResponse);
+  rpc GetOperation(GetOperationRequest) returns (Operation);
+  rpc ListOperations(ListOperationsRequest) returns (ListOperationsResponse);
+}

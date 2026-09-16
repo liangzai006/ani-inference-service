@@ -1,0 +1,8 @@
+version: v2
+inputs:
+  - directory: api
+plugins:
+  - local: ["go", "run", "google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11"]
+    # The Buf module root is api; keep generated Go beside its source proto.
+    out: api
+    opt: paths=source_relative

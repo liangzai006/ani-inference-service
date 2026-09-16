@@ -1,0 +1,10 @@
+server:
+  grpc:
+    network: "${SERVER_GRPC_NETWORK:tcp}"
+    addr: "${SERVER_GRPC_ADDR:127.0.0.1:19090}"
+    timeout: "${SERVER_GRPC_TIMEOUT:1s}"
+  admin:
+    network: "${SERVER_ADMIN_NETWORK:tcp}"
+    addr: "${SERVER_ADMIN_ADDR:127.0.0.1:19091}"
+    timeout: "${SERVER_ADMIN_TIMEOUT:1s}"
+  shutdown_timeout: "${SERVER_SHUTDOWN_TIMEOUT:5s}"

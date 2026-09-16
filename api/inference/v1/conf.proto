@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package inference.v1;
+
+option go_package = "github.com/zhangzhe-ctrl/ani-inference-service/api/inference/v1;inferencev1";
+
+import "google/protobuf/duration.proto";
+
+message Bootstrap {
+  Server server = 1;
+}
+
+message Server {
+  message GRPC {
+    string network = 1;
+    string addr = 2;
+    google.protobuf.Duration timeout = 3;
+  }
+
+  message Admin {
+    string network = 1;
+    string addr = 2;
+    google.protobuf.Duration timeout = 3;
+  }
+
+  GRPC grpc = 1;
+  Admin admin = 2;
+  google.protobuf.Duration shutdown_timeout = 3;
+}

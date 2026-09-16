@@ -1,0 +1,242 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: inferenceservices.ani.kubercloud.com
+spec:
+  group: ani.kubercloud.com
+  scope: Namespaced
+  names:
+    plural: inferenceservices
+    singular: inferenceservice
+    kind: InferenceService
+    shortNames:
+      - isvc
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      schema:
+        openAPIV3Schema:
+          type: object
+          required:
+            - spec
+          properties:
+            spec:
+              type: object
+              description: Desired inference deployment. PostgreSQL is the business authority; this CR is its Kubernetes projection.
+              required:
+                - generation
+                - desiredState
+                - modelVersionId
+                - resource
+                - replicas
+              x-kubernetes-validations:
+                - rule: "!has(self.modelRef) || self.modelRef.versionId == self.modelVersionId"
+                  message: modelRef.versionId must equal modelVersionId when modelRef is provided
+                - rule: "!has(self.runtimeMode) || self.runtimeMode == 'deployment' || (self.runtimeMode == 'leader_worker_set' && self.workerReplicas >= 2)"
+                  message: LeaderWorkerSet requires workerReplicas >= 2
+                - rule: "(!has(self.runtimeMode) || self.runtimeMode == 'deployment') ? self.replicas == 1 : true"
+                  message: Deployment runtime requires replicas == 1
+              properties:
+                generation:
+                  type: integer
+                  format: int64
+                  minimum: 1
+                desiredState:
+                  type: string
+                  description: Desired lifecycle state. Deleted is a tombstone request; runtime objects are removed before the CR.
+                  enum:
+                    - running
+                    - stopped
+                    - deleted
+                modelRef:
+                  type: object
+                  description: Optional structured reference to a Model-owned version or artifact; versionId must equal modelVersionId when present.
+                  required:
+                    - versionId
+                  properties:
+                    modelId:
+                      type: string
+                      minLength: 1
+                    versionId:
+                      type: string
+                      minLength: 1
+                    artifactDigest:
+                      type: string
+                      minLength: 1
+                modelVersionId:
+                  type: string
+                  description: Required model version reference; if modelRef.versionId is present it must carry the same value.
+                  minLength: 1
+                servedModelName:
+                  type: string
+                  minLength: 1
+                engine:
+                  type: object
+                  description: Engine runtime configuration owned by Inference.
+                  properties:
+                    type:
+                      type: string
+                      minLength: 1
+                    image:
+                      type: string
+                      minLength: 1
+                    command:
+                      type: array
+                      items:
+                        type: string
+                    args:
+                      type: array
+                      items:
+                        type: string
+                resource:
+                  type: object
+                  description: Kubernetes ResourceRequirements; keys include cpu, memory, and extended resources such as nvidia.com/gpu.
+                  properties:
+                    requests:
+                      type: object
+                      additionalProperties:
+                        type: string
+                        minLength: 1
+                    limits:
+                      type: object
+                      additionalProperties:
+                        type: string
+                        minLength: 1
+                replicas:
+                  type: integer
+                  minimum: 1
+                  description: Deployment replicas are fixed to 1; LeaderWorkerSet replicas are the number of worker groups.
+                runtimeMode:
+                  type: string
+                  description: Runtime topology. Deployment is a single process; LeaderWorkerSet creates distributed worker groups.
+                  enum:
+                    - deployment
+                    - leader_worker_set
+                workerReplicas:
+                  type: integer
+                  minimum: 1
+                  description: Number of workers in each LeaderWorkerSet group; must be at least 2 for distributed mode.
+                endpoint:
+                  type: object
+                  description: Optional Inference-owned Service endpoint. All fields are explicit; omitted means no Service.
+                  required:
+                    - containerPort
+                    - servicePort
+                    - targetPort
+                    - protocol
+                  properties:
+                    containerPort:
+                      type: integer
+                      minimum: 1
+                      maximum: 65535
+                    servicePort:
+                      type: integer
+                      minimum: 1
+                      maximum: 65535
+                    targetPort:
+                      type: string
+                      minLength: 1
+                    protocol:
+                      type: string
+                      enum:
+                        - TCP
+                        - UDP
+                        - SCTP
+            status:
+              type: object
+              description: Runtime projection only; it is not the operation, quota, or audit ledger.
+              properties:
+                observedGeneration:
+                  type: integer
+                  format: int64
+                  minimum: 0
+                observedAt:
+                  type: string
+                  format: date-time
+                  description: Compatibility timestamp for older projections; detailed timestamps live under runtime/publication/invocation.
+                runtimePhase:
+                  type: string
+                  description: Compatibility alias for runtime.phase.
+                readyReplicas:
+                  type: integer
+                  minimum: 0
+                  description: Compatibility alias for runtime.readyReplicas.
+                modelReady:
+                  type: boolean
+                  description: Compatibility alias for runtime.modelReady.
+                publicationPhase:
+                  type: string
+                  description: Compatibility alias for publication.phase.
+                invocationHealth:
+                  type: string
+                  description: Compatibility alias for invocation.health.
+                runtime:
+                  type: object
+                  properties:
+                    phase:
+                      type: string
+                    readyReplicas:
+                      type: integer
+                      minimum: 0
+                    modelReady:
+                      type: boolean
+                    observedAt:
+                      type: string
+                      format: date-time
+                    staleAfter:
+                      type: string
+                      format: date-time
+                publication:
+                  type: object
+                  properties:
+                    phase:
+                      type: string
+                    effective:
+                      type: boolean
+                    observedAt:
+                      type: string
+                      format: date-time
+                invocation:
+                  type: object
+                  properties:
+                    health:
+                      type: string
+                    observedAt:
+                      type: string
+                      format: date-time
+                operation:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    kind:
+                      type: string
+                    phase:
+                      type: string
+                    step:
+                      type: string
+                    message:
+                      type: string
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum: ["True", "False", "Unknown"]
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
