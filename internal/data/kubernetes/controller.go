@@ -25,6 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 	lwsv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 )
 
@@ -33,6 +34,9 @@ var InferenceServiceGVK = crdv1.GroupVersion.WithKind("InferenceService")
 
 // AddToScheme registers typed Kubernetes APIs used by this service.
 func AddToScheme(scheme *runtime.Scheme) error {
+	if err := gatewayv1.AddToScheme(scheme); err != nil {
+		return err
+	}
 	if err := discoveryv1.AddToScheme(scheme); err != nil {
 		return err
 	}

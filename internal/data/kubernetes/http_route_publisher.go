@@ -12,14 +12,10 @@ import (
 
 	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/publication"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/types"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-)
-
-const (
-	httpRouteAPIVersion = "gateway.networking.k8s.io/v1"
-	httpRouteKind       = "HTTPRoute"
+	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
 // HTTPRoutePublisher owns the HTTPRoute boundary for one Inference service.
@@ -69,8 +65,7 @@ func (p *HTTPRoutePublisher) Publish(ctx context.Context, pub publication.Public
 	routeNamespace := p.routeNamespace(desired.Namespace)
 	route := p.route(pub, routeNamespace, desired.Name+"-endpoint", servicePort)
 	reader := p.reader()
-	current := &unstructured.Unstructured{}
-	current.SetGroupVersionKind(route.GroupVersionKind())
+	current := &gatewayv1.HTTPRoute{}
 	key := client.ObjectKey{Namespace: routeNamespace, Name: route.GetName()}
 	if err := reader.Get(ctx, key, current); err == nil {
 		if !samePublication(current, pub) {
@@ -95,8 +90,7 @@ func (p *HTTPRoutePublisher) Withdraw(ctx context.Context, pub publication.Publi
 	}
 	route := p.emptyRoute(pub, p.routeNamespace(p.RouteNamespace))
 	reader := p.reader()
-	current := &unstructured.Unstructured{}
-	current.SetGroupVersionKind(route.GroupVersionKind())
+	current := &gatewayv1.HTTPRoute{}
 	key := client.ObjectKey{Namespace: route.GetNamespace(), Name: route.GetName()}
 	if err := reader.Get(ctx, key, current); err != nil {
 		if apierrors.IsNotFound(err) {
@@ -107,7 +101,7 @@ func (p *HTTPRoutePublisher) Withdraw(ctx context.Context, pub publication.Publi
 	if !samePublication(current, pub) {
 		return errors.New("HTTPRoute is owned by a different publication")
 	}
-	uid, resourceVersion := types.UID(current.GetUID()), current.GetResourceVersion()
+	uid, resourceVersion := current.GetUID(), current.GetResourceVersion()
 	if uid == "" || resourceVersion == "" {
 		return errors.New("HTTPRoute is missing UID or resourceVersion")
 	}
@@ -119,8 +113,7 @@ func (p *HTTPRoutePublisher) ConfirmWithdrawn(ctx context.Context, pub publicati
 		return false, err
 	}
 	route := p.emptyRoute(pub, p.routeNamespace(p.RouteNamespace))
-	current := &unstructured.Unstructured{}
-	current.SetGroupVersionKind(route.GroupVersionKind())
+	current := &gatewayv1.HTTPRoute{}
 	if err := p.reader().Get(ctx, client.ObjectKeyFromObject(route), current); err != nil {
 		if apierrors.IsNotFound(err) {
 			return true, nil
@@ -135,8 +128,7 @@ func (p *HTTPRoutePublisher) ConfirmPublished(ctx context.Context, pub publicati
 		return false, err
 	}
 	route := p.emptyRoute(pub, p.routeNamespace(p.RouteNamespace))
-	current := &unstructured.Unstructured{}
-	current.SetGroupVersionKind(route.GroupVersionKind())
+	current := &gatewayv1.HTTPRoute{}
 	if err := p.reader().Get(ctx, client.ObjectKeyFromObject(route), current); err != nil {
 		if apierrors.IsNotFound(err) {
 			return false, nil
@@ -146,33 +138,19 @@ func (p *HTTPRoutePublisher) ConfirmPublished(ctx context.Context, pub publicati
 	if !samePublication(current, pub) {
 		return false, errors.New("HTTPRoute is owned by a different publication")
 	}
-	status, found, err := unstructured.NestedMap(current.Object, "status")
-	if err != nil || !found {
-		return false, err
-	}
-	parents, found, err := unstructured.NestedSlice(status, "parents")
-	if err != nil || !found {
-		return false, err
-	}
 	accepted, resolved := false, false
-	for _, rawParent := range parents {
-		parent, ok := rawParent.(map[string]interface{})
-		if !ok || !p.matchesGatewayParent(parent, route.GetNamespace()) {
+	for _, parent := range current.Status.Parents {
+		if !p.matchesGatewayParent(parent, current.GetNamespace()) {
 			continue
 		}
-		conditions, ok, err := unstructured.NestedSlice(parent, "conditions")
-		if err != nil || !ok {
-			continue
-		}
-		for _, rawCondition := range conditions {
-			condition, ok := rawCondition.(map[string]interface{})
-			if !ok || condition["status"] != "True" {
+		for _, condition := range parent.Conditions {
+			if condition.Status != metav1.ConditionTrue {
 				continue
 			}
-			switch condition["type"] {
-			case "Accepted":
+			switch condition.Type {
+			case string(gatewayv1.RouteConditionAccepted):
 				accepted = true
-			case "ResolvedRefs":
+			case string(gatewayv1.RouteConditionResolvedRefs):
 				resolved = true
 			}
 		}
@@ -223,16 +201,17 @@ func (p *HTTPRoutePublisher) routeNamespace(runtimeNamespace string) string {
 	return runtimeNamespace
 }
 
-func (p *HTTPRoutePublisher) emptyRoute(pub publication.Publication, namespace string) *unstructured.Unstructured {
-	route := &unstructured.Unstructured{}
-	route.SetAPIVersion(httpRouteAPIVersion)
-	route.SetKind(httpRouteKind)
-	route.SetNamespace(namespace)
-	route.SetName(routeName(pub))
-	return route
+func (p *HTTPRoutePublisher) emptyRoute(pub publication.Publication, namespace string) *gatewayv1.HTTPRoute {
+	return &gatewayv1.HTTPRoute{
+		TypeMeta: metav1.TypeMeta{APIVersion: gatewayv1.SchemeGroupVersion.String(), Kind: "HTTPRoute"},
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: namespace,
+			Name:      routeName(pub),
+		},
+	}
 }
 
-func (p *HTTPRoutePublisher) route(pub publication.Publication, namespace, backendName string, backendPort int32) *unstructured.Unstructured {
+func (p *HTTPRoutePublisher) route(pub publication.Publication, namespace, backendName string, backendPort int32) *gatewayv1.HTTPRoute {
 	route := p.emptyRoute(pub, namespace)
 	route.SetLabels(map[string]string{
 		tenantIDLabel:                   pub.TenantID,
@@ -240,42 +219,47 @@ func (p *HTTPRoutePublisher) route(pub publication.Publication, namespace, backe
 		generationLabel:                 strconv.FormatInt(pub.Generation, 10),
 		"ani.kubercloud.com/managed-by": "ani-inference",
 	})
-	_ = unstructured.SetNestedSlice(route.Object, []interface{}{map[string]interface{}{
-		"name":        p.GatewayName,
-		"namespace":   p.GatewayNamespace,
-		"sectionName": "http",
-	}}, "spec", "parentRefs")
-	_ = unstructured.SetNestedStringSlice(route.Object, []string{p.host(pub.ServiceID)}, "spec", "hostnames")
-	_ = unstructured.SetNestedSlice(route.Object, []interface{}{map[string]interface{}{
-		"matches": []interface{}{map[string]interface{}{"path": map[string]interface{}{"type": "PathPrefix", "value": p.pathPrefix()}}},
-		"backendRefs": []interface{}{map[string]interface{}{
-			"name":   backendName,
-			"port":   int64(backendPort),
-			"weight": int64(1),
+	pathType := gatewayv1.PathMatchPathPrefix
+	path := p.pathPrefix()
+	weight := int32(1)
+	port := gatewayv1.PortNumber(backendPort)
+	route.Spec = gatewayv1.HTTPRouteSpec{
+		CommonRouteSpec: gatewayv1.CommonRouteSpec{ParentRefs: []gatewayv1.ParentReference{{
+			Name:        gatewayv1.ObjectName(p.GatewayName),
+			Namespace:   ptr.To(gatewayv1.Namespace(p.GatewayNamespace)),
+			SectionName: ptr.To(gatewayv1.SectionName("http")),
+		}}},
+		Hostnames: []gatewayv1.Hostname{gatewayv1.Hostname(p.host(pub.ServiceID))},
+		Rules: []gatewayv1.HTTPRouteRule{{
+			Matches: []gatewayv1.HTTPRouteMatch{{Path: &gatewayv1.HTTPPathMatch{Type: &pathType, Value: &path}}},
+			BackendRefs: []gatewayv1.HTTPBackendRef{{
+				BackendRef: gatewayv1.BackendRef{
+					BackendObjectReference: gatewayv1.BackendObjectReference{
+						Name: gatewayv1.ObjectName(backendName),
+						Port: &port,
+					},
+					Weight: &weight,
+				},
+			}},
 		}},
-	}}, "spec", "rules")
+	}
 	return route
 }
 
-func (p *HTTPRoutePublisher) matchesGatewayParent(parent map[string]interface{}, routeNamespace string) bool {
-	parentRef, ok := parent["parentRef"].(map[string]interface{})
-	if !ok {
-		return false
-	}
-	name, _ := parentRef["name"].(string)
-	if name != p.GatewayName {
-		return false
-	}
-	namespace, hasNamespace := parentRef["namespace"].(string)
-	if !hasNamespace || namespace == "" {
-		namespace = routeNamespace
-	}
-	return namespace == p.GatewayNamespace
-}
-
-func samePublication(obj *unstructured.Unstructured, pub publication.Publication) bool {
+func samePublication(obj metav1.Object, pub publication.Publication) bool {
 	labels := obj.GetLabels()
 	return labels[tenantIDLabel] == pub.TenantID && labels[serviceIDLabel] == pub.ServiceID && labels[generationLabel] == strconv.FormatInt(pub.Generation, 10)
+}
+
+func (p *HTTPRoutePublisher) matchesGatewayParent(parent gatewayv1.RouteParentStatus, routeNamespace string) bool {
+	if string(parent.ParentRef.Name) != p.GatewayName {
+		return false
+	}
+	namespace := routeNamespace
+	if parent.ParentRef.Namespace != nil && string(*parent.ParentRef.Namespace) != "" {
+		namespace = string(*parent.ParentRef.Namespace)
+	}
+	return namespace == p.GatewayNamespace
 }
 
 func routeName(pub publication.Publication) string {

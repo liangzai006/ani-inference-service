@@ -9,7 +9,7 @@ Wire the production Publication port to Kubernetes Gateway API `HTTPRoute` objec
 1. Reuse the existing fenced publication identity and load immutable backend endpoint facts from the desired runtime generation.
 2. Add a controller-runtime Kubernetes adapter that server-side-applies and UID/resourceVersion-fenced deletes of an HTTPRoute, validates `Accepted=True` and `ResolvedRefs=True`, and returns the externally reachable URL.
 3. Keep route facts derived from PostgreSQL's immutable inference spec and runtime namespace; publication persistence continues to be owned by the existing operation store.
-4. Wire the adapter into `buildKubernetesServers` and configure Gateway/host/path through environment variables; the adapter uses unstructured Gateway API objects and does not replace the existing APISIX controller.
+4. Wire the adapter into `buildKubernetesServers` and configure Gateway/host/path through environment variables; the adapter uses the official typed `sigs.k8s.io/gateway-api/apis/v1` objects and does not replace the existing APISIX controller.
 5. Add unit tests for deterministic names, stale-generation fencing, publish/withdraw idempotency, status confirmation, and endpoint construction.
 6. Run formatting, focused tests, the full inference test suite, and push the implementation to the inference repository.
 

@@ -18,6 +18,7 @@ require (
 	k8s.io/api v0.36.3
 	k8s.io/apimachinery v0.36.3
 	k8s.io/client-go v0.36.3
+	sigs.k8s.io/gateway-api v1.3.0
 	sigs.k8s.io/lws v0.10.0
 )
 

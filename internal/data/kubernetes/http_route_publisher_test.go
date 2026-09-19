@@ -5,10 +5,12 @@ import (
 	"testing"
 
 	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/publication"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
 type publicationRuntimeSource struct {
@@ -20,8 +22,12 @@ func (s publicationRuntimeSource) CurrentRuntime(context.Context, string, string
 }
 
 func testPublisher(objects ...client.Object) *HTTPRoutePublisher {
+	scheme := runtime.NewScheme()
+	if err := gatewayv1.AddToScheme(scheme); err != nil {
+		panic(err)
+	}
 	return &HTTPRoutePublisher{
-		Client: fake.NewClientBuilder().WithObjects(objects...).Build(),
+		Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build(),
 		Source: publicationRuntimeSource{desired: DesiredRuntime{RuntimeSpec: RuntimeSpec{
 			TenantID: "tenant", ServiceID: "service", Name: "model", Namespace: "models",
 			Endpoint: &EndpointSpec{ContainerPort: 8080, ServicePort: 80, TargetPort: intstr.FromInt(8080)},
@@ -42,26 +48,18 @@ func TestHTTPRoutePublisherPublishAndEndpoint(t *testing.T) {
 	if err := p.Publish(ctx, pub); err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
-	got := &unstructured.Unstructured{}
-	got.SetAPIVersion(httpRouteAPIVersion)
-	got.SetKind(httpRouteKind)
+	got := &gatewayv1.HTTPRoute{}
 	if err := p.Client.Get(ctx, client.ObjectKey{Namespace: "models", Name: routeName(pub)}, got); err != nil {
 		t.Fatalf("get route: %v", err)
 	}
 	if got.GetLabels()[serviceIDLabel] != "service" {
 		t.Fatalf("route labels = %#v", got.GetLabels())
 	}
-	rules, found, err := unstructured.NestedSlice(got.Object, "spec", "rules")
-	if err != nil || !found || len(rules) != 1 {
-		t.Fatalf("rules = %#v found=%v err=%v", rules, found, err)
+	if len(got.Spec.ParentRefs) != 1 || string(got.Spec.ParentRefs[0].Name) != "ani-apisix" {
+		t.Fatalf("parentRefs = %#v", got.Spec.ParentRefs)
 	}
-	rule, ok := rules[0].(map[string]interface{})
-	if !ok {
-		t.Fatalf("rule = %#v", rules[0])
-	}
-	backend, found, err := unstructured.NestedSlice(rule, "backendRefs")
-	if err != nil || !found || len(backend) != 1 {
-		t.Fatalf("backendRefs = %#v found=%v err=%v", backend, found, err)
+	if len(got.Spec.Rules) != 1 || len(got.Spec.Rules[0].BackendRefs) != 1 || string(got.Spec.Rules[0].BackendRefs[0].Name) != "model-endpoint" {
+		t.Fatalf("rules = %#v", got.Spec.Rules)
 	}
 	endpoint, err := p.Endpoint(ctx, pub)
 	if err != nil || endpoint != "http://service.vllm.test/v1" {
@@ -73,12 +71,10 @@ func TestHTTPRoutePublisherConfirmPublishedRequiresBothConditions(t *testing.T) 
 	pub := testPublication()
 	p := testPublisher()
 	route := p.route(pub, "models", "model-endpoint", 80)
-	_ = unstructured.SetNestedSlice(route.Object, []interface{}{map[string]interface{}{
-		"parentRef": map[string]interface{}{"name": "ani-apisix", "namespace": "ingress-apisix"},
-		"conditions": []interface{}{
-			map[string]interface{}{"type": "Accepted", "status": "True"},
-		},
-	}}, "status", "parents")
+	route.Status.Parents = []gatewayv1.RouteParentStatus{{
+		ParentRef:  gatewayv1.ParentReference{Name: gatewayv1.ObjectName("ani-apisix"), Namespace: ptrNamespace("ingress-apisix")},
+		Conditions: []metav1.Condition{{Type: string(gatewayv1.RouteConditionAccepted), Status: metav1.ConditionTrue}},
+	}}
 	if err := p.Client.Create(context.Background(), route); err != nil {
 		t.Fatalf("create route: %v", err)
 	}
@@ -86,13 +82,7 @@ func TestHTTPRoutePublisherConfirmPublishedRequiresBothConditions(t *testing.T) 
 	if err != nil || confirmed {
 		t.Fatalf("ConfirmPublished() = %v, %v; want false without ResolvedRefs", confirmed, err)
 	}
-	_ = unstructured.SetNestedSlice(route.Object, []interface{}{map[string]interface{}{
-		"parentRef": map[string]interface{}{"name": "ani-apisix", "namespace": "ingress-apisix"},
-		"conditions": []interface{}{
-			map[string]interface{}{"type": "Accepted", "status": "True"},
-			map[string]interface{}{"type": "ResolvedRefs", "status": "True"},
-		},
-	}}, "status", "parents")
+	route.Status.Parents[0].Conditions = append(route.Status.Parents[0].Conditions, metav1.Condition{Type: string(gatewayv1.RouteConditionResolvedRefs), Status: metav1.ConditionTrue})
 	if err := p.Client.Update(context.Background(), route); err != nil {
 		t.Fatalf("update route status: %v", err)
 	}
@@ -121,4 +111,9 @@ func TestHTTPRoutePublisherWithdrawIsFencedAndConvergent(t *testing.T) {
 	if err := p.Withdraw(ctx, pub); err != nil {
 		t.Fatalf("second Withdraw() error = %v", err)
 	}
+}
+
+func ptrNamespace(value string) *gatewayv1.Namespace {
+	namespace := gatewayv1.Namespace(value)
+	return &namespace
 }
