@@ -89,12 +89,6 @@ type failingBindingStore struct{ err error }
 
 func (s failingBindingStore) UpsertRuntimeBinding(context.Context, BindingRecord) error { return s.err }
 
-type fixedInvocationProbe struct{ result InvocationResult }
-
-func (p fixedInvocationProbe) Probe(context.Context, RuntimeSpec) (InvocationResult, error) {
-	return p.result, nil
-}
-
 func (c noDeleteClient) Delete(context.Context, client.Object, ...client.DeleteOption) error {
 	return nil
 }
@@ -264,39 +258,6 @@ func TestRuntimeExecutorDeleteCRUsesFreshResourceVersionAfterStatusWrite(t *test
 	}
 	if err := cl.Get(context.Background(), client.ObjectKey{Namespace: "ns", Name: "cr-delete"}, &crdv1.InferenceService{}); err == nil {
 		t.Fatal("DeleteCR did not delete object with status-advanced resourceVersion")
-	}
-}
-
-func TestRuntimeExecutorUsesInvocationProbeSeparatelyFromRuntimeReadiness(t *testing.T) {
-	spec := RuntimeSpec{TenantID: "tenant-a", ServiceID: "service-a", Name: "probe", Namespace: "ns", Image: "engine:v1", Generation: 1, Replicas: 1}
-	dep, err := Deployment(spec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	dep.UID, dep.ResourceVersion, dep.Generation = types.UID("probe-uid"), "7", 1
-	dep.Status = appsv1.DeploymentStatus{ObservedGeneration: 1, UpdatedReplicas: 1, AvailableReplicas: 1, ReadyReplicas: 1}
-	cl := fake.NewClientBuilder().WithScheme(executorScheme(t)).WithObjects(dep).Build()
-	e := &RuntimeExecutor{Client: cl, Invocation: fixedInvocationProbe{result: InvocationResult{Known: true, Healthy: true}}, Source: fakeRuntimeSource{desired: DesiredRuntime{
-		RuntimeSpec: spec, DesiredState: "running", ModelReady: true, ModelReadyKnown: true,
-		Bindings: []RuntimeBinding{{Generation: 1, Kind: "Deployment", Namespace: "ns", Name: spec.Name, UID: string(dep.UID), ResourceVersion: "7", Role: "runtime"}},
-	}}}
-	observation, err := e.ObserveRuntime(context.Background(), bizinference.OperationContext{TenantID: spec.TenantID, ServiceID: spec.ServiceID, TargetGeneration: 1, LeaseToken: "lease-1", Publication: publication.Publication{State: "published", Generation: 1}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !observation.Ready || !observation.ModelReadyKnown || !observation.ModelReady || !observation.InvocationKnown || !observation.InvocationHealthy {
-		t.Fatalf("probe and runtime facts were not kept distinct: %+v", observation)
-	}
-}
-
-func TestRuntimeExecutorReadinessRequiresExplicitInvocationProbe(t *testing.T) {
-	var executor RuntimeExecutor
-	if executor.InvocationConfigured() {
-		t.Fatal("zero executor reported an invocation probe")
-	}
-	executor.Invocation = fixedInvocationProbe{result: InvocationResult{Known: true, Healthy: true}}
-	if !executor.InvocationConfigured() {
-		t.Fatal("configured invocation probe was not detected")
 	}
 }
 
@@ -612,8 +573,8 @@ func TestRuntimeExecutorOperationPortKeepsRuntimeFactsSeparate(t *testing.T) {
 	if observation.Ready {
 		t.Fatal("runtime should not be ready before controller status is observed")
 	}
-	if observation.ModelReady || observation.InvocationHealthy {
-		t.Fatalf("unverified model/invocation facts were reported healthy: %+v", observation)
+	if observation.ModelReady {
+		t.Fatalf("unverified model fact was reported healthy: %+v", observation)
 	}
 }
 
@@ -634,7 +595,7 @@ func TestRuntimeExecutorOperationPortDeletesAndConfirmsAbsence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !observation.Absent || observation.Ready || observation.ModelReady || observation.InvocationHealthy {
+	if !observation.Absent || observation.Ready || observation.ModelReady {
 		t.Fatalf("unexpected absence observation: %+v", observation)
 	}
 }

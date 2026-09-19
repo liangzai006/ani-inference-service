@@ -38,6 +38,8 @@ type RuntimeSpec struct {
 	TargetPort                 intstr.IntOrString
 	ServiceProtocol            corev1.Protocol
 	Endpoint                   *EndpointSpec
+	// ModelClaim names a PVC populated and verified by the materializer.
+	ModelClaim string
 }
 
 type EndpointSpec struct {
@@ -56,8 +58,8 @@ func Deployment(spec RuntimeSpec) (*appsv1.Deployment, error) {
 	if spec.Name == "" || spec.Namespace == "" || spec.ServiceID == "" || spec.TenantID == "" || spec.Image == "" {
 		return nil, fmt.Errorf("name, namespace, tenant ID, service ID and image are required")
 	}
-	if spec.Generation < 1 || spec.Replicas != 1 {
-		return nil, fmt.Errorf("generation must be positive and replicas must be 1")
+	if spec.Generation < 1 || spec.Replicas < 1 {
+		return nil, fmt.Errorf("generation and replicas must be positive")
 	}
 	if spec.RuntimeMode != "" && spec.RuntimeMode != "deployment" {
 		return nil, fmt.Errorf("runtime mode %q requires the LeaderWorkerSet renderer", spec.RuntimeMode)
@@ -89,7 +91,7 @@ func Deployment(spec RuntimeSpec) (*appsv1.Deployment, error) {
 	if len(spec.CommandArgv) > 0 {
 		container.Command = append([]string(nil), spec.CommandArgv...)
 	}
-	return &appsv1.Deployment{
+	obj := &appsv1.Deployment{
 		TypeMeta: metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"},
 		ObjectMeta: metav1.ObjectMeta{
 			Name: spec.Name, Namespace: spec.Namespace, Labels: labels,
@@ -103,7 +105,11 @@ func Deployment(spec RuntimeSpec) (*appsv1.Deployment, error) {
 				Spec:       corev1.PodSpec{Containers: []corev1.Container{container}},
 			},
 		},
-	}, nil
+	}
+	if err := mountModel(&obj.Spec.Template.Spec, spec); err != nil {
+		return nil, err
+	}
+	return obj, nil
 }
 
 // LeaderWorkerSet renders the official LWS API object. Replicas is the number
@@ -112,8 +118,8 @@ func LeaderWorkerSet(spec RuntimeSpec) (*lwsv1.LeaderWorkerSet, error) {
 	if spec.Name == "" || spec.Namespace == "" || spec.ServiceID == "" || spec.TenantID == "" || spec.Image == "" {
 		return nil, fmt.Errorf("name, namespace, tenant ID, service ID and image are required")
 	}
-	if spec.Generation < 1 || spec.Replicas < 1 || spec.WorkerReplicas < 2 {
-		return nil, fmt.Errorf("generation must be positive, replicas must be positive and worker replicas must be at least 2")
+	if spec.Generation < 1 || spec.Replicas < 1 || spec.WorkerReplicas < 1 {
+		return nil, fmt.Errorf("generation and replicas must be positive and worker replicas must be positive")
 	}
 	requirements, err := resourceRequirements(spec.Resources)
 	if err != nil {
@@ -132,6 +138,9 @@ func LeaderWorkerSet(spec RuntimeSpec) (*lwsv1.LeaderWorkerSet, error) {
 	}
 	groups, size := spec.Replicas, spec.WorkerReplicas+1
 	template := corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: labels}, Spec: corev1.PodSpec{Containers: []corev1.Container{container}}}
+	if err := mountModel(&template.Spec, spec); err != nil {
+		return nil, err
+	}
 	return &lwsv1.LeaderWorkerSet{
 		TypeMeta:   metav1.TypeMeta{APIVersion: lwsv1.GroupVersion.String(), Kind: "LeaderWorkerSet"},
 		ObjectMeta: metav1.ObjectMeta{Name: spec.Name, Namespace: spec.Namespace, Labels: labels, Annotations: map[string]string{generationLabel: fmt.Sprint(spec.Generation)}},

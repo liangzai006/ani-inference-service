@@ -2,10 +2,9 @@ package admission
 
 import "testing"
 
-func TestDeploymentRejectsReplicaCountAboveFirstSlice(t *testing.T) {
-	err := ValidateCreate(CreateRequest{Replicas: 2, Resources: ResourceInput{Requests: map[string]string{"cpu": "1"}}})
-	if err == nil {
-		t.Fatal("expected replicas validation error")
+func TestDeploymentAcceptsMultipleReplicas(t *testing.T) {
+	if err := ValidateCreate(CreateRequest{Replicas: 2, Resources: ResourceInput{Requests: map[string]string{"cpu": "1"}}}); err != nil {
+		t.Fatalf("ValidateCreate() error = %v", err)
 	}
 }
 
@@ -15,9 +14,9 @@ func TestLeaderWorkerSetAcceptsDistributedShape(t *testing.T) {
 	}
 }
 
-func TestLeaderWorkerSetRejectsSingleWorker(t *testing.T) {
-	if err := ValidateCreate(CreateRequest{RuntimeMode: "leader_worker_set", Replicas: 1, WorkerReplicas: 1}); err == nil {
-		t.Fatal("expected distributed runtime validation error")
+func TestLeaderWorkerSetAcceptsSingleWorker(t *testing.T) {
+	if err := ValidateCreate(CreateRequest{RuntimeMode: "leader_worker_set", Replicas: 1, WorkerReplicas: 1}); err != nil {
+		t.Fatalf("ValidateCreate() error = %v", err)
 	}
 }
 

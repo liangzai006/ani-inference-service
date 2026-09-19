@@ -104,6 +104,7 @@ message UpdateInferenceServiceRequest {
   ModelArtifact model_artifact = 8;
   EngineSpec engine = 9;
   string served_model_name = 10;
+  string model_version_id = 11;
 }
 message ServiceCommandRequest { string request_id = 1; string resource_id = 2; int64 expected_generation = 3; }
 message GetInferenceServiceRequest { string resource_id = 1; }

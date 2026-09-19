@@ -238,7 +238,7 @@ func TestRunnerRetryCarriesDurableAuditContextAndState(t *testing.T) {
 
 func TestRunnerRequiresRuntimeAndModelBeforePublish(t *testing.T) {
 	store := &runnerStore{op: operation(string(StepObserveRuntime))}
-	runtime := &runnerRuntime{observation: RuntimeObservation{Ready: true, ModelReady: true, ModelReadyKnown: true, InvocationHealthy: false, InvocationKnown: true, Reason: "probe pending"}}
+	runtime := &runnerRuntime{observation: RuntimeObservation{Ready: true, ModelReady: true, ModelReadyKnown: true}}
 	runner := &Runner{Store: store, Runtime: runtime, Audit: &runnerAudit{}}
 	if _, err := runner.Execute(context.Background(), item()); err != nil {
 		t.Fatalf("Execute error=%v, want runtime/model ready despite unpublished invocation", err)
@@ -248,42 +248,6 @@ func TestRunnerRequiresRuntimeAndModelBeforePublish(t *testing.T) {
 	}
 	if store.advanced[0].ExpectedStep != string(StepObserveRuntime) {
 		t.Fatalf("advance=%+v, want observe_runtime", store.advanced)
-	}
-	store.op.Step = string(StepVerifyInvocation)
-	store.op.Publication = publication.Publication{TenantID: "t", ServiceID: "s", Generation: 1, State: "published"}
-	if _, err := runner.Execute(context.Background(), item()); err == nil || !errors.Is(err, ErrOperationNotReady) {
-		t.Fatalf("verify error=%v, want invocation retry", err)
-	}
-	runtime.observation.InvocationHealthy = true
-	if _, err := runner.Execute(context.Background(), item()); err != nil {
-		t.Fatalf("healthy verify error=%v", err)
-	}
-	if len(store.advanced) != 2 || store.advanced[1].NextStep != string(StepComplete) {
-		t.Fatalf("verify advance=%+v, want complete", store.advanced)
-	}
-}
-
-func TestRunnerVerifyInvocationRejectsUnconfirmedOrStalePublication(t *testing.T) {
-	for _, tc := range []struct {
-		name        string
-		publication publication.Publication
-	}{
-		{name: "missing", publication: publication.Publication{}},
-		{name: "old generation", publication: publication.Publication{TenantID: "t", ServiceID: "s", Generation: 0, State: "published"}},
-		{name: "not observed", publication: publication.Publication{TenantID: "t", ServiceID: "s", Generation: 1, State: "publishing"}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			store := &runnerStore{op: operation(string(StepVerifyInvocation))}
-			store.op.Publication = tc.publication
-			runtime := &runnerRuntime{observation: RuntimeObservation{Ready: true, ModelReady: true, ModelReadyKnown: true, InvocationKnown: true, InvocationHealthy: true}}
-			runner := &Runner{Store: store, Runtime: runtime, Audit: &runnerAudit{}}
-			if _, err := runner.Execute(context.Background(), item()); err == nil || !errors.Is(err, ErrOperationNotReady) {
-				t.Fatalf("Execute error=%v, want retryable publication fence error", err)
-			}
-			if runtime.observeRuntime || len(store.advanced) != 0 || len(store.retried) != 1 {
-				t.Fatalf("stale publication reached probe or advanced: observed=%v advanced=%+v retried=%+v", runtime.observeRuntime, store.advanced, store.retried)
-			}
-		})
 	}
 }
 
@@ -401,19 +365,14 @@ func TestRunnerCreateLifecycleAdvancesDurableStepsBeforePublish(t *testing.T) {
 	}}}
 	quotaProvider := &runnerQuota{}
 	publicationProvider := &runnerPublication{publishConfirmed: true}
-	runtimeProvider := &runnerRuntime{observations: []RuntimeObservation{
-		{Ready: true, RuntimePhase: "ready", ModelReady: true, ModelReadyKnown: true,
-			InvocationHealthy: false, InvocationKnown: false, Reason: "endpoint is unpublished"},
-		{Ready: true, RuntimePhase: "ready", ModelReady: true, ModelReadyKnown: true,
-			InvocationHealthy: true, InvocationKnown: true, Reason: "published endpoint is healthy"},
-	}}
+	runtimeProvider := &runnerRuntime{observations: []RuntimeObservation{{Ready: true, RuntimePhase: "ready", ModelReady: true, ModelReadyKnown: true}}}
 	runner := &Runner{
 		Store: store, Admission: admissionFunc(func(context.Context, OperationContext) error { return nil }),
 		Model: &runnerModel{observation: ModelObservation{Known: true, Ready: true}},
 		Quota: quotaProvider, Publication: publicationProvider, Runtime: runtimeProvider,
 		Audit: &runnerAudit{},
 	}
-	for i := 0; i < 8 && store.op.Phase != OperationSucceeded; i++ {
+	for i := 0; i < 7 && store.op.Phase != OperationSucceeded; i++ {
 		if _, err := runner.Execute(context.Background(), item()); err != nil {
 			t.Fatalf("create step %d: %v", i, err)
 		}
@@ -424,13 +383,10 @@ func TestRunnerCreateLifecycleAdvancesDurableStepsBeforePublish(t *testing.T) {
 	if len(store.retried) != 0 || !quotaProvider.reserved || !quotaProvider.confirmed || !runtimeProvider.applyCR || !runtimeProvider.applyRuntime || !runtimeProvider.observeRuntime || store.modelStarted != 1 {
 		t.Fatalf("lifecycle side effects retried=%+v quota=%+v runtime=%+v model_started=%d", store.retried, quotaProvider, runtimeProvider, store.modelStarted)
 	}
-	if len(runtimeProvider.observations) != 0 {
-		t.Fatalf("invocation verification did not consume a post-publication observation: remaining=%+v", runtimeProvider.observations)
-	}
 	if !publicationProvider.published || len(store.publication) < 2 || store.publication[0].State != "publishing" || store.publication[len(store.publication)-1].State != "published" {
 		t.Fatalf("publication writes=%+v published=%v", store.publication, publicationProvider.published)
 	}
-	wantSteps := []string{string(StepAdmission), string(StepReserveQuota), string(StepApplyCR), string(StepMaterializeModel), string(StepApplyRuntime), string(StepObserveRuntime), string(StepPublish), string(StepVerifyInvocation)}
+	wantSteps := []string{string(StepAdmission), string(StepReserveQuota), string(StepApplyCR), string(StepMaterializeModel), string(StepApplyRuntime), string(StepObserveRuntime), string(StepPublish)}
 	if len(store.advanced) != len(wantSteps)+1 {
 		t.Fatalf("durable transitions=%d, want %d: %+v", len(store.advanced), len(wantSteps)+1, store.advanced)
 	}

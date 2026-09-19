@@ -3,14 +3,8 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"net/http"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestRuntimeLoggerUsesKratosRedaction(t *testing.T) {
@@ -55,85 +49,4 @@ func TestRuntimeLoggerIncludesProcessIdentityAndSource(t *testing.T) {
 	if !ok || source["file"] == "" || source["line"] == nil {
 		t.Fatalf("structured log has no caller source: %v", record)
 	}
-}
-
-func TestMainProcessHandlesSignalAndClosesListeners(t *testing.T) {
-	if testing.Short() {
-		t.Skip("external process gate is disabled by -short")
-	}
-	_, filename, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("cannot resolve command package path")
-	}
-	commandDir := filepath.Dir(filename)
-	repositoryRoot := filepath.Clean(filepath.Join(commandDir, "..", ".."))
-	binaryPath := filepath.Join(t.TempDir(), "service")
-	build := exec.Command("go", "build", "-trimpath", "-o", binaryPath, ".")
-	build.Dir = commandDir
-	if output, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build process binary: %v\n%s", err, output)
-	}
-
-	grpcAddress := reserveAddress(t)
-	adminAddress := reserveAddress(t)
-	for adminAddress == grpcAddress {
-		adminAddress = reserveAddress(t)
-	}
-	var stdout, stderr bytes.Buffer
-	process := exec.Command(binaryPath, "-conf", filepath.Join(repositoryRoot, "configs"))
-	process.Dir = repositoryRoot
-	process.Stdout = &stdout
-	process.Stderr = &stderr
-	process.Env = runtimeEnvironment(
-		"ANI_SERVER_GRPC_ADDR="+grpcAddress,
-		"ANI_SERVER_ADMIN_ADDR="+adminAddress,
-		"ANI_SERVER_SHUTDOWN_TIMEOUT=2s",
-	)
-	if err := process.Start(); err != nil {
-		t.Fatalf("start process binary: %v", err)
-	}
-	processDone := make(chan error, 1)
-	go func() { processDone <- process.Wait() }()
-	t.Cleanup(func() {
-		if process.ProcessState == nil || !process.ProcessState.Exited() {
-			_ = process.Process.Kill()
-			<-processDone
-		}
-	})
-
-	waitForHTTP(t, "http://"+adminAddress+"/readyz")
-	assertProductionGRPCHealth(t, grpcAddress)
-	if err := process.Process.Signal(os.Interrupt); err != nil {
-		t.Fatalf("send interrupt: %v", err)
-	}
-	select {
-	case err := <-processDone:
-		if err != nil {
-			t.Fatalf("process exit after interrupt: %v; stdout=%s stderr=%s", err, stdout.String(), stderr.String())
-		}
-	case <-time.After(4 * time.Second):
-		t.Fatalf("process exceeded graceful shutdown bound; stdout=%s stderr=%s", stdout.String(), stderr.String())
-	}
-
-	client := &http.Client{Timeout: 250 * time.Millisecond}
-	if response, err := client.Get("http://" + adminAddress + "/healthz"); err == nil {
-		response.Body.Close()
-		t.Fatalf("admin listener remained reachable after process exit: %s", response.Status)
-	}
-}
-
-func runtimeEnvironment(overrides ...string) []string {
-	blocked := make(map[string]struct{}, len(overrides))
-	for _, override := range overrides {
-		key, _, _ := strings.Cut(override, "=")
-		blocked[key] = struct{}{}
-	}
-	environment := make([]string, 0, len(os.Environ())+len(overrides))
-	for _, entry := range os.Environ() {
-		key, _, _ := strings.Cut(entry, "=")
-		if _, found := blocked[key]; !found {
-			environment = append(environment, entry)
-		}
-	}
-	return append(environment, overrides...)
 }

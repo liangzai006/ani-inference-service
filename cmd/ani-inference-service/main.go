@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/go-kratos/kratos/contrib/otel/v3/tracing"
-	kratos "github.com/go-kratos/kratos/v3"
 	"github.com/go-kratos/kratos/v3/config"
 	"github.com/go-kratos/kratos/v3/config/env"
 	"github.com/go-kratos/kratos/v3/config/file"
@@ -30,6 +29,7 @@ import (
 	bizreconcile "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/reconcile"
 	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/work"
 	"github.com/zhangzhe-ctrl/ani-inference-service/internal/data/kubernetes"
+	modeldata "github.com/zhangzhe-ctrl/ani-inference-service/internal/data/model"
 	"github.com/zhangzhe-ctrl/ani-inference-service/internal/data/postgres"
 	"github.com/zhangzhe-ctrl/ani-inference-service/internal/server"
 	"github.com/zhangzhe-ctrl/ani-inference-service/internal/service"
@@ -83,9 +83,13 @@ func run(logger *slog.Logger) error {
 	var read inferencebiz.ReadUseCase
 	var command inferencebiz.CommandUseCase
 	var update inferencebiz.UpdateUseCase
+	if strings.TrimSpace(os.Getenv("ANI_DATABASE_DSN")) == "" {
+		return errors.New("ANI_DATABASE_DSN is required")
+	}
 	var pool *pgxpool.Pool
 	var background []kratosTransport.Server
-	if dsn := os.Getenv("ANI_DATABASE_DSN"); dsn != "" {
+	{
+		dsn := os.Getenv("ANI_DATABASE_DSN")
 		pingCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		pool, err = pgxpool.New(pingCtx, dsn)
 		if err == nil {
@@ -101,9 +105,20 @@ func run(logger *slog.Logger) error {
 		defer pool.Close()
 		repo := postgres.NewRepository(pool)
 		create = postgres.NewCreateUseCase(repo)
+		modelClient, closeModel, modelErr := configuredModelClient()
+		if modelErr != nil {
+			return modelErr
+		}
+		defer closeModel()
+		if modelClient != nil {
+			create = modeldata.NewCreateUseCase(modelClient, create)
+		}
 		read = postgres.NewReadUseCase(pool)
 		command = postgres.NewCommandUseCase(repo)
 		update = postgres.NewUpdateUseCase(repo)
+		if modelClient != nil {
+			update = modeldata.NewUpdateUseCase(modelClient, update)
+		}
 		if strings.EqualFold(os.Getenv("ANI_KUBERNETES_ENABLED"), "true") {
 			servers, err := buildKubernetesServers(pool)
 			if err != nil {
@@ -112,14 +127,7 @@ func run(logger *slog.Logger) error {
 			background = servers
 		}
 	}
-	var app *kratos.App
-	if create == nil && read == nil {
-		app, err = buildApp(&bc, logger)
-	} else if read == nil {
-		app, err = buildApp(&bc, logger, create)
-	} else {
-		app, err = buildAppWithAllDependenciesAndBackground(&bc, logger, create, read, command, update, background...)
-	}
+	app, err := buildAppWithAllDependenciesAndBackground(&bc, logger, create, read, command, update, background...)
 	if err != nil {
 		return fmt.Errorf("build app: %w", err)
 	}
@@ -180,7 +188,6 @@ func buildKubernetesServers(pool *pgxpool.Pool) ([]kratosTransport.Server, error
 			operationRunner.Quota != nil &&
 			operationRunner.Publication != nil &&
 			operationRunner.Runtime != nil &&
-			runtimeExecutor.InvocationConfigured() &&
 			(operationRunner.Audit != nil || operationStoreSupportsAtomicAudit(operationRunner.Store))
 	}
 	return []kratosTransport.Server{loopServer, &server.ManagerServer{Manager: mgr}}, nil

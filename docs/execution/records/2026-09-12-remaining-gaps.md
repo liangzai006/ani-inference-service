@@ -1,5 +1,11 @@
 # 2026-09-12 remaining implementation gaps
 
+## 2026-09-18 scope correction
+
+独立 invocation probe、`HTTPProbe` 和 `verify_invocation` 不再属于 Inference
+业务 operation 的必要流程；Kubernetes 容器的 startup/readiness probe 负责运行状态。
+本记录中关于 invocation probe 的内容保留为历史设计证据，不再作为当前上线前置条件。
+
 ## 已完成且有源码/本地 PG 证据
 
 - gRPC 受理、幂等、generation CAS、持久 operation 和 resource work。

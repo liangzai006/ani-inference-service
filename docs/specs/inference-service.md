@@ -137,8 +137,8 @@ InferenceService CRD 是 PostgreSQL desired state 的可重建投影，不是第
 2. 获取工作后重新读 PG 的当前 generation 和状态，不按排队时的旧 payload 盲写。每一步持久化结果及下一步；创建用确定名称，未知请求结果先查询核对，不新建第二份。
 3. 只有完成目标工作版本才更新 `ack_version`；执行期间新增 dirty_version 不被本次 ack 清掉。Channel 丢事件、队列合并、进程崩溃都可由 PG 恢复。
 4. 周期扫描 due work 和所有未删除服务的观察义务，包含 operation 已完成、无用户 GET 的服务。Controller `RequeueAfter` 是加速机制，`next_observe_at` 才是重启后的恢复依据。
-5. watched 对象变化可即时唤醒；模型加载和调用健康没有必然 K8s 事件，需有界探测。API timeout/cache 未同步标记 unknown/stale，不能当真实 NotFound 后擅自重建或删除。
-6. 操作完成后仍巡检当前 runtime、模型协议、发布和调用健康；新观测更新资源当前条件，不篡改历史成功 operation。按明确恢复策略重新应用当前 desired，或保持 degraded 待处理，禁止无限重建故障 Pod。
+5. watched 对象变化可即时唤醒；模型加载由模型 ready 事实和 Kubernetes readiness 共同观察。API timeout/cache 未同步标记 unknown/stale，不能当真实 NotFound 后擅自重建或删除。
+6. 操作完成后继续观察当前 runtime、模型和发布状态；数据面调用巡检属于可选运维能力，不作为 Inference operation 的完成门禁。
 
 首期只承诺单活 runtime 执行进程，有界并发处理不同资源，同资源串行。PG CAS/领取版本防止旧业务结果覆盖；K8s 修改/删除使用 UID、resourceVersion 等适用前置条件。leader election 只做协调，不是 fencing。初始部署升级须先证明旧执行进程已退出；网络分区下不能凭租约过期、强删 Pod 就接管。自动多副本故障转移需额外证明旧执行者无法继续写 K8s/发布端，未验收前明确不支持。
 
@@ -146,20 +146,18 @@ InferenceService CRD 是 PostgreSQL desired state 的可重建投影，不是第
 
 ## 7. 生命周期和发布
 
-状态分开保存：desired 为 `running/stopped/deleted`；operation 为 `pending/running/succeeded/failed`；runtime 为 `unknown/pending/loading/ready/degraded/stopped`；publication 为 `withdrawn/publishing/published/withdrawing/unknown`；invocation health 为 `unknown/healthy/unhealthy` 并带有效时间。具体 Proto 枚举待 API 冻结，但这些概念不能合并成一个“Running”。
+状态分开保存：desired 为 `running/stopped/deleted`；operation 为 `pending/running/succeeded/failed`；runtime 为 `unknown/pending/loading/ready/degraded/stopped`；publication 为 `withdrawn/publishing/published/withdrawing/unknown`。具体 Proto 枚举待 API 冻结，但这些概念不能合并成一个“Running”。
 
 ### 创建与启动
 
-受理 → 校验可信模型版本/依赖引用 → 物化制品 → 应用 runtime → 指定模型与协议就绪 → 发起发布 → 确认发布生效与有凭证调用探测 → operation 成功。
+受理 → 校验可信模型版本/依赖引用 → 物化制品 → 应用 runtime → 指定模型与协议就绪 → 发起发布 → 确认发布生效 → operation 成功。
 
-持久步骤明确为 `observe_runtime → publish → verify_invocation → complete`：
+持久步骤为 `observe_runtime → publish → complete`：
 `observe_runtime` 校验目标 runtime 和模型事实；`publish` 确认目标 generation
-的发布后进入 `verify_invocation`，调用健康验证成功才完成 operation。发布前不能
-要求“已发布地址可调用”，否则首次启动无法进入发布步骤。operation 完成后，周期
-观察继续刷新调用健康；探测失败或无法确认时持久化 `unknown`，不能给旧的
-`healthy` 刷新观察时间。新 generation 不继承旧代的调用健康。
+的发布后即可完成 operation。发布后的数据面调用检查如有需要，另行由网关或运维
+系统负责，不阻塞 Inference 业务状态机。
 
-Pod Ready 不等于目标模型已加载；路由对象存在不等于数据面生效；一次探测成功也不保证后续永远可调用。create/start 成功的草案门槛是上述证据均针对目标 generation，随后继续观察。永久失败要先撤销可能的发布，再按归属清理本次产生的资源；不动源制品/共享卷，残留写入恢复义务。
+Pod Ready 不等于目标模型已加载；模型 ready 事实和发布确认仍需针对目标 generation。create/start 成功后按归属清理本次产生的资源；不动源制品/共享卷，残留写入恢复义务。
 
 ### 停止、重启、删除
 

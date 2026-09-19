@@ -110,12 +110,43 @@ func TestUpdatePropagatesAuditActor(t *testing.T) {
 	}
 }
 
-func TestCreateRejectsInvalidAdmission(t *testing.T) {
-	f := &fakeCreate{}
-	req := &inferencev1.CreateInferenceServiceRequest{RequestId: "r1", Name: "svc", ModelVersionId: "mv", Replicas: 2}
-	_, err := NewInferenceServer(f).CreateInferenceService(WithTenantID(context.Background(), "tenant-a"), req)
+func TestUpdatePassesModelVersionID(t *testing.T) {
+	f := &fakeUpdate{}
+	server := NewInferenceServerWithAll(nil, nil, nil, f)
+	req := &inferencev1.UpdateInferenceServiceRequest{
+		RequestId: "switch-version", ResourceId: "svc", ExpectedGeneration: 1,
+		ModelVersionId: "version-new",
+		Resource:       &inferencev1.ResourceSpec{Requests: map[string]string{"cpu": "1"}}, Replicas: 1,
+		Runtime:    &inferencev1.RuntimeSpec{Mode: inferencev1.RuntimeMode_RUNTIME_MODE_DEPLOYMENT},
+		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"resource", "replicas", "runtime", "model_version_id"}},
+	}
+	if _, err := server.UpdateInferenceService(WithTenantID(context.Background(), "tenant-a"), req); err != nil {
+		t.Fatal(err)
+	}
+	if f.in.ModelVersionID != "version-new" {
+		t.Fatalf("model version id=%q", f.in.ModelVersionID)
+	}
+}
+
+func TestUpdateRequiresModelVersionMaskConsistency(t *testing.T) {
+	server := NewInferenceServerWithAll(nil, nil, nil, &fakeUpdate{})
+	req := &inferencev1.UpdateInferenceServiceRequest{
+		RequestId: "switch-version-missing-mask", ResourceId: "svc", ExpectedGeneration: 1,
+		ModelVersionId: "version-new", Replicas: 1,
+		Runtime:    &inferencev1.RuntimeSpec{Mode: inferencev1.RuntimeMode_RUNTIME_MODE_DEPLOYMENT},
+		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"resource", "replicas", "runtime"}},
+	}
+	_, err := server.UpdateInferenceService(WithTenantID(context.Background(), "tenant-a"), req)
 	if status.Code(err) != codes.InvalidArgument {
 		t.Fatalf("code=%v err=%v", status.Code(err), err)
+	}
+}
+
+func TestCreateAcceptsScaledDeployment(t *testing.T) {
+	f := &fakeCreate{}
+	req := &inferencev1.CreateInferenceServiceRequest{RequestId: "r1", Name: "svc", ModelVersionId: "mv", Replicas: 2}
+	if _, err := NewInferenceServer(f).CreateInferenceService(WithTenantID(context.Background(), "tenant-a"), req); err != nil {
+		t.Fatalf("scaled deployment was rejected: %v", err)
 	}
 }
 

@@ -137,7 +137,8 @@ INSERT INTO inference_specs
    artifact_provider, artifact_ref, artifact_sha256, image_ref, served_model_name,
    engine_runtime, command_argv, resources, replicas, runtime_mode, worker_replicas, spec_json,
    endpoint_container_port, endpoint_service_port, endpoint_target_port, endpoint_protocol)
-SELECT s.tenant_id, sqlc.arg(id), s.service_id, sqlc.arg(target_generation), s.model_id, s.model_version_id,
+SELECT s.tenant_id, sqlc.arg(id), s.service_id, sqlc.arg(target_generation), s.model_id,
+       CASE WHEN sqlc.arg(model_version_id)::uuid IS NOT NULL THEN sqlc.arg(model_version_id)::uuid ELSE s.model_version_id END,
        CASE WHEN sqlc.arg(artifact_provider)::text <> '' THEN sqlc.arg(artifact_provider) ELSE s.artifact_provider END,
        CASE WHEN sqlc.arg(artifact_ref)::text <> '' THEN sqlc.arg(artifact_ref) ELSE s.artifact_ref END,
        CASE WHEN sqlc.arg(artifact_sha256)::text <> '' THEN sqlc.arg(artifact_sha256) ELSE s.artifact_sha256 END,

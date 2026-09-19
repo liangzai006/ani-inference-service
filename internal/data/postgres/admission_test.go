@@ -23,7 +23,7 @@ func TestAdmissionValidatesPersistedRuntimeShape(t *testing.T) {
 		t.Fatal(err)
 	}
 	a.Source = admissionRuntimeSource{runtime: kube.DesiredRuntime{RuntimeSpec: kube.RuntimeSpec{Replicas: 2, RuntimeMode: "deployment"}}}
-	if err := a.Admit(context.Background(), inferencebiz.OperationContext{TenantID: "tenant", ServiceID: "service", TargetGeneration: 1}); err == nil {
-		t.Fatal("invalid deployment replica shape was accepted")
+	if err := a.Admit(context.Background(), inferencebiz.OperationContext{TenantID: "tenant", ServiceID: "service", TargetGeneration: 1}); err != nil {
+		t.Fatalf("scaled deployment was rejected: %v", err)
 	}
 }

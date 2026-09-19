@@ -1,0 +1,187 @@
+syntax = "proto3";
+
+package model.v1;
+
+option go_package = "github.com/zhangzhe-ctrl/ani-inference-service/api/model/v1;modelv1";
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+
+service ModelService {
+  // buf:lint:ignore RPC_RESPONSE_STANDARD_NAME Legacy contract returns Model directly.
+  // buf:lint:ignore RPC_REQUEST_RESPONSE_UNIQUE Legacy contract shares Model response.
+  rpc CreateModel(CreateModelRequest) returns (Model);
+  // buf:lint:ignore RPC_RESPONSE_STANDARD_NAME Legacy contract returns Model directly.
+  // buf:lint:ignore RPC_REQUEST_RESPONSE_UNIQUE Legacy contract shares Model response.
+  rpc GetModel(GetModelRequest) returns (Model);
+  rpc ListModels(ListModelsRequest) returns (ListModelsResponse);
+  // buf:lint:ignore RPC_RESPONSE_STANDARD_NAME Legacy contract uses google.protobuf.Empty.
+  rpc DeleteModel(DeleteModelRequest) returns (google.protobuf.Empty);
+  rpc GetModelVersion(GetModelVersionRequest) returns (GetModelVersionResponse);
+  rpc ListModelVersions(ListModelVersionsRequest) returns (ListModelVersionsResponse);
+  // buf:lint:ignore RPC_RESPONSE_STANDARD_NAME Legacy contract returns ModelVersion directly.
+  rpc CreateModelVersion(CreateModelVersionRequest) returns (ModelVersion);
+  rpc GetUploadURL(GetUploadURLRequest) returns (GetUploadURLResponse);
+  // buf:lint:ignore RPC_RESPONSE_STANDARD_NAME Legacy contract returns ImportTask directly.
+  rpc ImportModel(ImportModelRequest) returns (ImportTask);
+  rpc GetModelDownloadURL(GetModelDownloadURLRequest) returns (GetModelDownloadURLResponse);
+}
+
+message Model {
+  string tenant_id = 1;
+  string id = 2;
+  string name = 3;
+  string display_name = 4;
+  string description = 5;
+  string source = 6;
+  string source_repo_id = 7;
+  repeated string capabilities = 8;
+  string status = 9;
+  string error_message = 10;
+  int64 total_size_bytes = 11;
+  repeated ModelVersion versions = 12;
+  google.protobuf.Timestamp created_at = 13;
+  google.protobuf.Timestamp updated_at = 14;
+  string model_id = 15;
+}
+
+message ModelVersion {
+  string id = 1;
+  string model_id = 2;
+  string version = 3;
+  string format = 4;
+  bool is_encrypted = 5;
+  string encrypt_algo = 6;
+  string encrypt_hint = 7;
+  int64 size_bytes = 8;
+  string checksum_sha256 = 9;
+  string storage_path = 10;
+  google.protobuf.Timestamp created_at = 11;
+  string status = 12;
+  string engine_type = 13;
+  string startup_command = 14;
+  repeated string startup_args = 15;
+}
+
+message ModelArtifact {
+  string provider = 1;
+  string reference = 2;
+  string sha256 = 3;
+  int64 size_bytes = 4;
+  string format = 5;
+}
+
+message CreateModelRequest {
+  string tenant_id = 1;
+  string name = 2;
+  string display_name = 3;
+  string description = 4;
+  repeated string capabilities = 5;
+  string idempotency_key = 6;
+  string model_id = 7;
+}
+
+message GetModelRequest { string tenant_id = 1; string model_id = 2; }
+message DeleteModelRequest { string tenant_id = 1; string model_id = 2; }
+message GetModelVersionRequest {
+  string tenant_id = 1;
+  string model_version_id = 2;
+  string model_id = 3;
+  string version = 4;
+}
+message GetModelVersionResponse { Model model = 1; ModelVersion version = 2; }
+
+message CursorPageRequest { int32 limit = 1; string cursor = 2; }
+message CursorPageMeta { string next_cursor = 1; bool has_more = 2; }
+
+message ListModelsRequest {
+  string tenant_id = 1;
+  string status = 2;
+  CursorPageRequest page = 3;
+  string keyword = 4;
+  string source = 5;
+  string capability = 6;
+}
+message ListModelsResponse { repeated Model models = 1; CursorPageMeta meta = 2; }
+
+message ListModelVersionsRequest {
+  string tenant_id = 1;
+  string model_id = 2;
+  CursorPageRequest page = 3;
+}
+message ListModelVersionsResponse { repeated ModelVersion versions = 1; CursorPageMeta meta = 2; }
+
+message CreateModelVersionRequest {
+  string tenant_id = 1;
+  string model_id = 2;
+  string version = 3;
+  string format = 4;
+  string storage_path = 5;
+  string checksum_sha256 = 6;
+  int64 size_bytes = 7;
+  bool is_encrypted = 8;
+  string encrypt_algo = 9;
+  string encrypt_hint = 10;
+  string idempotency_key = 11;
+  string engine_type = 12;
+  string startup_command = 13;
+  repeated string startup_args = 14;
+}
+
+message GetUploadURLRequest {
+  string tenant_id = 1;
+  string model_id = 2;
+  string version = 3;
+  string file_name = 4;
+  int64 size_bytes = 5;
+  string idempotency_key = 6;
+  string checksum_sha256 = 7;
+}
+message GetUploadURLResponse {
+  string upload_url = 1;
+  string storage_path = 2;
+  string doc_id = 3;
+  google.protobuf.Timestamp expires_at = 4;
+  map<string, string> upload_headers = 5;
+  string model_version_id = 6;
+}
+
+message ImportModelRequest {
+  string tenant_id = 1;
+  string source = 2;
+  string repo_id = 3;
+  string revision = 4;
+  string idempotency_key = 5;
+  string webhook_url = 6;
+  // Optional binding to an already-created model/version. Remote provider
+  // imports may omit these until metadata resolution is complete.
+  string model_id = 7;
+  string model_version_id = 8;
+}
+message ImportTask {
+  string task_id = 1;
+  string task_type = 2;
+  string status = 3;
+  string location_url = 4;
+  string model_id = 5;
+  string model_version_id = 6;
+  int32 attempt_count = 7;
+  int32 progress_pct = 8;
+  string error_message = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp completed_at = 11;
+}
+
+message GetModelDownloadURLRequest {
+  string tenant_id = 1;
+  string model_version_id = 2;
+  string requester = 3;
+}
+message GetModelDownloadURLResponse {
+  string download_url = 1;
+  string storage_path = 2;
+  bool is_encrypted = 3;
+  string encrypt_algo = 4;
+  string encrypt_hint = 5;
+  google.protobuf.Timestamp expires_at = 6;
+}

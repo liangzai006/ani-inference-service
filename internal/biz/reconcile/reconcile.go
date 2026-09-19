@@ -17,8 +17,9 @@ type Desired struct {
 }
 
 // Observation is a runtime fact projection. Generation is mandatory for CAS;
-// the remaining fields deliberately distinguish runtime readiness, model
-// loading, publication and invocation health.
+// the remaining fields distinguish runtime readiness, model loading and
+// publication. InvocationHealth is retained as an optional compatibility
+// projection and is not used by the Inference operation state machine.
 type Observation struct {
 	Generation       int64
 	RuntimePhase     string

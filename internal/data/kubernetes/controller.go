@@ -16,6 +16,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	discoveryv1 "k8s.io/api/discovery/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -32,6 +33,9 @@ var InferenceServiceGVK = crdv1.GroupVersion.WithKind("InferenceService")
 
 // AddToScheme registers typed Kubernetes APIs used by this service.
 func AddToScheme(scheme *runtime.Scheme) error {
+	if err := discoveryv1.AddToScheme(scheme); err != nil {
+		return err
+	}
 	if err := crdv1.AddToScheme(scheme); err != nil {
 		return err
 	}

@@ -35,10 +35,10 @@ spec:
               x-kubernetes-validations:
                 - rule: "!has(self.modelRef) || self.modelRef.versionId == self.modelVersionId"
                   message: modelRef.versionId must equal modelVersionId when modelRef is provided
-                - rule: "!has(self.runtimeMode) || self.runtimeMode == 'deployment' || (self.runtimeMode == 'leader_worker_set' && self.workerReplicas >= 2)"
-                  message: LeaderWorkerSet requires workerReplicas >= 2
-                - rule: "(!has(self.runtimeMode) || self.runtimeMode == 'deployment') ? self.replicas == 1 : true"
-                  message: Deployment runtime requires replicas == 1
+                - rule: "!has(self.runtimeMode) || self.runtimeMode == 'deployment' || (self.runtimeMode == 'leader_worker_set' && self.workerReplicas >= 1)"
+                  message: LeaderWorkerSet requires workerReplicas >= 1
+                - rule: "self.replicas >= 1"
+                  message: replicas must be positive
               properties:
                 generation:
                   type: integer
@@ -108,7 +108,7 @@ spec:
                 replicas:
                   type: integer
                   minimum: 1
-                  description: Deployment replicas are fixed to 1; LeaderWorkerSet replicas are the number of worker groups.
+                  description: Deployment replicas are positive pod replicas; LeaderWorkerSet replicas are the number of worker groups.
                 runtimeMode:
                   type: string
                   description: Runtime topology. Deployment is a single process; LeaderWorkerSet creates distributed worker groups.

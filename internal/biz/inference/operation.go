@@ -15,7 +15,6 @@ const (
 	StepMaterializeModel     OperationStep = "materialize_model"
 	StepApplyRuntime         OperationStep = "apply_runtime"
 	StepObserveRuntime       OperationStep = "observe_runtime"
-	StepVerifyInvocation     OperationStep = "verify_invocation"
 	StepWithdrawPublication  OperationStep = "withdraw_publication"
 	StepDeleteRuntime        OperationStep = "delete_runtime"
 	StepObserveAbsence       OperationStep = "observe_absence"
@@ -27,10 +26,10 @@ const (
 )
 
 var operationPaths = map[string][]OperationStep{
-	"create":  {StepAdmission, StepReserveQuota, StepApplyCR, StepMaterializeModel, StepApplyRuntime, StepObserveRuntime, StepPublish, StepVerifyInvocation, StepComplete},
-	"start":   {StepReserveQuota, StepApplyCR, StepMaterializeModel, StepApplyRuntime, StepObserveRuntime, StepPublish, StepVerifyInvocation, StepComplete},
-	"update":  {StepWithdrawPublication, StepDeleteRuntime, StepObserveAbsence, StepReleasePreviousQuota, StepReserveQuota, StepApplyCR, StepMaterializeModel, StepApplyRuntime, StepObserveRuntime, StepPublish, StepVerifyInvocation, StepComplete},
-	"restart": {StepWithdrawPublication, StepDeleteRuntime, StepObserveAbsence, StepReleasePreviousQuota, StepReserveQuota, StepApplyCR, StepMaterializeModel, StepApplyRuntime, StepObserveRuntime, StepPublish, StepVerifyInvocation, StepComplete},
+	"create":  {StepAdmission, StepReserveQuota, StepApplyCR, StepMaterializeModel, StepApplyRuntime, StepObserveRuntime, StepPublish, StepComplete},
+	"start":   {StepReserveQuota, StepApplyCR, StepMaterializeModel, StepApplyRuntime, StepObserveRuntime, StepPublish, StepComplete},
+	"update":  {StepWithdrawPublication, StepDeleteRuntime, StepObserveAbsence, StepReleasePreviousQuota, StepReserveQuota, StepApplyCR, StepMaterializeModel, StepApplyRuntime, StepObserveRuntime, StepPublish, StepComplete},
+	"restart": {StepWithdrawPublication, StepDeleteRuntime, StepObserveAbsence, StepReleasePreviousQuota, StepReserveQuota, StepApplyCR, StepMaterializeModel, StepApplyRuntime, StepObserveRuntime, StepPublish, StepComplete},
 	"stop":    {StepWithdrawPublication, StepDeleteRuntime, StepObserveAbsence, StepReleaseQuota, StepComplete},
 	"delete":  {StepWithdrawPublication, StepDeleteRuntime, StepObserveAbsence, StepDeleteCR, StepReleaseQuota, StepComplete},
 }

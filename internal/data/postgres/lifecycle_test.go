@@ -3,7 +3,6 @@ package postgres
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"os"
 	"reflect"
 	"strings"
@@ -11,7 +10,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	inference "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/inference"
 	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/publication"
@@ -244,21 +242,6 @@ func (p *lifecycleProvider) ApplyRuntime(context.Context, inference.OperationCon
 func (p *lifecycleProvider) ObserveRuntime(ctx context.Context, op inference.OperationContext) (inference.RuntimeObservation, error) {
 	p.calls = append(p.calls, "observe_runtime")
 	observation := inference.RuntimeObservation{Ready: true, RuntimePhase: "ready", ReadyReplicas: 1, ModelReadyKnown: true, ModelReady: true}
-	publication, err := New(p.pool).GetPublication(ctx, GetPublicationParams{
-		TenantID: pgUUID(uuid.MustParse(op.TenantID)), ServiceID: pgUUID(uuid.MustParse(op.ServiceID)), Generation: op.TargetGeneration,
-	})
-	if err == nil && publication.Generation == op.TargetGeneration && publication.ObservedPhase == "published" {
-		observation.InvocationKnown = true
-		observation.InvocationHealthy = true
-		return observation, nil
-	}
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		p.t.Fatalf("query target publication generation %d: %v", op.TargetGeneration, err)
-	}
-	// Before publication, the invocation endpoint is intentionally unknown.
-	// This must not block runtime readiness; verify_invocation performs the
-	// second observation after publication confirmation.
-	observation.Reason = "invocation endpoint is not published"
 	return observation, nil
 }
 func (p *lifecycleProvider) DeleteRuntime(context.Context, inference.OperationContext) error {

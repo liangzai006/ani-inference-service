@@ -24,8 +24,8 @@ func Aggregate(spec Spec, replicas int32, runtimeMode string, workerReplicas int
 			return Demand{}, fmt.Errorf("worker_replicas is only valid for leader_worker_set runtime")
 		}
 	case "leader_worker_set":
-		if workerReplicas < 2 {
-			return Demand{}, fmt.Errorf("leader_worker_set requires at least two workers")
+		if workerReplicas < 1 {
+			return Demand{}, fmt.Errorf("leader_worker_set requires at least one worker")
 		}
 		units *= int64(workerReplicas) + 1
 	default:

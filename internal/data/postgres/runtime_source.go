@@ -139,7 +139,7 @@ func (s *RuntimeSource) CurrentRuntime(ctx context.Context, tenantID, serviceID 
 	for _, binding := range bindings {
 		owned = append(owned, kube.RuntimeBinding{Kind: binding.ObjectKind, Namespace: binding.ObjectNamespace, Name: binding.ObjectName, UID: binding.ObjectUid, ResourceVersion: binding.ResourceVersion, Role: binding.Role, Generation: binding.Generation})
 	}
-	return kube.DesiredRuntime{
+	result := kube.DesiredRuntime{
 		RuntimeSpec: kube.RuntimeSpec{
 			TenantID: tenantID, ServiceID: serviceID, Name: aggregate.Name,
 			Namespace: s.Namespace, Image: row.ImageRef, ModelVersionID: row.ModelVersionID.String(), ArtifactProvider: row.ArtifactProvider, ArtifactRef: row.ArtifactRef, ArtifactSHA256: row.ArtifactSha256, ServedModelName: row.ServedModelName, EngineRuntime: row.EngineRuntime, Generation: generation,
@@ -154,5 +154,9 @@ func (s *RuntimeSource) CurrentRuntime(ctx context.Context, tenantID, serviceID 
 		ModelReadyKnown: runtimeRow.ModelReadyKnown,
 		QuotaReserved:   quotaReserved, PublicationWithdrawn: publicationWithdrawn,
 		PublicationPublished: publicationPublished,
-	}, nil
+	}
+	if row.ArtifactProvider == "model" {
+		result.ModelClaim = kube.ModelClaimName(result.RuntimeSpec)
+	}
+	return result, nil
 }

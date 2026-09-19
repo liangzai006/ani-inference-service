@@ -44,20 +44,18 @@ type OperationContext struct {
 // and Absent are intentionally separate: a successful delete request is not
 // evidence that the object has disappeared yet.
 type RuntimeObservation struct {
-	Ready             bool
-	RuntimePhase      string
-	RuntimeMode       string
-	ReadyReplicas     int32
-	ReadyGroups       int32
-	ReadyWorkers      int32
-	LWSUID            string
-	ModelReady        bool
-	ModelReadyKnown   bool
-	InvocationHealthy bool
-	InvocationKnown   bool
-	Absent            bool
-	Reason            string
-	Objects           []bizreconcile.RuntimeObject
+	Ready           bool
+	RuntimePhase    string
+	RuntimeMode     string
+	ReadyReplicas   int32
+	ReadyGroups     int32
+	ReadyWorkers    int32
+	LWSUID          string
+	ModelReady      bool
+	ModelReadyKnown bool
+	Absent          bool
+	Reason          string
+	Objects         []bizreconcile.RuntimeObject
 }
 
 // ModelObservation is the durable fact returned by the model materializer.
@@ -366,25 +364,6 @@ func (r *Runner) runStep(ctx context.Context, op OperationContext) (stepResult, 
 		}
 		return stepResult{phase: OperationRunning, step: string(StepPublish), event: "runtime.ready"}, nil
 
-	case string(StepVerifyInvocation):
-		if r.Runtime == nil {
-			return stepResult{}, fmt.Errorf("%w: runtime", ErrOperationProviderMissing)
-		}
-		if op.Publication.TenantID != op.TenantID || op.Publication.ServiceID != op.ServiceID || op.Publication.Generation != op.TargetGeneration || op.Publication.State != "published" {
-			return stepResult{}, fmt.Errorf("%w: publication is not confirmed for target generation", ErrOperationNotReady)
-		}
-		observation, err := r.Runtime.ObserveRuntime(ctx, op)
-		if err != nil {
-			return stepResult{}, err
-		}
-		if err := r.Store.SaveRuntimeObservation(ctx, op, observation); err != nil {
-			return stepResult{}, err
-		}
-		if !observation.Ready || !observation.ModelReadyKnown || !observation.ModelReady || !observation.InvocationKnown || !observation.InvocationHealthy {
-			return stepResult{}, fmt.Errorf("%w: runtime/model/invocation: %s", ErrOperationNotReady, observation.Reason)
-		}
-		return stepResult{phase: OperationSucceeded, step: string(StepComplete), event: "invocation.healthy"}, nil
-
 	case string(StepWithdrawPublication):
 		if r.Publication == nil {
 			return stepResult{}, fmt.Errorf("%w: publication", ErrOperationProviderMissing)
@@ -480,13 +459,23 @@ func (r *Runner) runStep(ctx context.Context, op OperationContext) (stepResult, 
 		if !confirmed {
 			return stepResult{}, fmt.Errorf("%w: publication", ErrOperationNotReady)
 		}
+		if resolver, ok := r.Publication.(publication.EndpointResolver); ok {
+			endpoint, err := resolver.Endpoint(ctx, op.Publication)
+			if err != nil {
+				return stepResult{}, err
+			}
+			if endpoint == "" {
+				return stepResult{}, fmt.Errorf("published endpoint is empty")
+			}
+			op.Publication.URL = endpoint
+		}
 		op.Publication.State = "published"
 		op.Publication.LeaseToken = op.LeaseToken
 		op.Publication.FenceOperationID = op.ID
 		if err := r.Store.SavePublication(ctx, op.Publication); err != nil {
 			return stepResult{}, err
 		}
-		return stepResult{phase: OperationRunning, step: string(StepVerifyInvocation), event: "publication.published"}, nil
+		return stepResult{phase: OperationSucceeded, step: string(StepComplete), event: "publication.published"}, nil
 
 	case string(StepReleaseQuota):
 		// The store returns only outstanding reservations. A prior stop, or

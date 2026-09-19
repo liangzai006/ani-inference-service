@@ -51,10 +51,10 @@ func TestOperationPathsRequireRemovalAndAbsenceBeforeQuotaChanges(t *testing.T) 
 	// These explicit acceptance paths describe the required lifecycle order;
 	// executing an edge still requires the provider's confirmed result.
 	paths := map[string]string{
-		"create":  "admission reserve_quota apply_cr materialize_model apply_runtime observe_runtime publish verify_invocation complete",
-		"start":   "reserve_quota apply_cr materialize_model apply_runtime observe_runtime publish verify_invocation complete",
-		"update":  "withdraw_publication delete_runtime observe_absence release_previous_quota reserve_quota apply_cr materialize_model apply_runtime observe_runtime publish verify_invocation complete",
-		"restart": "withdraw_publication delete_runtime observe_absence release_previous_quota reserve_quota apply_cr materialize_model apply_runtime observe_runtime publish verify_invocation complete",
+		"create":  "admission reserve_quota apply_cr materialize_model apply_runtime observe_runtime publish complete",
+		"start":   "reserve_quota apply_cr materialize_model apply_runtime observe_runtime publish complete",
+		"update":  "withdraw_publication delete_runtime observe_absence release_previous_quota reserve_quota apply_cr materialize_model apply_runtime observe_runtime publish complete",
+		"restart": "withdraw_publication delete_runtime observe_absence release_previous_quota reserve_quota apply_cr materialize_model apply_runtime observe_runtime publish complete",
 		"stop":    "withdraw_publication delete_runtime observe_absence release_quota complete",
 		"delete":  "withdraw_publication delete_runtime observe_absence delete_cr release_quota complete",
 	}

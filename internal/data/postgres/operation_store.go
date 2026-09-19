@@ -277,12 +277,6 @@ func (s *OperationStore) SaveRuntimeObservation(ctx context.Context, op inferenc
 		phase, health = "stopped", "unknown"
 	} else if fact.Ready {
 		phase = "ready"
-		if fact.InvocationKnown {
-			health = "unhealthy"
-			if fact.InvocationHealthy {
-				health = "healthy"
-			}
-		}
 	}
 	return NewReconcileStore(s.pool).SaveObservationForWork(ctx, work.Item{TenantID: op.TenantID, ServiceID: op.ServiceID, Generation: op.TargetGeneration, LeaseToken: op.LeaseToken}, bizObservation(op, phase, health, fact))
 }

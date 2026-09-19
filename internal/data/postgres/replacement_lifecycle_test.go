@@ -20,7 +20,7 @@ import (
 // The same persisted service is replaced, stopped, started and finally deleted.
 // Each step reconstructs the worker; only the external providers are fixtures.
 func TestPostgresReplacementAndDeletionLifecycle(t *testing.T) {
-	for _, interruptStep := range []string{"none", "release_quota", "verify_invocation"} {
+	for _, interruptStep := range []string{"none", "release_quota"} {
 		t.Run(interruptStep, func(t *testing.T) {
 			testReplacementLifecycle(t, interruptStep)
 		})

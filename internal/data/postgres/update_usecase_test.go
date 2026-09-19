@@ -28,7 +28,7 @@ func TestUpdateUseCaseClonesSpecWithGenerationCAS(t *testing.T) {
 	if err := pool.Ping(ctx); err != nil {
 		t.Fatal(err)
 	}
-	tenant, service, createOp := uuid.New(), uuid.New(), uuid.New()
+	tenant, service, createOp, nextVersion := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	if _, err := NewRepository(pool).CreateService(ctx, CreateAggregateInput{TenantID: tenant.String(), ServiceID: service.String(), OperationID: createOp.String(), Name: "update-" + service.String(), ModelVersionID: uuid.New().String(), RequestHash: "create-update", IdempotencyKey: "create-update-" + createOp.String()}); err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func TestUpdateUseCaseClonesSpecWithGenerationCAS(t *testing.T) {
 		}
 	})
 	uc := NewUpdateUseCase(NewRepository(pool))
-	out, err := uc.Update(ctx, inference.UpdateInput{TenantID: tenant.String(), ServiceID: service.String(), RequestID: "update-1", RequestHash: "update-hash", ExpectedGeneration: 1, Resources: resources.Normalized{Requests: map[string]string{"cpu": "2"}, Limits: map[string]string{"memory": "8Gi"}}, Replicas: 1, WorkerReplicas: 1, RuntimeMode: "deployment"})
+	out, err := uc.Update(ctx, inference.UpdateInput{TenantID: tenant.String(), ServiceID: service.String(), ModelVersionID: nextVersion.String(), RequestID: "update-1", RequestHash: "update-hash", ExpectedGeneration: 1, Resources: resources.Normalized{Requests: map[string]string{"cpu": "2"}, Limits: map[string]string{"memory": "8Gi"}}, Replicas: 1, WorkerReplicas: 1, RuntimeMode: "deployment"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,9 +73,12 @@ func TestUpdateUseCaseClonesSpecWithGenerationCAS(t *testing.T) {
 	if row.DesiredGeneration != 2 {
 		t.Fatalf("desired generation=%d", row.DesiredGeneration)
 	}
-	_, err = New(pool).GetSpec(ctx, GetSpecParams{TenantID: pgUUID(tenant), ServiceID: pgUUID(service), Generation: 2})
+	spec, err := New(pool).GetSpec(ctx, GetSpecParams{TenantID: pgUUID(tenant), ServiceID: pgUUID(service), Generation: 2})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if spec.ModelVersionID != pgUUID(nextVersion) {
+		t.Fatalf("model version=%v want=%v", spec.ModelVersionID, pgUUID(nextVersion))
 	}
 	previous, err := New(pool).GetPreviousQuotaReservation(ctx, GetPreviousQuotaReservationParams{TenantID: pgUUID(tenant), ServiceID: pgUUID(service), Generation: 2})
 	if err != nil {

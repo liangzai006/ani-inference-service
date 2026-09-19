@@ -78,19 +78,6 @@ type DesiredRuntimeSource interface {
 	CurrentRuntime(context.Context, string, string, int64) (DesiredRuntime, error)
 }
 
-// InvocationProbe is an explicit data-plane health boundary. It must probe
-// the published inference endpoint and return a known result; Kubernetes
-// readiness alone is never treated as invocation health.
-type InvocationProbe interface {
-	Probe(context.Context, RuntimeSpec) (InvocationResult, error)
-}
-
-type InvocationResult struct {
-	Known   bool
-	Healthy bool
-	Reason  string
-}
-
 // RuntimeExecutor turns durable desired state into typed Kubernetes writes.
 // Apply uses server-side apply with a stable field manager and never forces
 // ownership. Delete uses both UID and resourceVersion preconditions.
@@ -103,15 +90,7 @@ type RuntimeExecutor struct {
 	CRClient     client.Client
 	Source       DesiredRuntimeSource
 	Bindings     BindingStore
-	Invocation   InvocationProbe
 	FieldManager string
-}
-
-// InvocationConfigured reports whether an explicit data-plane health probe is
-// wired. Kubernetes readiness and model readiness do not prove that the
-// inference endpoint can serve requests.
-func (e *RuntimeExecutor) InvocationConfigured() bool {
-	return e != nil && e.Invocation != nil
 }
 
 var _ bizreconcile.Runtime = (*RuntimeExecutor)(nil)
@@ -207,8 +186,7 @@ func (e *RuntimeExecutor) ApplyRuntime(ctx context.Context, op bizinference.Oper
 	return nil
 }
 
-// ObserveRuntime reads runtime and model facts. The invocation probe runs only
-// after publication is confirmed for the target generation.
+// ObserveRuntime reads runtime and model facts from Kubernetes and PostgreSQL.
 func (e *RuntimeExecutor) ObserveRuntime(ctx context.Context, op bizinference.OperationContext) (bizinference.RuntimeObservation, error) {
 	spec, err := e.operationRuntime(ctx, op)
 	if err != nil {
@@ -228,12 +206,11 @@ func (e *RuntimeExecutor) ObserveRuntime(ctx context.Context, op bizinference.Op
 		ReadyGroups: observation.ReadyGroups, ReadyWorkers: observation.ReadyWorkers,
 		LWSUID: observation.LWSUID, Objects: observation.Objects, Reason: observation.Reason,
 		ModelReady: observation.ModelReady, ModelReadyKnown: observation.ModelReadyKnown,
-		InvocationHealthy: observation.InvocationHealth == "healthy", InvocationKnown: observation.InvocationHealth != "unknown",
 	}, nil
 }
 
 // Both active operations and terminal-operation scans use the same health
-// observation. Probe errors are durable unknown facts, not stale successes.
+// observation.
 func (e *RuntimeExecutor) observeHealth(ctx context.Context, spec DesiredRuntime, binding *RuntimeBinding) (bizreconcile.Observation, error) {
 	observation, err := e.observe(ctx, spec.RuntimeSpec, binding)
 	if err != nil {
@@ -258,23 +235,6 @@ func (e *RuntimeExecutor) observeHealth(ctx context.Context, spec DesiredRuntime
 		}
 	}
 	observation.ModelReady, observation.ModelReadyKnown = spec.ModelReady, spec.ModelReadyKnown
-	if !spec.PublicationPublished || e.Invocation == nil {
-		return observation, nil
-	}
-	invocation, err := e.Invocation.Probe(ctx, spec.RuntimeSpec)
-	if err != nil {
-		observation.Reason = "invocation probe failed"
-		return observation, nil
-	}
-	if invocation.Known {
-		observation.InvocationHealth = "unhealthy"
-		if invocation.Healthy {
-			observation.InvocationHealth = "healthy"
-		}
-	}
-	if invocation.Reason != "" && (observation.Reason == "" || !invocation.Known || !invocation.Healthy) {
-		observation.Reason = invocation.Reason
-	}
 	return observation, nil
 }
 

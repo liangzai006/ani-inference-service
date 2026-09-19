@@ -191,25 +191,27 @@ INSERT INTO inference_specs
    artifact_provider, artifact_ref, artifact_sha256, image_ref, served_model_name,
    engine_runtime, command_argv, resources, replicas, runtime_mode, worker_replicas, spec_json,
    endpoint_container_port, endpoint_service_port, endpoint_target_port, endpoint_protocol)
-SELECT s.tenant_id, $1, s.service_id, $2, s.model_id, s.model_version_id,
-       CASE WHEN $3::text <> '' THEN $3 ELSE s.artifact_provider END,
-       CASE WHEN $4::text <> '' THEN $4 ELSE s.artifact_ref END,
-       CASE WHEN $5::text <> '' THEN $5 ELSE s.artifact_sha256 END,
-       CASE WHEN $6::text <> '' THEN $6 ELSE s.image_ref END,
-       CASE WHEN $7::text <> '' THEN $7 ELSE s.served_model_name END,
-       CASE WHEN $8::text <> '' THEN $8 ELSE s.engine_runtime END,
-       CASE WHEN CASE WHEN jsonb_typeof($9::jsonb) = 'array' THEN jsonb_array_length($9::jsonb) ELSE 0 END > 0 THEN $9 ELSE s.command_argv END,
-       $10, $11,
-       $12, $13, s.spec_json,
-       $14, $15, $16, $17
+SELECT s.tenant_id, $1, s.service_id, $2, s.model_id,
+       CASE WHEN $3::uuid IS NOT NULL THEN $3::uuid ELSE s.model_version_id END,
+       CASE WHEN $4::text <> '' THEN $4 ELSE s.artifact_provider END,
+       CASE WHEN $5::text <> '' THEN $5 ELSE s.artifact_ref END,
+       CASE WHEN $6::text <> '' THEN $6 ELSE s.artifact_sha256 END,
+       CASE WHEN $7::text <> '' THEN $7 ELSE s.image_ref END,
+       CASE WHEN $8::text <> '' THEN $8 ELSE s.served_model_name END,
+       CASE WHEN $9::text <> '' THEN $9 ELSE s.engine_runtime END,
+       CASE WHEN CASE WHEN jsonb_typeof($10::jsonb) = 'array' THEN jsonb_array_length($10::jsonb) ELSE 0 END > 0 THEN $10 ELSE s.command_argv END,
+       $11, $12,
+       $13, $14, s.spec_json,
+       $15, $16, $17, $18
 FROM inference_specs s
-WHERE s.tenant_id = $18 AND s.service_id = $19
-  AND s.generation = $20
+WHERE s.tenant_id = $19 AND s.service_id = $20
+  AND s.generation = $21
 `
 
 type CloneSpecWithRuntimeUpdateParams struct {
 	ID                    pgtype.UUID
 	TargetGeneration      int64
+	ModelVersionID        pgtype.UUID
 	ArtifactProvider      string
 	ArtifactRef           string
 	ArtifactSha256        string
@@ -234,6 +236,7 @@ func (q *Queries) CloneSpecWithRuntimeUpdate(ctx context.Context, arg CloneSpecW
 	result, err := q.db.Exec(ctx, cloneSpecWithRuntimeUpdate,
 		arg.ID,
 		arg.TargetGeneration,
+		arg.ModelVersionID,
 		arg.ArtifactProvider,
 		arg.ArtifactRef,
 		arg.ArtifactSha256,

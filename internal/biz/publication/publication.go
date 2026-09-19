@@ -24,3 +24,9 @@ type Port interface {
 	Publish(context.Context, Publication) error
 	ConfirmPublished(context.Context, Publication) (bool, error)
 }
+
+// EndpointResolver returns the address allocated by the publication authority
+// after confirmation. The runner persists that observed address with its fence.
+type EndpointResolver interface {
+	Endpoint(context.Context, Publication) (string, error)
+}

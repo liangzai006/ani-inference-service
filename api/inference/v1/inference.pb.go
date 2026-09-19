@@ -786,6 +786,7 @@ type UpdateInferenceServiceRequest struct {
 	ModelArtifact      *ModelArtifact         `protobuf:"bytes,8,opt,name=model_artifact,json=modelArtifact,proto3" json:"model_artifact,omitempty"`
 	Engine             *EngineSpec            `protobuf:"bytes,9,opt,name=engine,proto3" json:"engine,omitempty"`
 	ServedModelName    string                 `protobuf:"bytes,10,opt,name=served_model_name,json=servedModelName,proto3" json:"served_model_name,omitempty"`
+	ModelVersionId     string                 `protobuf:"bytes,11,opt,name=model_version_id,json=modelVersionId,proto3" json:"model_version_id,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
@@ -886,6 +887,13 @@ func (x *UpdateInferenceServiceRequest) GetEngine() *EngineSpec {
 func (x *UpdateInferenceServiceRequest) GetServedModelName() string {
 	if x != nil {
 		return x.ServedModelName
+	}
+	return ""
+}
+
+func (x *UpdateInferenceServiceRequest) GetModelVersionId() string {
+	if x != nil {
+		return x.ModelVersionId
 	}
 	return ""
 }
@@ -1386,7 +1394,7 @@ const file_inference_v1_inference_proto_rawDesc = "" +
 	"\aruntime\x18\x06 \x01(\v2\x19.inference.v1.RuntimeSpecR\aruntime\x12B\n" +
 	"\x0emodel_artifact\x18\a \x01(\v2\x1b.inference.v1.ModelArtifactR\rmodelArtifact\x120\n" +
 	"\x06engine\x18\b \x01(\v2\x18.inference.v1.EngineSpecR\x06engine\x12*\n" +
-	"\x11served_model_name\x18\t \x01(\tR\x0fservedModelName\"\xf8\x03\n" +
+	"\x11served_model_name\x18\t \x01(\tR\x0fservedModelName\"\xa2\x04\n" +
 	"\x1dUpdateInferenceServiceRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x1f\n" +
@@ -1401,7 +1409,8 @@ const file_inference_v1_inference_proto_rawDesc = "" +
 	"\x0emodel_artifact\x18\b \x01(\v2\x1b.inference.v1.ModelArtifactR\rmodelArtifact\x120\n" +
 	"\x06engine\x18\t \x01(\v2\x18.inference.v1.EngineSpecR\x06engine\x12*\n" +
 	"\x11served_model_name\x18\n" +
-	" \x01(\tR\x0fservedModelName\"\x88\x01\n" +
+	" \x01(\tR\x0fservedModelName\x12(\n" +
+	"\x10model_version_id\x18\v \x01(\tR\x0emodelVersionId\"\x88\x01\n" +
 	"\x15ServiceCommandRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x1f\n" +

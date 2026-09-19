@@ -10,6 +10,7 @@ import (
 type UpdateInput struct {
 	TenantID, RequestID, Actor, ServiceID, RequestHash string
 	ExpectedGeneration                                 int64
+	ModelVersionID                                     string
 	ArtifactProvider, ArtifactRef, ArtifactSHA256      string
 	ImageRef, ServedModelName, EngineRuntime           string
 	CommandArgv                                        []string

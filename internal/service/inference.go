@@ -113,7 +113,7 @@ func (s *InferenceServer) UpdateInferenceService(ctx context.Context, req *infer
 	if s.update == nil {
 		return nil, status.Error(codes.FailedPrecondition, "inference update use case is not configured")
 	}
-	if err := validateUpdateMask(req.GetUpdateMask()); err != nil {
+	if err := validateUpdateMask(req.GetUpdateMask(), req.GetModelVersionId()); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 	normalized, err := resources.Normalize(resources.Spec{Requests: req.GetResource().GetRequests(), Limits: req.GetResource().GetLimits()})
@@ -147,7 +147,7 @@ func (s *InferenceServer) UpdateInferenceService(ctx context.Context, req *infer
 	if err != nil {
 		return nil, status.Error(codes.Internal, "marshal request: "+err.Error())
 	}
-	out, err := s.update.Update(ctx, inferencebiz.UpdateInput{TenantID: tenantID, RequestID: req.GetRequestId(), Actor: Actor(ctx), ServiceID: req.GetResourceId(), ExpectedGeneration: req.GetExpectedGeneration(), ArtifactProvider: artifactProvider, ArtifactRef: artifactRef, ArtifactSHA256: artifactSHA, ImageRef: image, ServedModelName: req.GetServedModelName(), EngineRuntime: engineRuntime, CommandArgv: commandArgv, Resources: normalized, Replicas: req.GetReplicas(), WorkerReplicas: workers, RuntimeMode: mode, Endpoint: endpointInput(req.GetRuntime().GetEndpoint()), RequestHash: hashBytes(encoded)})
+	out, err := s.update.Update(ctx, inferencebiz.UpdateInput{TenantID: tenantID, RequestID: req.GetRequestId(), Actor: Actor(ctx), ServiceID: req.GetResourceId(), ExpectedGeneration: req.GetExpectedGeneration(), ModelVersionID: req.GetModelVersionId(), ArtifactProvider: artifactProvider, ArtifactRef: artifactRef, ArtifactSHA256: artifactSHA, ImageRef: image, ServedModelName: req.GetServedModelName(), EngineRuntime: engineRuntime, CommandArgv: commandArgv, Resources: normalized, Replicas: req.GetReplicas(), WorkerReplicas: workers, RuntimeMode: mode, Endpoint: endpointInput(req.GetRuntime().GetEndpoint()), RequestHash: hashBytes(encoded)})
 	if err != nil {
 		return nil, commandStatusError(err)
 	}
@@ -157,13 +157,13 @@ func (s *InferenceServer) UpdateInferenceService(ctx context.Context, req *infer
 	return out, nil
 }
 
-func validateUpdateMask(mask *fieldmaskpb.FieldMask) error {
+func validateUpdateMask(mask *fieldmaskpb.FieldMask, modelVersionID string) error {
 	if mask == nil || len(mask.GetPaths()) == 0 {
 		return errors.New("update_mask must include resource, replicas and runtime")
 	}
 	seen := map[string]bool{}
 	for _, path := range mask.GetPaths() {
-		if path != "resource" && path != "replicas" && path != "runtime" && path != "engine" && path != "model_artifact" && path != "served_model_name" {
+		if path != "resource" && path != "replicas" && path != "runtime" && path != "engine" && path != "model_artifact" && path != "served_model_name" && path != "model_version_id" {
 			return fmt.Errorf("unsupported update field %q", path)
 		}
 		seen[path] = true
@@ -172,6 +172,9 @@ func validateUpdateMask(mask *fieldmaskpb.FieldMask) error {
 		if !seen[path] {
 			return fmt.Errorf("update_mask must include %s", path)
 		}
+	}
+	if seen["model_version_id"] != (modelVersionID != "") {
+		return errors.New("model_version_id and its update_mask entry must be provided together")
 	}
 	return nil
 }
