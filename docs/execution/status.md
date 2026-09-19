@@ -262,3 +262,12 @@ LeaderWorkerSet，官方 LWS v0.10.0 controller 成功创建 StatefulSet，3 个
 - `pass`：当前 Inference 已有 artifact 和 engine/argv 快照字段。
 - `not_verified`：新 Model 服务 Proto、endpoint、鉴权和真实联调。
 - 证据：[2026-09-14-model-legacy-contract-compatibility.md](records/2026-09-14-model-legacy-contract-compatibility.md)
+
+2026-09-19 新增生产 Publication Kubernetes 适配器：Inference 组合根现在注入
+`HTTPRoutePublisher`。publish 会按 tenant/service/generation 生成确定性 HTTPRoute，引用
+Inference-owned `-endpoint` Service 和 APISIX Gateway；withdraw 使用 UID/resourceVersion
+前置条件删除并等待路由消失；published 只在目标 Gateway parent 同时报告
+`Accepted=True`、`ResolvedRefs=True` 后确认。默认外部地址为
+`http://<service-id>.vllm.test/v1`，可通过 `ANI_APISIX_*` 环境变量覆盖。该切片的 fake
+client 和全仓源码验证已通过；真实 APISIX controller、DNS/Host 解析、IAM、Model 和
+Quota 尚未完成，因此不代表完整 create/stop/restart/update/delete 联调已验收。

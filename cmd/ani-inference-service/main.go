@@ -160,12 +160,24 @@ func buildKubernetesServers(pool *pgxpool.Pool) ([]kratosTransport.Server, error
 	runtimeExecutor.APIReader = mgr.GetAPIReader()
 	runtimeExecutor.CRClient = mgr.GetClient()
 	controller.Status = &kubernetes.StatusProjector{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Source: postgres.NewStatusProjectionSource(pool)}
+	publicationPublisher := &kubernetes.HTTPRoutePublisher{
+		Client:           mgr.GetClient(),
+		APIReader:        mgr.GetAPIReader(),
+		Source:           runtimeSource,
+		GatewayNamespace: envOrDefault("ANI_APISIX_GATEWAY_NAMESPACE", "ingress-apisix"),
+		GatewayName:      envOrDefault("ANI_APISIX_GATEWAY_NAME", "ani-apisix"),
+		RouteNamespace:   envOrDefault("ANI_APISIX_ROUTE_NAMESPACE", namespace),
+		HostSuffix:       envOrDefault("ANI_APISIX_HOST_SUFFIX", "vllm.test"),
+		Scheme:           envOrDefault("ANI_APISIX_PUBLIC_SCHEME", "http"),
+		PathPrefix:       envOrDefault("ANI_APISIX_PATH_PREFIX", "/v1"),
+	}
 	operationStore := postgres.NewOperationStore(pool)
 	operationRunner := &inferencebiz.Runner{
-		Store:      operationStore,
-		Admission:  &postgres.Admission{Source: runtimeSource},
-		Runtime:    runtimeExecutor,
-		RetryAfter: 5 * time.Second,
+		Store:       operationStore,
+		Admission:   &postgres.Admission{Source: runtimeSource},
+		Publication: publicationPublisher,
+		Runtime:     runtimeExecutor,
+		RetryAfter:  5 * time.Second,
 	}
 	loopServer, err := server.NewLoopServer(workStore, workStore, func(ctx context.Context, item work.Item) (work.Result, error) {
 		return (&durableExecutor{Operations: operationRunner, Store: operationStore, Observation: domain}).Execute(ctx, item)
@@ -219,6 +231,13 @@ func (e *durableExecutor) Execute(ctx context.Context, item work.Item) (work.Res
 		return e.Operations.Execute(ctx, item)
 	}
 	return e.Observation.Execute(ctx, item)
+}
+
+func envOrDefault(name, fallback string) string {
+	if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+		return value
+	}
+	return fallback
 }
 
 func inferenceRESTConfig() (*rest.Config, error) {
