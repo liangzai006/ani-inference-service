@@ -142,6 +142,10 @@ func buildKubernetesServers(pool *pgxpool.Pool) ([]kratosTransport.Server, error
 	if namespace == "" {
 		return nil, fmt.Errorf("ANI_INFERENCE_NAMESPACE is required when ANI_KUBERNETES_ENABLED=true")
 	}
+	hostSuffix, err := requiredEnv("ANI_APISIX_HOST_SUFFIX")
+	if err != nil {
+		return nil, err
+	}
 	config, err := inferenceRESTConfig()
 	if err != nil {
 		return nil, fmt.Errorf("load Kubernetes config: %w", err)
@@ -167,7 +171,7 @@ func buildKubernetesServers(pool *pgxpool.Pool) ([]kratosTransport.Server, error
 		GatewayNamespace: envOrDefault("ANI_APISIX_GATEWAY_NAMESPACE", "ingress-apisix"),
 		GatewayName:      envOrDefault("ANI_APISIX_GATEWAY_NAME", "ani-apisix"),
 		RouteNamespace:   envOrDefault("ANI_APISIX_ROUTE_NAMESPACE", namespace),
-		HostSuffix:       envOrDefault("ANI_APISIX_HOST_SUFFIX", "vllm.test"),
+		HostSuffix:       hostSuffix,
 		Scheme:           envOrDefault("ANI_APISIX_PUBLIC_SCHEME", "http"),
 		PathPrefix:       envOrDefault("ANI_APISIX_PATH_PREFIX", "/v1"),
 	}
@@ -231,6 +235,14 @@ func (e *durableExecutor) Execute(ctx context.Context, item work.Item) (work.Res
 		return e.Operations.Execute(ctx, item)
 	}
 	return e.Observation.Execute(ctx, item)
+}
+
+func requiredEnv(name string) (string, error) {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return "", fmt.Errorf("%s is required when Kubernetes Publication is enabled", name)
+	}
+	return value, nil
 }
 
 func envOrDefault(name, fallback string) string {

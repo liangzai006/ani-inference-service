@@ -25,12 +25,14 @@ The composition defaults are:
 ANI_APISIX_GATEWAY_NAMESPACE=ingress-apisix
 ANI_APISIX_GATEWAY_NAME=ani-apisix
 ANI_APISIX_ROUTE_NAMESPACE=$ANI_INFERENCE_NAMESPACE
-ANI_APISIX_HOST_SUFFIX=vllm.test
+ANI_APISIX_HOST_SUFFIX=models.example.com  # required; DNS must point to the APISIX public address
 ANI_APISIX_PUBLIC_SCHEME=http
 ANI_APISIX_PATH_PREFIX=/v1
 ```
 
-The returned URL is `http://<service-id>.vllm.test/v1` by default. The host must
-be resolvable or supplied as the HTTP `Host` header at the APISIX NodePort. The
+The returned URL is `http://<service-id>.<ANI_APISIX_HOST_SUFFIX>/v1`.
+`ANI_APISIX_HOST_SUFFIX` is required when Kubernetes Publication is enabled; its DNS
+records must point to the APISIX public address. For a temporary NodePort smoke
+test, the host can be supplied as the HTTP `Host` header. The
 Publication adapter uses the inference-owned `-endpoint` Service and never
 calls the APISIX Admin API directly.
