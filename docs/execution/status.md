@@ -272,3 +272,9 @@ Inference-owned `-endpoint` Service 和 APISIX Gateway；withdraw 使用 UID/res
 header。多个模型共用同一 Gateway 时仍需不同路径或 hostname 路由。该切片的 fake
 client 和全仓源码验证已通过；真实 APISIX controller、DNS/Host 解析、IAM、Model 和
 Quota 尚未完成，因此不代表完整 create/stop/restart/update/delete 联调已验收。
+
+Model 物化组合接线已补齐：配置 `ANI_MODEL_GRPC_ADDR` 和 fetcher image 后，Kubernetes
+runner 会调用 Model 的 `GetModelVersion`/`GetModelDownloadURL`，创建带校验摘要的 RWX
+PVC 和下载 Job，并在 Job 完成后才允许 runtime/publication 继续。当前仅完成代码和 fake
+测试；真实 Model gRPC、签名 URL、fetcher image、PVC/StorageClass 和 Quota provider
+仍未完成联调。

@@ -35,7 +35,7 @@ func TestMaterializerRequiresVerifiedJobBeforeReady(t *testing.T) {
 	v.StoragePath = "tenant/model.tar"
 	api := &modelAPIFake{version: v, download: &modelv1.GetModelDownloadURLResponse{DownloadUrl: "https://storage/private?secret=redacted", StoragePath: v.StoragePath, ExpiresAt: timestamppb.New(time.Now().Add(time.Hour))}}
 	spec := kube.RuntimeSpec{TenantID: "tenant", ServiceID: "service", Namespace: "ani-model-inference-test", Generation: 1, ModelVersionID: v.Id, ArtifactProvider: "model", ArtifactRef: v.StoragePath, ArtifactSHA256: v.ChecksumSha256, RuntimeMode: "deployment"}
-	m := &Materializer{Catalog: NewClient(api), Source: materializerSource{kube.DesiredRuntime{RuntimeSpec: spec}}, Client: kc, Reader: kc, TenantID: spec.TenantID, Namespace: spec.Namespace, StorageClass: "cephfs", Image: "image@sha256:fixed"}
+	m := &Materializer{Catalog: NewClient(api), Source: materializerSource{kube.DesiredRuntime{RuntimeSpec: spec}}, Client: kc, Reader: kc, Namespace: spec.Namespace, StorageClass: "cephfs", Image: "image@sha256:fixed"}
 	op := inference.OperationContext{TenantID: spec.TenantID, ServiceID: spec.ServiceID, TargetGeneration: 1, ID: "distinct-operation-id", LeaseToken: "lease"}
 	observation, err := m.EnsureModel(ctx, op)
 	if err != nil || observation.Ready {
@@ -79,12 +79,18 @@ func TestMaterializerRequiresVerifiedJobBeforeReady(t *testing.T) {
 	if err = kc.Status().Update(ctx, job); err != nil {
 		t.Fatal(err)
 	}
-	if observation, err = m.EnsureModel(ctx, op); err != nil || !observation.Known || observation.Ready || !strings.Contains(observation.Reason, "failed") {
-		t.Fatal("failed Job did not report a non-ready failure", observation, err)
+	if observation, err = m.EnsureModel(ctx, op); err == nil || observation.Ready {
+		t.Fatal("failed Job did not trigger a retry reset", observation, err)
 	}
 	secrets := &corev1.SecretList{}
-	if err = kc.List(ctx, secrets); err != nil || len(secrets.Items) != 1 {
-		t.Fatal("expected transient download Secret", err)
+	if err = kc.List(ctx, secrets); err != nil || len(secrets.Items) != 0 {
+		t.Fatal("failed materialization left a download Secret", err)
+	}
+	if observation, err = m.EnsureModel(ctx, op); err != nil || observation.Ready {
+		t.Fatal("failed materialization was not recreated", observation, err)
+	}
+	if err = kc.List(ctx, jobs); err != nil || len(jobs.Items) != 1 {
+		t.Fatal("expected a replacement materialization Job", err)
 	}
 	op.TenantID = "attacker"
 	if _, err = m.EnsureModel(ctx, op); err == nil {

@@ -27,6 +27,10 @@ ANI_APISIX_GATEWAY_NAME=ani-apisix
 ANI_APISIX_ROUTE_NAMESPACE=$ANI_INFERENCE_NAMESPACE
 ANI_APISIX_PUBLIC_BASE_URL=http://10.10.1.67:30090  # required; use the APISIX public DNS URL in production
 ANI_APISIX_PATH_PREFIX=/v1
+ANI_MODEL_GRPC_ADDR=ani-model-service.<namespace>.svc:9000  # required with Kubernetes lifecycle
+ANI_MODEL_GRPC_SERVER_NAME=ani-model-service.<namespace>.svc
+ANI_MODEL_MATERIALIZER_IMAGE=registry.example/model-fetcher@sha256:<digest>  # required
+ANI_MODEL_STORAGE_CLASS=cephfs  # default; must support ReadWriteMany
 ```
 
 The returned URL is `${ANI_APISIX_PUBLIC_BASE_URL}/v1`. The HTTPRoute is a
@@ -42,3 +46,10 @@ to the APISIX public address. If multiple models share one Gateway, they need
 different paths or hostname-based routes; identical `/v1` catch-all routes cannot
 be distinguished by an IP-only request. The Publication adapter uses the
 inference-owned `-endpoint` Service and never calls the APISIX Admin API directly.
+
+When Kubernetes lifecycle is enabled, the Model client resolves the immutable
+`model_version_id` and obtains a short-lived HTTPS download URL. The materializer
+creates a per-service/generation PVC and fetch Job, verifies the artifact SHA256,
+and only then allows the vLLM runtime and APISIX publication to proceed. The
+fetcher image must contain Python 3 and the standard library; it does not receive
+long-lived Model or Storage credentials.

@@ -24,11 +24,11 @@ var downloadBundle string
 // Materializer turns one immutable catalog artifact into verified runtime files.
 // It reports readiness only after the actual download Job succeeds.
 type Materializer struct {
-	Catalog                                  *Client
-	Source                                   kube.DesiredRuntimeSource
-	Client                                   client.Client
-	Reader                                   client.Reader
-	StorageClass, Image, TenantID, Namespace string
+	Catalog                        *Client
+	Source                         kube.DesiredRuntimeSource
+	Client                         client.Client
+	Reader                         client.Reader
+	StorageClass, Image, Namespace string
 }
 
 func (m *Materializer) EnsureModel(ctx context.Context, op inference.OperationContext) (inference.ModelObservation, error) {
@@ -36,7 +36,7 @@ func (m *Materializer) EnsureModel(ctx context.Context, op inference.OperationCo
 	if m == nil || m.Client == nil || m.Source == nil || m.Catalog == nil || m.Image == "" || m.StorageClass == "" {
 		return unknown, fmt.Errorf("model materializer dependencies are not configured")
 	}
-	if op.TenantID != m.TenantID || op.ServiceID == "" || op.TargetGeneration < 1 || op.LeaseToken == "" || m.Namespace == "" {
+	if op.ServiceID == "" || op.TargetGeneration < 1 || op.LeaseToken == "" || m.Namespace == "" {
 		return unknown, fmt.Errorf("model materializer scope mismatch")
 	}
 	desired, err := m.Source.CurrentRuntime(ctx, op.TenantID, op.ServiceID, op.TargetGeneration)
@@ -112,7 +112,10 @@ func (m *Materializer) EnsureModel(ctx context.Context, op inference.OperationCo
 				return inference.ModelObservation{Known: true, Ready: true, Reason: "model archive downloaded and checksum verified by Job"}, nil
 			}
 			if condition.Type == batchv1.JobFailed {
-				return inference.ModelObservation{Known: true, Reason: "model download Job failed; inspect sanitized container logs"}, nil
+				if err := m.resetFailedMaterialization(ctx, name, job); err != nil {
+					return unknown, err
+				}
+				return unknown, fmt.Errorf("model download Job failed; reset for retry")
 			}
 		}
 	}
@@ -161,6 +164,60 @@ func (m *Materializer) EnsureModel(ctx context.Context, op inference.OperationCo
 		}
 	}
 	return inference.ModelObservation{Reason: "model download Job is pending"}, nil
+}
+
+func (m *Materializer) resetFailedMaterialization(ctx context.Context, name string, job *batchv1.Job) error {
+	reader := m.Reader
+	if reader == nil {
+		reader = m.Client
+	}
+	objects := []client.Object{job}
+	for _, object := range []client.Object{
+		&corev1.PersistentVolumeClaim{},
+		&corev1.Secret{},
+	} {
+		key := client.ObjectKey{Namespace: m.Namespace, Name: name}
+		if _, ok := object.(*corev1.Secret); ok {
+			key.Name += "-download"
+		}
+		if err := reader.Get(ctx, key, object); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return err
+		}
+		if err := ensureMaterializationOwnership(object, job, name, m.Namespace); err != nil {
+			return err
+		}
+		objects = append(objects, object)
+	}
+	for _, object := range objects {
+		if err := m.Client.Delete(ctx, object); err != nil && !apierrors.IsNotFound(err) {
+			return err
+		}
+	}
+	return nil
+}
+
+func ensureMaterializationOwnership(object client.Object, job *batchv1.Job, name, namespace string) error {
+	objectName := object.GetName()
+	if object.GetNamespace() != namespace || objectName != name && objectName != name+"-download" && objectName != name+"-fetch" {
+		return fmt.Errorf("materialization reset object identity mismatch")
+	}
+	for key, value := range job.GetLabels() {
+		if object.GetLabels()[key] != value {
+			return fmt.Errorf("materialization reset object ownership mismatch")
+		}
+	}
+	for key, value := range job.GetAnnotations() {
+		if key == "ani.kubercloud.com/model-claim-uid" {
+			continue
+		}
+		if object.GetAnnotations()[key] != value {
+			return fmt.Errorf("materialization reset object identity mismatch")
+		}
+	}
+	return nil
 }
 
 func pvcSize(bytes int64) string {

@@ -87,6 +87,7 @@ func run(logger *slog.Logger) error {
 		return errors.New("ANI_DATABASE_DSN is required")
 	}
 	var pool *pgxpool.Pool
+	var modelClient *modeldata.Client
 	var background []kratosTransport.Server
 	{
 		dsn := os.Getenv("ANI_DATABASE_DSN")
@@ -105,7 +106,9 @@ func run(logger *slog.Logger) error {
 		defer pool.Close()
 		repo := postgres.NewRepository(pool)
 		create = postgres.NewCreateUseCase(repo)
-		modelClient, closeModel, modelErr := configuredModelClient()
+		var closeModel func()
+		var modelErr error
+		modelClient, closeModel, modelErr = configuredModelClient()
 		if modelErr != nil {
 			return modelErr
 		}
@@ -120,7 +123,7 @@ func run(logger *slog.Logger) error {
 			update = modeldata.NewUpdateUseCase(modelClient, update)
 		}
 		if strings.EqualFold(os.Getenv("ANI_KUBERNETES_ENABLED"), "true") {
-			servers, err := buildKubernetesServers(pool)
+			servers, err := buildKubernetesServers(pool, modelClient)
 			if err != nil {
 				return err
 			}
@@ -137,7 +140,7 @@ func run(logger *slog.Logger) error {
 	return nil
 }
 
-func buildKubernetesServers(pool *pgxpool.Pool) ([]kratosTransport.Server, error) {
+func buildKubernetesServers(pool *pgxpool.Pool, modelClient *modeldata.Client) ([]kratosTransport.Server, error) {
 	namespace := os.Getenv("ANI_INFERENCE_NAMESPACE")
 	if namespace == "" {
 		return nil, fmt.Errorf("ANI_INFERENCE_NAMESPACE is required when ANI_KUBERNETES_ENABLED=true")
@@ -149,6 +152,13 @@ func buildKubernetesServers(pool *pgxpool.Pool) ([]kratosTransport.Server, error
 	config, err := inferenceRESTConfig()
 	if err != nil {
 		return nil, fmt.Errorf("load Kubernetes config: %w", err)
+	}
+	if modelClient == nil {
+		return nil, errors.New("ANI_MODEL_GRPC_ADDR is required when Kubernetes lifecycle is enabled")
+	}
+	materializerSettings, err := configuredModelMaterializerSettings()
+	if err != nil {
+		return nil, err
 	}
 	workStore := postgres.NewWorkStore(pool, postgres.WorkStoreOptions{})
 	reconcileStore := postgres.NewReconcileStore(pool)
@@ -164,6 +174,15 @@ func buildKubernetesServers(pool *pgxpool.Pool) ([]kratosTransport.Server, error
 	runtimeExecutor.APIReader = mgr.GetAPIReader()
 	runtimeExecutor.CRClient = mgr.GetClient()
 	controller.Status = &kubernetes.StatusProjector{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Source: postgres.NewStatusProjectionSource(pool)}
+	modelMaterializer := &modeldata.Materializer{
+		Catalog:      modelClient,
+		Source:       runtimeSource,
+		Client:       mgr.GetClient(),
+		Reader:       mgr.GetAPIReader(),
+		StorageClass: materializerSettings.StorageClass,
+		Image:        materializerSettings.Image,
+		Namespace:    namespace,
+	}
 	publicationPublisher := &kubernetes.HTTPRoutePublisher{
 		Client:           mgr.GetClient(),
 		APIReader:        mgr.GetAPIReader(),
@@ -178,6 +197,7 @@ func buildKubernetesServers(pool *pgxpool.Pool) ([]kratosTransport.Server, error
 	operationRunner := &inferencebiz.Runner{
 		Store:       operationStore,
 		Admission:   &postgres.Admission{Source: runtimeSource},
+		Model:       modelMaterializer,
 		Publication: publicationPublisher,
 		Runtime:     runtimeExecutor,
 		RetryAfter:  5 * time.Second,
@@ -239,7 +259,7 @@ func (e *durableExecutor) Execute(ctx context.Context, item work.Item) (work.Res
 func requiredEnv(name string) (string, error) {
 	value := strings.TrimSpace(os.Getenv(name))
 	if value == "" {
-		return "", fmt.Errorf("%s is required when Kubernetes Publication is enabled", name)
+		return "", fmt.Errorf("%s is required when Kubernetes mode is enabled", name)
 	}
 	return value, nil
 }
