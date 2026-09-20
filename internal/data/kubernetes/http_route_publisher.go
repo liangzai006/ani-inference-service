@@ -29,8 +29,7 @@ type HTTPRoutePublisher struct {
 	GatewayNamespace string
 	GatewayName      string
 	RouteNamespace   string
-	HostSuffix       string
-	Scheme           string
+	PublicBaseURL    string
 	PathPrefix       string
 	FieldManager     string
 }
@@ -162,13 +161,13 @@ func (p *HTTPRoutePublisher) Endpoint(_ context.Context, pub publication.Publica
 	if err := p.validate(pub); err != nil {
 		return "", err
 	}
-	host := p.host(pub.ServiceID)
-	path := p.pathPrefix()
-	scheme := p.Scheme
-	if scheme == "" {
-		scheme = "http"
+	base, err := url.Parse(strings.TrimSpace(p.PublicBaseURL))
+	if err != nil || base.Scheme == "" || base.Host == "" {
+		return "", fmt.Errorf("publication public base URL must include scheme and host")
 	}
-	return (&url.URL{Scheme: scheme, Host: host, Path: path}).String(), nil
+	base.Path = strings.TrimRight(base.Path, "/") + p.pathPrefix()
+	base.RawQuery, base.Fragment = "", ""
+	return base.String(), nil
 }
 
 func (p *HTTPRoutePublisher) validate(pub publication.Publication) error {
@@ -181,8 +180,8 @@ func (p *HTTPRoutePublisher) validate(pub publication.Publication) error {
 	if p.GatewayName == "" || p.GatewayNamespace == "" {
 		return errors.New("publication Gateway namespace and name are required")
 	}
-	if p.HostSuffix == "" {
-		return errors.New("publication host suffix is required")
+	if strings.TrimSpace(p.PublicBaseURL) == "" {
+		return errors.New("publication public base URL is required")
 	}
 	return nil
 }
@@ -229,7 +228,6 @@ func (p *HTTPRoutePublisher) route(pub publication.Publication, namespace, backe
 			Namespace:   ptr.To(gatewayv1.Namespace(p.GatewayNamespace)),
 			SectionName: ptr.To(gatewayv1.SectionName("http")),
 		}}},
-		Hostnames: []gatewayv1.Hostname{gatewayv1.Hostname(p.host(pub.ServiceID))},
 		Rules: []gatewayv1.HTTPRouteRule{{
 			Matches: []gatewayv1.HTTPRouteMatch{{Path: &gatewayv1.HTTPPathMatch{Type: &pathType, Value: &path}}},
 			BackendRefs: []gatewayv1.HTTPBackendRef{{
@@ -265,11 +263,6 @@ func (p *HTTPRoutePublisher) matchesGatewayParent(parent gatewayv1.RouteParentSt
 func routeName(pub publication.Publication) string {
 	sum := sha256.Sum256([]byte(pub.TenantID + "|" + pub.ServiceID + "|" + strconv.FormatInt(pub.Generation, 10)))
 	return "ani-pub-" + hex.EncodeToString(sum[:])[:20]
-}
-
-func (p *HTTPRoutePublisher) host(serviceID string) string {
-	suffix := strings.Trim(strings.ToLower(p.HostSuffix), ".")
-	return strings.ToLower(serviceID) + "." + suffix
 }
 
 func (p *HTTPRoutePublisher) pathPrefix() string {

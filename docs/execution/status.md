@@ -267,7 +267,8 @@ LeaderWorkerSet，官方 LWS v0.10.0 controller 成功创建 StatefulSet，3 个
 `HTTPRoutePublisher`。publish 会按 tenant/service/generation 生成确定性 HTTPRoute，引用
 Inference-owned `-endpoint` Service 和 APISIX Gateway；withdraw 使用 UID/resourceVersion
 前置条件删除并等待路由消失；published 只在目标 Gateway parent 同时报告
-`Accepted=True`、`ResolvedRefs=True` 后确认。默认外部地址为
-`http://<service-id>.vllm.test/v1`，可通过 `ANI_APISIX_*` 环境变量覆盖。该切片的 fake
+`Accepted=True`、`ResolvedRefs=True` 后确认。HTTPRoute 现在按 Gateway catch-all 路径匹配；外部返回地址由必填的
+`ANI_APISIX_PUBLIC_BASE_URL` 和路径前缀组成，当前 NodePort 可直接调用而不需要 Host
+header。多个模型共用同一 Gateway 时仍需不同路径或 hostname 路由。该切片的 fake
 client 和全仓源码验证已通过；真实 APISIX controller、DNS/Host 解析、IAM、Model 和
 Quota 尚未完成，因此不代表完整 create/stop/restart/update/delete 联调已验收。

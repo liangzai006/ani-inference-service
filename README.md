@@ -25,14 +25,20 @@ The composition defaults are:
 ANI_APISIX_GATEWAY_NAMESPACE=ingress-apisix
 ANI_APISIX_GATEWAY_NAME=ani-apisix
 ANI_APISIX_ROUTE_NAMESPACE=$ANI_INFERENCE_NAMESPACE
-ANI_APISIX_HOST_SUFFIX=models.example.com  # required; DNS must point to the APISIX public address
-ANI_APISIX_PUBLIC_SCHEME=http
+ANI_APISIX_PUBLIC_BASE_URL=http://10.10.1.67:30090  # required; use the APISIX public DNS URL in production
 ANI_APISIX_PATH_PREFIX=/v1
 ```
 
-The returned URL is `http://<service-id>.<ANI_APISIX_HOST_SUFFIX>/v1`.
-`ANI_APISIX_HOST_SUFFIX` is required when Kubernetes Publication is enabled; its DNS
-records must point to the APISIX public address. For a temporary NodePort smoke
-test, the host can be supplied as the HTTP `Host` header. The
-Publication adapter uses the inference-owned `-endpoint` Service and never
-calls the APISIX Admin API directly.
+The returned URL is `${ANI_APISIX_PUBLIC_BASE_URL}/v1`. The HTTPRoute is a
+catch-all route on the selected Gateway, so a temporary NodePort call works
+without a `Host` header:
+
+```bash
+curl http://10.10.1.67:30090/v1/models
+```
+
+Set `ANI_APISIX_PUBLIC_BASE_URL=https://models.example.com` when a DNS name points
+to the APISIX public address. If multiple models share one Gateway, they need
+different paths or hostname-based routes; identical `/v1` catch-all routes cannot
+be distinguished by an IP-only request. The Publication adapter uses the
+inference-owned `-endpoint` Service and never calls the APISIX Admin API directly.

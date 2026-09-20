@@ -142,7 +142,7 @@ func buildKubernetesServers(pool *pgxpool.Pool) ([]kratosTransport.Server, error
 	if namespace == "" {
 		return nil, fmt.Errorf("ANI_INFERENCE_NAMESPACE is required when ANI_KUBERNETES_ENABLED=true")
 	}
-	hostSuffix, err := requiredEnv("ANI_APISIX_HOST_SUFFIX")
+	publicBaseURL, err := requiredEnv("ANI_APISIX_PUBLIC_BASE_URL")
 	if err != nil {
 		return nil, err
 	}
@@ -171,8 +171,7 @@ func buildKubernetesServers(pool *pgxpool.Pool) ([]kratosTransport.Server, error
 		GatewayNamespace: envOrDefault("ANI_APISIX_GATEWAY_NAMESPACE", "ingress-apisix"),
 		GatewayName:      envOrDefault("ANI_APISIX_GATEWAY_NAME", "ani-apisix"),
 		RouteNamespace:   envOrDefault("ANI_APISIX_ROUTE_NAMESPACE", namespace),
-		HostSuffix:       hostSuffix,
-		Scheme:           envOrDefault("ANI_APISIX_PUBLIC_SCHEME", "http"),
+		PublicBaseURL:    publicBaseURL,
 		PathPrefix:       envOrDefault("ANI_APISIX_PATH_PREFIX", "/v1"),
 	}
 	operationStore := postgres.NewOperationStore(pool)

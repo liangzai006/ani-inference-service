@@ -33,7 +33,7 @@ func testPublisher(objects ...client.Object) *HTTPRoutePublisher {
 			Endpoint: &EndpointSpec{ContainerPort: 8080, ServicePort: 80, TargetPort: intstr.FromInt(8080)},
 		}}},
 		GatewayNamespace: "ingress-apisix", GatewayName: "ani-apisix",
-		RouteNamespace: "models", HostSuffix: "vllm.test", PathPrefix: "/v1",
+		RouteNamespace: "models", PublicBaseURL: "http://10.10.1.67:30090", PathPrefix: "/v1",
 	}
 }
 
@@ -58,11 +58,14 @@ func TestHTTPRoutePublisherPublishAndEndpoint(t *testing.T) {
 	if len(got.Spec.ParentRefs) != 1 || string(got.Spec.ParentRefs[0].Name) != "ani-apisix" {
 		t.Fatalf("parentRefs = %#v", got.Spec.ParentRefs)
 	}
+	if len(got.Spec.Hostnames) != 0 {
+		t.Fatalf("hostnames = %#v; want catch-all route", got.Spec.Hostnames)
+	}
 	if len(got.Spec.Rules) != 1 || len(got.Spec.Rules[0].BackendRefs) != 1 || string(got.Spec.Rules[0].BackendRefs[0].Name) != "model-endpoint" {
 		t.Fatalf("rules = %#v", got.Spec.Rules)
 	}
 	endpoint, err := p.Endpoint(ctx, pub)
-	if err != nil || endpoint != "http://service.vllm.test/v1" {
+	if err != nil || endpoint != "http://10.10.1.67:30090/v1" {
 		t.Fatalf("Endpoint() = %q, %v", endpoint, err)
 	}
 }
