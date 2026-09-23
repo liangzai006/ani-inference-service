@@ -33,7 +33,7 @@ func testEndpointDeletionAPI(t *testing.T, ctx context.Context, kube client.Clie
 	}
 	r := bindings.records[0]
 	binding := RuntimeBinding{Kind: r.Kind, Role: r.Role, Name: r.Name, Namespace: r.Namespace, UID: r.UID, ResourceVersion: r.ResourceVersion, Generation: r.Generation}
-	if binding.Kind != "Service" || binding.Role != "endpoint" || binding.Name != spec.Name+"-endpoint" || binding.UID == "" || binding.ResourceVersion == "" {
+	if binding.Kind != "Service" || binding.Role != "endpoint" || binding.Name != spec.ServiceID+"-endpoint" || binding.UID == "" || binding.ResourceVersion == "" {
 		t.Fatalf("invalid API binding: %+v", binding)
 	}
 	spec.Bindings = []RuntimeBinding{binding}

@@ -27,6 +27,17 @@ func TestModelRuntimeMountsVerifiedClaimAndProbesEngine(t *testing.T) {
 	}
 }
 
+func TestModelRuntimeDoesNotInjectEngineEnvironment(t *testing.T) {
+	spec := RuntimeSpec{TenantID: "tenant", ServiceID: "service", Name: "custom", Namespace: "ns", Image: "engine:fixed", Generation: 1, Replicas: 1, EngineRuntime: "vllm", ArtifactProvider: "model", ModelClaim: "claim", ContainerPort: 8000, ServiceProtocol: corev1.ProtocolTCP}
+	obj, err := Deployment(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := obj.Spec.Template.Spec.Containers[0].Env; len(got) != 0 {
+		t.Fatalf("renderer injected engine environment: %+v", got)
+	}
+}
+
 func TestModelRuntimeMountsOnLeaderWorkerSet(t *testing.T) {
 	spec := RuntimeSpec{TenantID: "tenant", ServiceID: "service", Name: "distributed", Namespace: "ns", Image: "engine:fixed", Generation: 1, Replicas: 1, WorkerReplicas: 1, RuntimeMode: "leader_worker_set", EngineRuntime: "custom-engine", ArtifactProvider: "model", ModelClaim: "claim", ContainerPort: 8000, ServiceProtocol: corev1.ProtocolTCP}
 	obj, err := LeaderWorkerSet(spec)

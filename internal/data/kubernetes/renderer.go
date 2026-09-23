@@ -186,7 +186,7 @@ func Service(spec RuntimeSpec) (*corev1.Service, error) {
 	if !validProtocol(spec.ServiceProtocol) {
 		return nil, fmt.Errorf("service protocol must be TCP, UDP or SCTP")
 	}
-	name := spec.Name + "-endpoint"
+	name := spec.ServiceID + "-endpoint"
 	if errs := validation.IsDNS1035Label(name); len(errs) > 0 {
 		return nil, fmt.Errorf("endpoint service name %q is invalid: %s", name, errs[0])
 	}

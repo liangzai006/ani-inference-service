@@ -33,7 +33,7 @@ func TestMaterializerRequiresVerifiedJobBeforeReady(t *testing.T) {
 	kc := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&batchv1.Job{}).Build()
 	v := readyVersion()
 	v.StoragePath = "tenant/model.tar"
-	api := &modelAPIFake{version: v, download: &modelv1.GetModelDownloadURLResponse{DownloadUrl: "https://storage/private?secret=redacted", StoragePath: v.StoragePath, ExpiresAt: timestamppb.New(time.Now().Add(time.Hour))}}
+	api := &modelAPIFake{version: v, download: &modelv1.GetModelDownloadURLResponse{DownloadUrl: "http://storage/private?secret=redacted", StoragePath: v.StoragePath, ExpiresAt: timestamppb.New(time.Now().Add(time.Hour))}}
 	spec := kube.RuntimeSpec{TenantID: "tenant", ServiceID: "service", Namespace: "ani-model-inference-test", Generation: 1, ModelVersionID: v.Id, ArtifactProvider: "model", ArtifactRef: v.StoragePath, ArtifactSHA256: v.ChecksumSha256, RuntimeMode: "deployment"}
 	m := &Materializer{Catalog: NewClient(api), Source: materializerSource{kube.DesiredRuntime{RuntimeSpec: spec}}, Client: kc, Reader: kc, Namespace: spec.Namespace, StorageClass: "cephfs", Image: "image@sha256:fixed"}
 	op := inference.OperationContext{TenantID: spec.TenantID, ServiceID: spec.ServiceID, TargetGeneration: 1, ID: "distinct-operation-id", LeaseToken: "lease"}
@@ -49,6 +49,15 @@ func TestMaterializerRequiresVerifiedJobBeforeReady(t *testing.T) {
 		t.Fatal("expected one materialization job", err)
 	}
 	job := &jobs.Items[0]
+	var maxBytes string
+	for _, env := range job.Spec.Template.Spec.Containers[0].Env {
+		if env.Name == "MODEL_MAX_BYTES" {
+			maxBytes = env.Value
+		}
+	}
+	if maxBytes != "3221225472" {
+		t.Fatalf("materializer max size=%q, want artifact size", maxBytes)
+	}
 	if strings.Contains(strings.Join(job.Spec.Template.Spec.Containers[0].Args, " "), "private?secret") {
 		t.Fatal("signed URL leaked in Job args")
 	}
@@ -97,4 +106,22 @@ func TestMaterializerRequiresVerifiedJobBeforeReady(t *testing.T) {
 		t.Fatal("cross tenant accepted")
 	}
 	_ = client.ObjectKey{}
+}
+
+func TestMaterializerRejectsUnknownArtifactSize(t *testing.T) {
+	ctx := context.Background()
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	_ = batchv1.AddToScheme(scheme)
+	kc := fake.NewClientBuilder().WithScheme(scheme).Build()
+	v := readyVersion()
+	v.StoragePath = "tenant/model.tar"
+	v.SizeBytes = 0
+	api := &modelAPIFake{version: v, download: &modelv1.GetModelDownloadURLResponse{DownloadUrl: "http://storage/private", StoragePath: v.StoragePath, ExpiresAt: timestamppb.New(time.Now().Add(time.Hour))}}
+	spec := kube.RuntimeSpec{TenantID: "tenant", ServiceID: "service", Namespace: "ani-model-inference-test", Generation: 1, ModelVersionID: v.Id, ArtifactProvider: "model", ArtifactRef: v.StoragePath, ArtifactSHA256: v.ChecksumSha256, RuntimeMode: "deployment"}
+	m := &Materializer{Catalog: NewClient(api), Source: materializerSource{kube.DesiredRuntime{RuntimeSpec: spec}}, Client: kc, Reader: kc, Namespace: spec.Namespace, StorageClass: "cephfs", Image: "image@sha256:fixed"}
+	op := inference.OperationContext{TenantID: spec.TenantID, ServiceID: spec.ServiceID, TargetGeneration: 1, ID: "unknown-size-operation", LeaseToken: "lease"}
+	if _, err := m.EnsureModel(ctx, op); err == nil || !strings.Contains(err.Error(), "artifact size must be positive") {
+		t.Fatalf("EnsureModel() error = %v, want positive artifact size error", err)
+	}
 }

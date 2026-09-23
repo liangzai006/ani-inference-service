@@ -188,6 +188,7 @@ func (o *Observability) ServerMiddleware(logger *slog.Logger) []middleware.Middl
 	return []middleware.Middleware{
 		recovery.Recovery(recovery.WithLogger(logger)),
 		metadata.Server(),
+		DirectTenantMiddleware(),
 		kratostracing.Server(kratostracing.WithTracerProvider(o.tracerProvider)),
 		logging.Server(logger),
 		kratosmetrics.Server(

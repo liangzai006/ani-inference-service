@@ -188,7 +188,7 @@ func TestRuntimeExecutorAppliesExplicitEndpointService(t *testing.T) {
 		t.Fatal(err)
 	}
 	var svc corev1.Service
-	if err := fc.Get(context.Background(), client.ObjectKey{Namespace: "ns", Name: "endpointed-endpoint"}, &svc); err != nil {
+	if err := fc.Get(context.Background(), client.ObjectKey{Namespace: "ns", Name: "service-a-endpoint"}, &svc); err != nil {
 		t.Fatal(err)
 	}
 	if svc.Spec.Ports[0].Port != 80 || svc.Spec.Ports[0].TargetPort.IntValue() != 9000 {

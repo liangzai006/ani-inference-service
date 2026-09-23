@@ -11,7 +11,13 @@ import urllib.request
 def main():
     root = pathlib.Path(os.environ.get("MODEL_ROOT", "/model"))
     expected = os.environ["MODEL_SHA256"].lower()
-    limit = 512 << 20
+    raw_limit = os.environ.get("MODEL_MAX_BYTES", "").strip()
+    try:
+        limit = int(raw_limit) if raw_limit else 0
+    except ValueError as error:
+        raise ValueError("invalid model size limit") from error
+    if limit < 0:
+        raise ValueError("invalid model size limit")
     target = root / "data"
     if target.exists():
         if (target / ".artifact-sha256").read_text().strip() == expected:
@@ -20,7 +26,7 @@ def main():
         raise ValueError("existing model does not match expected digest")
     url = os.environ["MODEL_DOWNLOAD_URL"]
     scheme = urllib.parse.urlsplit(url).scheme
-    if scheme != "https":
+    if scheme not in {"http", "https"}:
         raise ValueError("download transport is not allowed")
     digest, size = hashlib.sha256(), 0
     with tempfile.TemporaryFile(dir=root) as archive:
@@ -30,7 +36,7 @@ def main():
                 if not chunk:
                     break
                 size += len(chunk)
-                if size > limit:
+                if limit and size > limit:
                     raise ValueError("download exceeds size limit")
                 digest.update(chunk)
                 archive.write(chunk)
@@ -41,15 +47,21 @@ def main():
         names, extracted = set(), 0
         with tarfile.open(fileobj=archive, mode="r:") as bundle:
             for member in bundle:
-                path = pathlib.PurePosixPath(member.name)
-                if not member.isfile() or path.is_absolute() or ".." in path.parts or "\\" in member.name or member.name in names or member.name == ".artifact-sha256":
+                raw_name = member.name
+                path = pathlib.PurePosixPath(raw_name)
+                name = str(path)
+                if path.is_absolute() or ".." in path.parts or "\\" in raw_name or not name or name == ".artifact-sha256":
                     raise ValueError("unsafe bundle member")
-                if not member.name or str(path) != member.name:
+                if raw_name.startswith("/") or (name == "." and not member.isdir()):
                     raise ValueError("noncanonical bundle member")
+                if member.isdir():
+                    continue
+                if not member.isfile() or name in names:
+                    raise ValueError("unsafe bundle member")
                 extracted += member.size
-                if extracted > limit or len(names) >= 1024:
+                if (limit and extracted > limit) or len(names) >= 1024:
                     raise ValueError("bundle exceeds extraction limit")
-                names.add(member.name)
+                names.add(name)
                 dest = stage.joinpath(*path.parts)
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 with bundle.extractfile(member) as source, dest.open("xb") as output:

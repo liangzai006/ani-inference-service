@@ -198,7 +198,7 @@ func (r *Runner) runStep(ctx context.Context, op OperationContext) (stepResult, 
 
 	case string(StepReserveQuota):
 		if r.Quota == nil {
-			return stepResult{}, fmt.Errorf("%w: quota", ErrOperationProviderMissing)
+			return stepResult{phase: OperationRunning, step: string(StepApplyCR), event: "quota.skipped"}, nil
 		}
 		// A durable reservation may already have crossed the provider boundary
 		// before this worker lost its lease.  Never call Reserve again for a
@@ -277,7 +277,7 @@ func (r *Runner) runStep(ctx context.Context, op OperationContext) (stepResult, 
 
 	case string(StepReleasePreviousQuota):
 		if r.Quota == nil {
-			return stepResult{}, fmt.Errorf("%w: quota", ErrOperationProviderMissing)
+			return stepResult{phase: OperationRunning, step: string(StepReserveQuota), event: "previous_quota.skipped"}, nil
 		}
 		if op.PreviousReservation.ReservationID == "" {
 			return stepResult{phase: OperationRunning, step: string(StepReserveQuota), event: "previous_quota.none"}, nil
@@ -484,7 +484,7 @@ func (r *Runner) runStep(ctx context.Context, op OperationContext) (stepResult, 
 			return stepResult{phase: OperationSucceeded, step: string(StepComplete), event: "quota.none"}, nil
 		}
 		if r.Quota == nil {
-			return stepResult{}, fmt.Errorf("%w: quota", ErrOperationProviderMissing)
+			return stepResult{phase: OperationSucceeded, step: string(StepComplete), event: "quota.skipped"}, nil
 		}
 		if err := r.Quota.Release(ctx, op.Reservation); err != nil {
 			op.Reservation.State = "release_pending"
@@ -555,7 +555,7 @@ func operationState(phase OperationPhase, step, message string) []byte {
 }
 
 func operationEventID(op OperationContext, phase OperationPhase, step string) string {
-	return uuid.NewSHA1(uuid.NameSpaceOID, []byte(fmt.Sprintf("%s|%s|%s|%d", op.ID, phase, step, op.Attempt))).String()
+	return uuid.NewSHA1(uuid.NameSpaceOID, fmt.Appendf(nil, "%s|%s|%s|%d", op.ID, phase, step, op.Attempt)).String()
 }
 
 func validateReservation(op OperationContext, reservation quota.Reservation) error {

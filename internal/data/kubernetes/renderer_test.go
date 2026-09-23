@@ -126,6 +126,9 @@ func TestServiceRendersExplicitEndpointContract(t *testing.T) {
 	if obj.Spec.Ports[0].Port != 80 || obj.Spec.Ports[0].TargetPort.IntValue() != 8080 || obj.Spec.Ports[0].Protocol != corev1.ProtocolTCP {
 		t.Fatalf("service ports = %#v", obj.Spec.Ports)
 	}
+	if obj.Name != "service-a-endpoint" {
+		t.Fatalf("service name = %q, want service ID based endpoint", obj.Name)
+	}
 	if obj.Spec.Selector[generationLabel] != "4" {
 		t.Fatalf("service selector = %#v, want generation selector", obj.Spec.Selector)
 	}
@@ -161,6 +164,20 @@ func TestServiceNameAvoidsLWSHeadlessService(t *testing.T) {
 	}
 }
 
+func TestServiceNameIgnoresDisplayNameForDNSIdentity(t *testing.T) {
+	obj, err := Service(RuntimeSpec{
+		TenantID: "tenant-a", ServiceID: "service-a", Name: "qwen2.5-1.5b-instruct", Namespace: "ns",
+		Generation: 1, ContainerPort: 8080, ServicePort: 80,
+		TargetPort: intstr.FromInt(8080), ServiceProtocol: corev1.ProtocolTCP,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if obj.Name != "service-a-endpoint" {
+		t.Fatalf("service name = %q, want service-a-endpoint", obj.Name)
+	}
+}
+
 func TestLeaderWorkerSetServiceSelectsOnlyLeaders(t *testing.T) {
 	spec := RuntimeSpec{
 		TenantID: "tenant-a", ServiceID: "service-a", Name: "distributed", Namespace: "ns",
@@ -188,14 +205,14 @@ func TestLeaderWorkerSetServiceSelectsOnlyLeaders(t *testing.T) {
 	}
 }
 
-func TestServiceRejectsInvalidEndpointName(t *testing.T) {
-	for _, name := range []string{"not a DNS name", strings.Repeat("a", 63)} {
+func TestServiceRejectsInvalidEndpointServiceID(t *testing.T) {
+	for _, serviceID := range []string{"not a DNS name", strings.Repeat("a", 63)} {
 		_, err := Service(RuntimeSpec{
-			TenantID: "tenant-a", ServiceID: "service-a", Name: name, Namespace: "ns", Generation: 1,
+			TenantID: "tenant-a", ServiceID: serviceID, Name: "display-name", Namespace: "ns", Generation: 1,
 			ContainerPort: 8080, ServicePort: 80, TargetPort: intstr.FromInt(8080), ServiceProtocol: corev1.ProtocolTCP,
 		})
 		if err == nil {
-			t.Fatalf("Service accepted a name that cannot form a valid endpoint name: %q", name)
+			t.Fatalf("Service accepted a service ID that cannot form a valid endpoint name: %q", serviceID)
 		}
 	}
 }

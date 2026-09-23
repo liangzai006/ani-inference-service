@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	inferencev1 "github.com/zhangzhe-ctrl/ani-inference-service/api/inference/v1"
@@ -14,6 +15,20 @@ import (
 type fakeCreate struct{ in CreateInput }
 
 type fakeUpdate struct{ in inferencebiz.UpdateInput }
+
+func TestRequireTenantAllowsDirectRequestTenant(t *testing.T) {
+	got, err := RequireTenant(context.Background(), "tenant-a")
+	if err != nil || got != "tenant-a" {
+		t.Fatalf("tenant = %q, err = %v; want tenant-a", got, err)
+	}
+}
+
+func TestRequireTenantRejectsDirectTenantMismatch(t *testing.T) {
+	_, err := RequireTenant(WithTenantID(context.Background(), "tenant-a"), "tenant-b")
+	if !errors.Is(err, ErrTenantMismatch) {
+		t.Fatalf("error = %v, want tenant mismatch", err)
+	}
+}
 
 func (f *fakeUpdate) Update(_ context.Context, in inferencebiz.UpdateInput) (*inferencev1.OperationResponse, error) {
 	f.in = in

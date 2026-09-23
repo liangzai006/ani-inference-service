@@ -1,12 +1,37 @@
 # Inference 执行状态
 
-更新日期：2026-09-12。本文件是本设计包唯一当前进度入口。
+更新日期：2026-09-23。本文件是本设计包唯一当前进度入口。
+
+当前范围只包括 Model 协作、模型物化和 Inference 运行时；Notebook、Kubeflow
+用户工作流不属于当前交付范围。新集群先按请求中的 tenant 直接调用 Model/Inference，
+TLS、IAM 和可信身份接入暂不作为业务门禁。
+
+## 2026-09-23 新集群 Higress 验证
+
+- `pass`：Inference 进程默认启动 Kubernetes runtime，不再使用
+  `ANI_KUBERNETES_ENABLED` 开关；ServiceAccount、Role、RoleBinding、模型 PVC、Job、
+  Deployment、endpoint Service 和 Gateway API HTTPRoute 均由运行时创建/维护。
+- `pass`：新集群已用 Higress 2.2.4 完全替换 APISIX。固定入口为
+  `POST http://192.168.102.68:30090/v1/completions`；model-router 从 JSON `model`
+  设置 Header，HTTPRoute 以模型 Header 精确分流，旧环境未操作。
+- `pass`：SmolLM2-135M CPU 模型真实返回 HTTP 200 和非空文本，未知模型返回 404，
+  streaming 返回 SSE；Higress AI statistics 已记录模型、token、耗时和流式首 token
+  指标，Prometheus gateway target 为 `up`。
+- `pass`：按模型的本地请求保护限流已验证：临时设置 1 RPS 时四个并发请求得到
+  `200, 429, 429, 429`，随后恢复当前模型 10 RPS。IAM、用户/令牌身份和 token quota
+  暂不接入。
+- `limit`：当前新集群无 GPU；大模型仍受 CPU/内存容量约束，验证应串行执行。
+
+## 2026-09-22 新集群验证
+
+- `pass`：Inference 控制面已在新集群部署并就绪；物化下载 Job 接受 HTTP/HTTPS，下载和解压上限取 Model 版本的 `size_bytes`，不再使用固定 512 MiB 上限。
+- `partial`（历史快照）：真实 Model 导入、版本制品物化、InferenceService 创建、模型运行时和推理请求已在上方 2026-09-23 条目完成；本节保留当日快照。
 
 最新纠错：已修复 LWS worker 计数（排除 leader、终止/非 Running Pod，并按
 group/worker 位置去重）；endpoint Service 使用独立的 `-endpoint` 名称且在
 LWS 模式只选择 leader，避免占用 LWS controller 自有的 headless Service。
 异步 operation 审计上下文现从持久 acceptance 事件恢复，step/retry 事件携带
-Actor、RequestID 和 before/after 状态；IAM 可信主体接线仍未验证。
+Actor、RequestID 和 before/after 状态。
 当前业务 operation 在发布确认后即可完成；Kubernetes startup/readiness probe
 负责进程和模型运行状态。独立 invocation probe 属于可选的数据面运维检查，当前不
 作为 Inference 业务门禁，也不接入正式进程。历史 `000011_invocation_verification.sql`
@@ -43,8 +68,8 @@ gRPC/PG/CRD 已补齐 `served_model_name` 读写，controller-runtime 已注册 
 runtime watch；Job watch 目前只负责唤醒 PostgreSQL 持久 work，Job apply/观察/binding
 仍未接入，不能据此宣称 Job 生命周期完成。
 已补齐 tenant-scoped `ListOperations` 及 keyset 分页；异步 step 审计已从持久
-acceptance 事件恢复 actor/request 上下文并写入 before/after 状态，IAM 可信主体
-注入和跨服务审计汇总仍未验证，详见[审计上下文记录](records/2026-09-12-audit-context.md)。
+acceptance 事件恢复 actor/request 上下文并写入 before/after 状态，跨服务审计汇总仍未
+验证，详见[审计上下文记录](records/2026-09-12-audit-context.md)。
 调用限流尚未在控制面实现，按责任表保留给推理数据面/Envoy，等待发布配置消费契约。
 worker 已增加低基数 OTel 计数器：claim、空扫描、完成、重试和失败，error_class
 仅使用固定类别；WorkStore 还提供 PG backlog、最老工作年龄和 observation stale
@@ -71,7 +96,7 @@ worker 已增加低基数 OTel 计数器：claim、空扫描、完成、重试�
 
 跨代 PG 生命周期已通过：`create → update → restart → stop → start → stop → delete`；新代发布不会覆盖旧代，配额释放结果已落库后的重试不会再次释放，删除 tombstone 后可正常确认 work。已验证发布/释放结果落库与 operation 完成之间的注入中断恢复；最终全量 Go 测试（含真实 PG）、vet、build 通过，见[跨代生命周期记录](records/2026-09-12-replacement-lifecycle.md)。
 
-配额请求现在保留单容器 `requests/limits`，并从不可变 spec 派生 aggregate demand：Deployment 按 replicas，LWS 按 `replicas × (worker_replicas + leader)`；不复制 Core 配额账本。模型事实现在区分 `model_ready_known` 与 ready 值，不由 Kubernetes runtime observer 推断。真实 authority adapter 和 IAM、Service endpoint 的真实 API/数据面确认、模型加载、调用健康和限流接线仍未实现。恢复测试仅运行随机租户的修复子路径，避免全库 Notify；业务操作的正式进程重启、真实 provider 成功但本地结果未落库、真实 K8s/LWS/引擎/数据面仍为 `not_verified`。
+配额请求现在保留单容器 `requests/limits`，并从不可变 spec 派生 aggregate demand：Deployment 按 replicas，LWS 按 `replicas × (worker_replicas + leader)`；不复制 Core 配额账本。模型事实现在区分 `model_ready_known` 与 ready 值，不由 Kubernetes runtime observer 推断。真实 authority adapter、Service endpoint 的真实 API/数据面确认、模型加载、调用健康和限流接线仍未实现。恢复测试仅运行随机租户的修复子路径，避免全库 Notify；业务操作的正式进程重启、真实 provider 成功但本地结果未落库、真实 K8s/LWS/引擎/数据面仍为 `not_verified`。
 
 配额聚合证据见[配额聚合记录](records/2026-09-12-quota-aggregate-demand.md)：真实 PG 生命周期测试中，初始 Deployment 为 1 unit，切换到 1 个 LWS group/3 workers 后为 4 units；这里只验证本地需求计算，Core authority 结算仍未接入。
 
@@ -163,13 +188,11 @@ recovery 仍保持 `not_verified`。
 
 新增 PG-backed gRPC 边界证据：正式进程未注入 tenant context 时，真实 gRPC
 `GetInferenceService` 返回 `Unauthenticated: tenant identity is required`，未写数据库；
-临时进程随后已停止。gRPC transport 和 tenant trust boundary pass，IAM 正式 middleware
-接线仍为 `not_verified`。
+临时进程随后已停止。gRPC transport 和显式请求 tenant context pass。
 
 gRPC identity wiring review：正式 middleware 只有 recovery/metadata/tracing/logging/
-metrics/validation，不把普通 header 当可信 tenant/Actor；业务 RPC 仅接受显式 IAM
-adapter 注入的 context。PG-backed 未认证 RPC 已返回 `Unauthenticated`。IAM 正式身份
-注入契约仍为 `not_verified`，没有伪造接线。
+metrics/validation；业务 RPC 需要显式 tenant context。PG-backed 未提供 tenant context
+的 RPC 已返回 `Unauthenticated`，当前不接入外部身份系统。
 
 新增隔离 envtest 真实 API 证据：临时容器使用 Kubernetes 1.36.2 envtest assets 启动
 私有 API server/etcd，`TestRuntimeExecutorCRFencingEnvtest/endpoint_deletion_and_observation`
@@ -178,7 +201,7 @@ adapter 注入的 context。PG-backed 未认证 RPC 已返回 `Unauthenticated`�
 
 本轮继续验证：无外部依赖的全仓 `go test -p 1 ./... -count=1`、`go vet -p 1 ./...`
 和 `go build -p 1 ./...` 均通过。该结果只证明当前源码和本地 fake/单元路径没有回归；
-真实 quota、Model/Storage、IAM、数据面、Pod/GPU、多节点 LWS 以及进程级 operation
+真实 quota、Model/Storage、数据面、Pod/GPU、多节点 LWS 以及进程级 operation
 重启恢复仍保持 `not_verified`，未把 Network 的 informer 观察证据替代 Inference 的
 运行时控制证据。
 
@@ -194,7 +217,7 @@ fencing、状态投影并发隔离、官方 LWS controller 创建 StatefulSet、
 列表、quota resources、operation step CAS、runtime binding UID/RV、publication
 generation、status/control identity、Update generation CAS、resource_work lease、
 启动恢复和 repair。未迁移、清库或修改旧仓库；外部 quota authority、Model/Storage、
-IAM、数据面和进程级正式重启仍为 `not_verified`。
+数据面和进程级正式重启仍为 `not_verified`。
 
 本轮修复正式进程 readiness 门禁：配置 PostgreSQL 但未启用 Kubernetes worker 时，
 进程不再因缺少 background server 而初始 ready；否则可能接受已落库但永远无人执行的
@@ -211,7 +234,7 @@ generation/CAS、runtime binding、publication、resource_work lease/recovery �
 Delete/GetOperation/ListOperations 均有实现；扫描到的 provider/work/controller 门禁
 错误均为显式依赖缺失路径，没有隐藏成功或未处理 TODO。核心 service、operation、worker
 和 Kubernetes 包定向测试通过；外部 quota、Model/Storage、publication/data-plane、
-IAM 和真实调度依赖继续保持 `not_verified`。
+真实调度依赖继续保持 `not_verified`。
 
 2026-09-14 当前集群真实 GPU 验证：在专用 namespace 创建唯一 Pod，requests/limits
 均为 `nvidia.com/gpu: "1"`，调度到 `dev-phys-02` 并达到 Running/Ready；容器内
@@ -244,7 +267,7 @@ LeaderWorkerSet，官方 LWS v0.10.0 controller 成功创建 StatefulSet，3 个
 ### 2026-09-14：正式外部 Model/Quota 依赖边界（pass/not_verified）
 
 - 已确认：正式路径不使用固定模型、固定配额或 `development profile`；Inference 仅保存外部 Model/Quota 权威返回的引用和结果。
-- 已确认：Model、Quota、Publication、IAM 必须通过版本化外部契约接入；provider 未配置时业务 readiness 保持失败。
+- 已确认：Model、Quota、Publication 通过版本化外部契约接入；provider 未配置时业务 readiness 保持失败。
 - `pass`：本地 provider 接口、持久 operation 状态机和 readiness gate 已存在。
 - `not_verified`：真实 endpoint、协议、鉴权、幂等、结算回查及模型制品可用性。
 - 证据：[2026-09-14-formal-provider-boundary.md](records/2026-09-14-formal-provider-boundary.md)
@@ -263,15 +286,12 @@ LeaderWorkerSet，官方 LWS v0.10.0 controller 成功创建 StatefulSet，3 个
 - `not_verified`：新 Model 服务 Proto、endpoint、鉴权和真实联调。
 - 证据：[2026-09-14-model-legacy-contract-compatibility.md](records/2026-09-14-model-legacy-contract-compatibility.md)
 
-2026-09-19 新增生产 Publication Kubernetes 适配器：Inference 组合根现在注入
-`HTTPRoutePublisher`。publish 会按 tenant/service/generation 生成确定性 HTTPRoute，引用
-Inference-owned `-endpoint` Service 和 APISIX Gateway；withdraw 使用 UID/resourceVersion
+2026-09-19 新增生产 Publication Kubernetes 适配器（历史记录）：Inference 组合根现在注入
+`HTTPRoutePublisher`。当前实现引用 Higress Gateway，按固定 `/v1/completions` 路径和
+`x-higress-llm-model` 精确 Header 为每个模型分流；withdraw 使用 UID/resourceVersion
 前置条件删除并等待路由消失；published 只在目标 Gateway parent 同时报告
-`Accepted=True`、`ResolvedRefs=True` 后确认。HTTPRoute 现在按 Gateway catch-all 路径匹配；外部返回地址由必填的
-`ANI_APISIX_PUBLIC_BASE_URL` 和路径前缀组成，当前 NodePort 可直接调用而不需要 Host
-header。多个模型共用同一 Gateway 时仍需不同路径或 hostname 路由。该切片的 fake
-client 和全仓源码验证已通过；真实 APISIX controller、DNS/Host 解析、IAM、Model 和
-Quota 尚未完成，因此不代表完整 create/stop/restart/update/delete 联调已验收。
+`Accepted=True`、`ResolvedRefs=True` 后确认。旧 APISIX 说明仅属于当日历史设计，不是新集群
+当前运行时配置。
 
 Model 物化组合接线已补齐：配置 `ANI_MODEL_GRPC_ADDR` 和 fetcher image 后，Kubernetes
 runner 会调用 Model 的 `GetModelVersion`/`GetModelDownloadURL`，创建带校验摘要的 RWX

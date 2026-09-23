@@ -37,7 +37,11 @@ func buildAppWithAllDependenciesAndBackground(bc *inferencev1.Bootstrap, logger 
 	referenceReader, _ := read.(inferencebiz.ModelReferenceReader)
 	inferencev1.RegisterModelReferenceServiceServer(grpcServer, service.NewModelReferenceServer(referenceReader))
 	adminServer := server.NewAdminServer(bc.Server.Admin, readiness, observability.Gatherer(), middlewares...)
-	return newApp(logger, grpcServer, adminServer, readiness, observability, bc.Server.ShutdownTimeout.AsDuration(), false, background...), nil
+	return newApp(logger, grpcServer, adminServer, readiness, observability, bc.Server.ShutdownTimeout.AsDuration(), readyOnStartForBackground(background), background...), nil
+}
+
+func readyOnStartForBackground(background []kratosTransport.Server) bool {
+	return len(background) == 0
 }
 
 func newApp(

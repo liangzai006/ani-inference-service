@@ -2,6 +2,7 @@ package model
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	inferencev1 "github.com/zhangzhe-ctrl/ani-inference-service/api/inference/v1"
@@ -39,12 +40,28 @@ func TestCreateRejectsUnreadyModelBeforeWriting(t *testing.T) {
 		t.Fatal("pending model reached persistence")
 	}
 }
-func TestCreateRejectsConflictingArtifactOrCommand(t *testing.T) {
-	for _, in := range []inference.CreateInput{{ArtifactRef: "wrong"}, {ArtifactSHA256: "wrong"}, {CommandArgv: []string{"arbitrary"}}, {EngineRuntime: "different"}} {
+func TestCreateRejectsConflictingArtifact(t *testing.T) {
+	for _, in := range []inference.CreateInput{{ArtifactRef: "wrong"}, {ArtifactSHA256: "wrong"}} {
 		in.TenantID, in.ModelVersionID = "tenant", "version-id"
 		next := &createCapture{}
 		if _, err := NewCreateUseCase(NewClient(&modelAPIFake{version: readyVersion()}), next).Create(context.Background(), in); err == nil || next.called {
-			t.Fatal("conflicting override reached persistence")
+			t.Fatal("conflicting artifact reached persistence")
 		}
+	}
+}
+
+func TestCreatePreservesCallerEngineConfiguration(t *testing.T) {
+	next := &createCapture{}
+	in := inference.CreateInput{
+		TenantID:       "tenant",
+		ModelVersionID: "version-id",
+		EngineRuntime:  "custom-runtime",
+		CommandArgv:    []string{"custom-server", "--model", "/models", "--max-model-len", "8192", "--served-model-name", "custom-qwen"},
+	}
+	if _, err := NewCreateUseCase(NewClient(&modelAPIFake{version: readyVersion()}), next).Create(context.Background(), in); err != nil {
+		t.Fatal(err)
+	}
+	if !next.called || next.in.EngineRuntime != in.EngineRuntime || !slices.Equal(next.in.CommandArgv, in.CommandArgv) {
+		t.Fatalf("caller engine configuration was changed: %+v", next.in)
 	}
 }

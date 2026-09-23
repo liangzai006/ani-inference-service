@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 
 	inference "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/inference"
@@ -53,6 +54,9 @@ func (m *Materializer) EnsureModel(ctx context.Context, op inference.OperationCo
 	}
 	if snapshot.ArtifactRef != spec.ArtifactRef || snapshot.ArtifactSHA256 != spec.ArtifactSHA256 {
 		return unknown, fmt.Errorf("Model artifact differs from immutable Inference snapshot")
+	}
+	if snapshot.ArtifactSizeBytes <= 0 {
+		return unknown, fmt.Errorf("Model artifact size must be positive")
 	}
 	reader := m.Reader
 	if reader == nil {
@@ -135,7 +139,7 @@ func (m *Materializer) EnsureModel(ctx context.Context, op inference.OperationCo
 	if err != nil {
 		return unknown, err
 	}
-	if download.StoragePath != spec.ArtifactRef || !strings.HasPrefix(download.URL, "https:") {
+	if download.StoragePath != spec.ArtifactRef || (!strings.HasPrefix(download.URL, "http:") && !strings.HasPrefix(download.URL, "https:")) {
 		return unknown, fmt.Errorf("model download identity or transport mismatch")
 	}
 	secret := &corev1.Secret{}
@@ -158,7 +162,7 @@ func (m *Materializer) EnsureModel(ctx context.Context, op inference.OperationCo
 	}
 	if jobMissing {
 		annotations["ani.kubercloud.com/model-claim-uid"] = string(claim.UID)
-		job = &batchv1.Job{ObjectMeta: meta(name + "-fetch"), Spec: batchv1.JobSpec{BackoffLimit: ptr.To(int32(2)), ActiveDeadlineSeconds: ptr.To(int64(600)), Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: labels}, Spec: corev1.PodSpec{RestartPolicy: corev1.RestartPolicyNever, AutomountServiceAccountToken: ptr.To(false), Volumes: []corev1.Volume{{Name: "model", VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: name}}}}, Containers: []corev1.Container{{Name: "download", Image: m.Image, Command: []string{"python3"}, Args: []string{"-c", downloadBundle}, VolumeMounts: []corev1.VolumeMount{{Name: "model", MountPath: "/model"}}, Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("100m"), corev1.ResourceMemory: resource.MustParse("128Mi")}, Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourceMemory: resource.MustParse("512Mi")}}, Env: []corev1.EnvVar{{Name: "MODEL_SHA256", Value: spec.ArtifactSHA256}, {Name: "MODEL_DOWNLOAD_URL", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: secret.Name}, Key: "url"}}}}}}}}}}
+		job = &batchv1.Job{ObjectMeta: meta(name + "-fetch"), Spec: batchv1.JobSpec{BackoffLimit: ptr.To(int32(2)), ActiveDeadlineSeconds: ptr.To(int64(600)), Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: labels}, Spec: corev1.PodSpec{RestartPolicy: corev1.RestartPolicyNever, AutomountServiceAccountToken: ptr.To(false), Volumes: []corev1.Volume{{Name: "model", VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: name}}}}, Containers: []corev1.Container{{Name: "download", Image: m.Image, Command: []string{"python3"}, Args: []string{"-c", downloadBundle}, VolumeMounts: []corev1.VolumeMount{{Name: "model", MountPath: "/model"}}, Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("100m"), corev1.ResourceMemory: resource.MustParse("128Mi")}, Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourceMemory: resource.MustParse("512Mi")}}, Env: []corev1.EnvVar{{Name: "MODEL_SHA256", Value: spec.ArtifactSHA256}, {Name: "MODEL_MAX_BYTES", Value: strconv.FormatInt(snapshot.ArtifactSizeBytes, 10)}, {Name: "MODEL_DOWNLOAD_URL", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: secret.Name}, Key: "url"}}}}}}}}}}
 		if err = m.Client.Create(ctx, job); err != nil {
 			return unknown, err
 		}

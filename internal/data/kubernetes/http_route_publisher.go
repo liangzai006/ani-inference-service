@@ -19,8 +19,8 @@ import (
 )
 
 // HTTPRoutePublisher owns the HTTPRoute boundary for one Inference service.
-// APISIX is deliberately reached through the Gateway API; this adapter never
-// calls the APISIX Admin API directly.
+// Higress is reached through the Gateway API; this adapter never calls a
+// gateway-specific admin API directly.
 type HTTPRoutePublisher struct {
 	Client    client.Client
 	APIReader client.Reader
@@ -48,6 +48,9 @@ func (p *HTTPRoutePublisher) Publish(ctx context.Context, pub publication.Public
 	if err != nil {
 		return err
 	}
+	if strings.TrimSpace(desired.ServedModelName) == "" {
+		return errors.New("publication served model name is required")
+	}
 	if desired.Namespace == "" || desired.Name == "" {
 		return errors.New("publication runtime namespace and name are required")
 	}
@@ -62,7 +65,7 @@ func (p *HTTPRoutePublisher) Publish(ctx context.Context, pub publication.Public
 		return fmt.Errorf("publication backend service port %d is invalid", servicePort)
 	}
 	routeNamespace := p.routeNamespace(desired.Namespace)
-	route := p.route(pub, routeNamespace, desired.Name+"-endpoint", servicePort)
+	route := p.route(pub, routeNamespace, pub.ServiceID+"-endpoint", servicePort, desired.ServedModelName)
 	reader := p.reader()
 	current := &gatewayv1.HTTPRoute{}
 	key := client.ObjectKey{Namespace: routeNamespace, Name: route.GetName()}
@@ -210,7 +213,7 @@ func (p *HTTPRoutePublisher) emptyRoute(pub publication.Publication, namespace s
 	}
 }
 
-func (p *HTTPRoutePublisher) route(pub publication.Publication, namespace, backendName string, backendPort int32) *gatewayv1.HTTPRoute {
+func (p *HTTPRoutePublisher) route(pub publication.Publication, namespace, backendName string, backendPort int32, servedModelName string) *gatewayv1.HTTPRoute {
 	route := p.emptyRoute(pub, namespace)
 	route.SetLabels(map[string]string{
 		tenantIDLabel:                   pub.TenantID,
@@ -220,6 +223,7 @@ func (p *HTTPRoutePublisher) route(pub publication.Publication, namespace, backe
 	})
 	pathType := gatewayv1.PathMatchPathPrefix
 	path := p.pathPrefix()
+	headerType := gatewayv1.HeaderMatchExact
 	weight := int32(1)
 	port := gatewayv1.PortNumber(backendPort)
 	route.Spec = gatewayv1.HTTPRouteSpec{
@@ -229,7 +233,10 @@ func (p *HTTPRoutePublisher) route(pub publication.Publication, namespace, backe
 			SectionName: ptr.To(gatewayv1.SectionName("http")),
 		}}},
 		Rules: []gatewayv1.HTTPRouteRule{{
-			Matches: []gatewayv1.HTTPRouteMatch{{Path: &gatewayv1.HTTPPathMatch{Type: &pathType, Value: &path}}},
+			Matches: []gatewayv1.HTTPRouteMatch{{
+				Path:    &gatewayv1.HTTPPathMatch{Type: &pathType, Value: &path},
+				Headers: []gatewayv1.HTTPHeaderMatch{{Type: &headerType, Name: "x-higress-llm-model", Value: servedModelName}},
+			}},
 			BackendRefs: []gatewayv1.HTTPBackendRef{{
 				BackendRef: gatewayv1.BackendRef{
 					BackendObjectReference: gatewayv1.BackendObjectReference{
@@ -268,7 +275,7 @@ func routeName(pub publication.Publication) string {
 func (p *HTTPRoutePublisher) pathPrefix() string {
 	path := strings.TrimSpace(p.PathPrefix)
 	if path == "" {
-		path = "/v1"
+		path = "/v1/completions"
 	}
 	if !strings.HasPrefix(path, "/") {
 		path = "/" + path

@@ -2,6 +2,7 @@ package model
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	inferencev1 "github.com/zhangzhe-ctrl/ani-inference-service/api/inference/v1"
@@ -38,5 +39,21 @@ func TestUpdateRejectsUnreadyModelBeforeWriting(t *testing.T) {
 	_, err := NewUpdateUseCase(NewClient(&modelAPIFake{version: v}), next).Update(context.Background(), inference.UpdateInput{TenantID: "tenant", ModelVersionID: v.Id})
 	if err == nil || next.called {
 		t.Fatal("pending model reached persistence")
+	}
+}
+
+func TestUpdatePreservesCallerEngineConfiguration(t *testing.T) {
+	next := &updateCapture{}
+	in := inference.UpdateInput{
+		TenantID:       "tenant",
+		ModelVersionID: "version-id",
+		EngineRuntime:  "custom-runtime",
+		CommandArgv:    []string{"custom-server", "--model", "/models", "--max-model-len", "8192", "--served-model-name", "custom-qwen"},
+	}
+	if _, err := NewUpdateUseCase(NewClient(&modelAPIFake{version: readyVersion()}), next).Update(context.Background(), in); err != nil {
+		t.Fatal(err)
+	}
+	if !next.called || next.in.EngineRuntime != in.EngineRuntime || !slices.Equal(next.in.CommandArgv, in.CommandArgv) {
+		t.Fatalf("caller engine configuration was changed: %+v", next.in)
 	}
 }

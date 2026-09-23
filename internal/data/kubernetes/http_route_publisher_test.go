@@ -30,10 +30,11 @@ func testPublisher(objects ...client.Object) *HTTPRoutePublisher {
 		Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build(),
 		Source: publicationRuntimeSource{desired: DesiredRuntime{RuntimeSpec: RuntimeSpec{
 			TenantID: "tenant", ServiceID: "service", Name: "model", Namespace: "models",
-			Endpoint: &EndpointSpec{ContainerPort: 8080, ServicePort: 80, TargetPort: intstr.FromInt(8080)},
+			ServedModelName: "served-model",
+			Endpoint:        &EndpointSpec{ContainerPort: 8080, ServicePort: 80, TargetPort: intstr.FromInt(8080)},
 		}}},
-		GatewayNamespace: "ingress-apisix", GatewayName: "ani-apisix",
-		RouteNamespace: "models", PublicBaseURL: "http://10.10.1.67:30090", PathPrefix: "/v1",
+		GatewayNamespace: "ingress-higress", GatewayName: "ani-higress",
+		RouteNamespace: "models", PublicBaseURL: "http://10.10.1.67:30090", PathPrefix: "/v1/completions",
 	}
 }
 
@@ -55,17 +56,27 @@ func TestHTTPRoutePublisherPublishAndEndpoint(t *testing.T) {
 	if got.GetLabels()[serviceIDLabel] != "service" {
 		t.Fatalf("route labels = %#v", got.GetLabels())
 	}
-	if len(got.Spec.ParentRefs) != 1 || string(got.Spec.ParentRefs[0].Name) != "ani-apisix" {
+	if len(got.Spec.ParentRefs) != 1 || string(got.Spec.ParentRefs[0].Name) != "ani-higress" {
 		t.Fatalf("parentRefs = %#v", got.Spec.ParentRefs)
 	}
 	if len(got.Spec.Hostnames) != 0 {
 		t.Fatalf("hostnames = %#v; want catch-all route", got.Spec.Hostnames)
 	}
-	if len(got.Spec.Rules) != 1 || len(got.Spec.Rules[0].BackendRefs) != 1 || string(got.Spec.Rules[0].BackendRefs[0].Name) != "model-endpoint" {
+	if len(got.Spec.Rules) != 1 || len(got.Spec.Rules[0].BackendRefs) != 1 || string(got.Spec.Rules[0].BackendRefs[0].Name) != "service-endpoint" {
 		t.Fatalf("rules = %#v", got.Spec.Rules)
 	}
+	if len(got.Spec.Rules[0].Matches) != 1 {
+		t.Fatalf("matches = %#v", got.Spec.Rules[0].Matches)
+	}
+	match := got.Spec.Rules[0].Matches[0]
+	if match.Path == nil || match.Path.Type == nil || *match.Path.Type != gatewayv1.PathMatchPathPrefix || match.Path.Value == nil || *match.Path.Value != "/v1/completions" {
+		t.Fatalf("path match = %#v", match.Path)
+	}
+	if len(match.Headers) != 1 || match.Headers[0].Name != "x-higress-llm-model" || match.Headers[0].Value != "served-model" || match.Headers[0].Type == nil || *match.Headers[0].Type != gatewayv1.HeaderMatchExact {
+		t.Fatalf("header match = %#v", match.Headers)
+	}
 	endpoint, err := p.Endpoint(ctx, pub)
-	if err != nil || endpoint != "http://10.10.1.67:30090/v1" {
+	if err != nil || endpoint != "http://10.10.1.67:30090/v1/completions" {
 		t.Fatalf("Endpoint() = %q, %v", endpoint, err)
 	}
 }
@@ -73,9 +84,9 @@ func TestHTTPRoutePublisherPublishAndEndpoint(t *testing.T) {
 func TestHTTPRoutePublisherConfirmPublishedRequiresBothConditions(t *testing.T) {
 	pub := testPublication()
 	p := testPublisher()
-	route := p.route(pub, "models", "model-endpoint", 80)
+	route := p.route(pub, "models", "service-endpoint", 80, "served-model")
 	route.Status.Parents = []gatewayv1.RouteParentStatus{{
-		ParentRef:  gatewayv1.ParentReference{Name: gatewayv1.ObjectName("ani-apisix"), Namespace: ptrNamespace("ingress-apisix")},
+		ParentRef:  gatewayv1.ParentReference{Name: gatewayv1.ObjectName("ani-higress"), Namespace: ptrNamespace("ingress-higress")},
 		Conditions: []metav1.Condition{{Type: string(gatewayv1.RouteConditionAccepted), Status: metav1.ConditionTrue}},
 	}}
 	if err := p.Client.Create(context.Background(), route); err != nil {
@@ -95,11 +106,22 @@ func TestHTTPRoutePublisherConfirmPublishedRequiresBothConditions(t *testing.T) 
 	}
 }
 
+func TestHTTPRoutePublisherRejectsEmptyServedModelName(t *testing.T) {
+	p := testPublisher()
+	p.Source = publicationRuntimeSource{desired: DesiredRuntime{RuntimeSpec: RuntimeSpec{
+		TenantID: "tenant", ServiceID: "service", Name: "model", Namespace: "models",
+		Endpoint: &EndpointSpec{ContainerPort: 8080, ServicePort: 80, TargetPort: intstr.FromInt(8080)},
+	}}}
+	if err := p.Publish(context.Background(), testPublication()); err == nil {
+		t.Fatal("Publish() error = nil, want empty served model rejection")
+	}
+}
+
 func TestHTTPRoutePublisherWithdrawIsFencedAndConvergent(t *testing.T) {
 	ctx := context.Background()
 	pub := testPublication()
 	p := testPublisher()
-	route := p.route(pub, "models", "model-endpoint", 80)
+	route := p.route(pub, "models", "service-endpoint", 80, "served-model")
 	route.SetUID("route-uid")
 	if err := p.Client.Create(ctx, route); err != nil {
 		t.Fatalf("create route: %v", err)

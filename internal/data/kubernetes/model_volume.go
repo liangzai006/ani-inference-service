@@ -28,9 +28,6 @@ func mountModel(pod *corev1.PodSpec, spec RuntimeSpec) error {
 	}
 	c := &pod.Containers[0]
 	c.VolumeMounts = []corev1.VolumeMount{{Name: "model", MountPath: "/models", SubPath: "data", ReadOnly: true}, {Name: "shm", MountPath: "/dev/shm"}}
-	if spec.EngineRuntime == "vllm" {
-		c.Env = append(c.Env, corev1.EnvVar{Name: "HF_HUB_OFFLINE", Value: "1"}, corev1.EnvVar{Name: "TRANSFORMERS_OFFLINE", Value: "1"})
-	}
 	handler := corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/health", Port: intstr.FromInt32(spec.ContainerPort)}}
 	c.StartupProbe = &corev1.Probe{ProbeHandler: handler, PeriodSeconds: 5, TimeoutSeconds: 3, FailureThreshold: 120}
 	c.ReadinessProbe = &corev1.Probe{ProbeHandler: handler, PeriodSeconds: 5, TimeoutSeconds: 3, FailureThreshold: 3}

@@ -113,6 +113,17 @@ func (s *RuntimeSource) CurrentRuntime(ctx context.Context, tenantID, serviceID 
 	if err != nil {
 		return kube.DesiredRuntime{}, err
 	}
+	// A replacement operation deletes the previous generation before it can
+	// apply the target generation. Until that apply records new bindings, the
+	// target generation has no rows; retain the previous bindings as the fence
+	// for the delete/absence steps. Once target bindings exist, they are the
+	// authoritative set.
+	if len(bindings) == 0 && generation > 1 {
+		bindings, err = q.ListCurrentRuntimeBindings(ctx, ListCurrentRuntimeBindingsParams{TenantID: tenant, ServiceID: service, Generation: generation - 1})
+		if err != nil {
+			return kube.DesiredRuntime{}, err
+		}
+	}
 	runtimeRow, err := q.GetRuntime(ctx, GetRuntimeParams{TenantID: tenant, ServiceID: service})
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return kube.DesiredRuntime{}, err

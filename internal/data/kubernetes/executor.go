@@ -91,6 +91,10 @@ type RuntimeExecutor struct {
 	Source       DesiredRuntimeSource
 	Bindings     BindingStore
 	FieldManager string
+	// RequireQuota keeps the external quota gate opt-in. The current new
+	// cluster runs without IAM/quota integration, so runtime reconciliation
+	// must not manufacture or require a fixed quota reservation.
+	RequireQuota bool
 }
 
 var _ bizreconcile.Runtime = (*RuntimeExecutor)(nil)
@@ -168,7 +172,7 @@ func (e *RuntimeExecutor) ApplyRuntime(ctx context.Context, op bizinference.Oper
 	if err != nil {
 		return err
 	}
-	if !spec.QuotaReserved {
+	if e.RequireQuota && !spec.QuotaReserved {
 		return errors.New("quota reservation must be confirmed before runtime apply")
 	}
 	binding, err := runtimeBindingForMode(spec)
@@ -348,7 +352,7 @@ func (e *RuntimeExecutor) Ensure(ctx context.Context, desired bizreconcile.Desir
 
 	switch spec.DesiredState {
 	case "", "running":
-		if !spec.QuotaReserved {
+		if e.RequireQuota && !spec.QuotaReserved {
 			return bizreconcile.Observation{}, errors.New("quota reservation must be confirmed before runtime apply")
 		}
 		controlBinding := controlBindingForSpec(spec)

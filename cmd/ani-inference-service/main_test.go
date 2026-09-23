@@ -7,6 +7,15 @@ import (
 	"testing"
 )
 
+func TestKubernetesRuntimeConfigurationIsMandatory(t *testing.T) {
+	t.Setenv("ANI_INFERENCE_NAMESPACE", "")
+
+	_, err := configureKubernetesRuntime(nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "ANI_INFERENCE_NAMESPACE") {
+		t.Fatalf("configureKubernetesRuntime() error = %v, want missing namespace", err)
+	}
+}
+
 func TestRuntimeLoggerUsesKratosRedaction(t *testing.T) {
 	var output bytes.Buffer
 	logger := newRuntimeLogger(&output)

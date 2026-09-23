@@ -13,11 +13,15 @@ import (
 )
 
 func TestBundleDownloaderValidatesChecksumAndSafeCompleteArchive(t *testing.T) {
-	for _, kind := range []string{"valid", "checksum", "traversal", "symlink", "incomplete"} {
+	for _, kind := range []string{"valid", "dotprefix", "checksum", "traversal", "symlink", "incomplete", "limit"} {
 		t.Run(kind, func(t *testing.T) {
 			var buf bytes.Buffer
 			tw := tar.NewWriter(&buf)
 			files := []string{"config.json", "tokenizer.json", "model.safetensors"}
+			if kind == "dotprefix" {
+				_ = tw.WriteHeader(&tar.Header{Name: "./", Mode: 0755, Typeflag: tar.TypeDir})
+				files = []string{"./config.json", "./tokenizer.json", "./model.safetensors"}
+			}
 			if kind == "traversal" {
 				files = append(files, "../escaped")
 			}
@@ -47,15 +51,19 @@ func TestBundleDownloaderValidatesChecksumAndSafeCompleteArchive(t *testing.T) {
 			if kind == "checksum" {
 				digest = strings.Repeat("0", 64)
 			}
-			// Replace only the HTTPS transport so the real downloader/extractor runs
+			maxBytes := "0"
+			if kind == "limit" {
+				maxBytes = "1"
+			}
+			// Replace only the HTTP transport so the real downloader/extractor runs
 			// without network or socket permissions.
 			cmd := exec.Command("python3", "-c", "import os,runpy,urllib.request; urllib.request.urlopen=lambda *a,**k:open(os.environ['TEST_ARCHIVE'],'rb'); runpy.run_path(os.environ['TEST_SCRIPT'],run_name='__main__')")
-			cmd.Env = append(os.Environ(), "MODEL_ROOT="+root, "MODEL_SHA256="+digest, "MODEL_DOWNLOAD_URL=https://storage/secret?token=never-log", "TEST_ARCHIVE="+archive, "TEST_SCRIPT="+script)
+			cmd.Env = append(os.Environ(), "MODEL_ROOT="+root, "MODEL_SHA256="+digest, "MODEL_MAX_BYTES="+maxBytes, "MODEL_DOWNLOAD_URL=http://storage/secret?token=never-log", "TEST_ARCHIVE="+archive, "TEST_SCRIPT="+script)
 			output, err := cmd.CombinedOutput()
 			if strings.Contains(string(output), "never-log") {
 				t.Fatal("credential leaked")
 			}
-			if kind == "valid" {
+			if kind == "valid" || kind == "dotprefix" {
 				if err != nil {
 					t.Fatalf("valid archive: %s %v", output, err)
 				}

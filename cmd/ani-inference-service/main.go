@@ -122,13 +122,11 @@ func run(logger *slog.Logger) error {
 		if modelClient != nil {
 			update = modeldata.NewUpdateUseCase(modelClient, update)
 		}
-		if strings.EqualFold(os.Getenv("ANI_KUBERNETES_ENABLED"), "true") {
-			servers, err := buildKubernetesServers(pool, modelClient)
-			if err != nil {
-				return err
-			}
-			background = servers
+		servers, err := configureKubernetesRuntime(pool, modelClient)
+		if err != nil {
+			return err
 		}
+		background = servers
 	}
 	app, err := buildAppWithAllDependenciesAndBackground(&bc, logger, create, read, command, update, background...)
 	if err != nil {
@@ -140,12 +138,16 @@ func run(logger *slog.Logger) error {
 	return nil
 }
 
+func configureKubernetesRuntime(pool *pgxpool.Pool, modelClient *modeldata.Client) ([]kratosTransport.Server, error) {
+	return buildKubernetesServers(pool, modelClient)
+}
+
 func buildKubernetesServers(pool *pgxpool.Pool, modelClient *modeldata.Client) ([]kratosTransport.Server, error) {
 	namespace := os.Getenv("ANI_INFERENCE_NAMESPACE")
 	if namespace == "" {
-		return nil, fmt.Errorf("ANI_INFERENCE_NAMESPACE is required when ANI_KUBERNETES_ENABLED=true")
+		return nil, errors.New("ANI_INFERENCE_NAMESPACE is required for Kubernetes runtime")
 	}
-	publicBaseURL, err := requiredEnv("ANI_APISIX_PUBLIC_BASE_URL")
+	publicBaseURL, err := requiredEnv("ANI_HIGRESS_PUBLIC_BASE_URL")
 	if err != nil {
 		return nil, err
 	}
@@ -154,7 +156,7 @@ func buildKubernetesServers(pool *pgxpool.Pool, modelClient *modeldata.Client) (
 		return nil, fmt.Errorf("load Kubernetes config: %w", err)
 	}
 	if modelClient == nil {
-		return nil, errors.New("ANI_MODEL_GRPC_ADDR is required when Kubernetes lifecycle is enabled")
+		return nil, errors.New("ANI_MODEL_GRPC_ADDR is required for Kubernetes runtime")
 	}
 	materializerSettings, err := configuredModelMaterializerSettings()
 	if err != nil {
@@ -163,7 +165,7 @@ func buildKubernetesServers(pool *pgxpool.Pool, modelClient *modeldata.Client) (
 	workStore := postgres.NewWorkStore(pool, postgres.WorkStoreOptions{})
 	reconcileStore := postgres.NewReconcileStore(pool)
 	runtimeSource := postgres.NewRuntimeSource(pool, namespace)
-	runtimeExecutor := &kubernetes.RuntimeExecutor{Source: runtimeSource, Bindings: postgres.NewRepository(pool)}
+	runtimeExecutor := &kubernetes.RuntimeExecutor{Source: runtimeSource, Bindings: postgres.NewRepository(pool), RequireQuota: false}
 	domain := &bizreconcile.Reconciler{Repository: reconcileStore, Runtime: runtimeExecutor}
 	controller := &kubernetes.Controller{Work: workStore}
 	mgr, err := kubernetes.NewManager(config, controller, ctrlmanager.Options{Cache: ctrlcache.Options{DefaultNamespaces: map[string]ctrlcache.Config{namespace: {}}}})
@@ -187,11 +189,11 @@ func buildKubernetesServers(pool *pgxpool.Pool, modelClient *modeldata.Client) (
 		Client:           mgr.GetClient(),
 		APIReader:        mgr.GetAPIReader(),
 		Source:           runtimeSource,
-		GatewayNamespace: envOrDefault("ANI_APISIX_GATEWAY_NAMESPACE", "ingress-apisix"),
-		GatewayName:      envOrDefault("ANI_APISIX_GATEWAY_NAME", "ani-apisix"),
-		RouteNamespace:   envOrDefault("ANI_APISIX_ROUTE_NAMESPACE", namespace),
+		GatewayNamespace: envOrDefault("ANI_HIGRESS_GATEWAY_NAMESPACE", "higress-system"),
+		GatewayName:      envOrDefault("ANI_HIGRESS_GATEWAY_NAME", "ani-higress"),
+		RouteNamespace:   envOrDefault("ANI_HIGRESS_ROUTE_NAMESPACE", namespace),
 		PublicBaseURL:    publicBaseURL,
-		PathPrefix:       envOrDefault("ANI_APISIX_PATH_PREFIX", "/v1"),
+		PathPrefix:       envOrDefault("ANI_HIGRESS_PATH_PREFIX", "/v1/completions"),
 	}
 	operationStore := postgres.NewOperationStore(pool)
 	operationRunner := &inferencebiz.Runner{
@@ -220,7 +222,6 @@ func buildKubernetesServers(pool *pgxpool.Pool, modelClient *modeldata.Client) (
 	loopServer.ReadyCheck = func() bool {
 		return operationRunner.Admission != nil &&
 			operationRunner.Model != nil &&
-			operationRunner.Quota != nil &&
 			operationRunner.Publication != nil &&
 			operationRunner.Runtime != nil &&
 			(operationRunner.Audit != nil || operationStoreSupportsAtomicAudit(operationRunner.Store))
@@ -259,7 +260,7 @@ func (e *durableExecutor) Execute(ctx context.Context, item work.Item) (work.Res
 func requiredEnv(name string) (string, error) {
 	value := strings.TrimSpace(os.Getenv(name))
 	if value == "" {
-		return "", fmt.Errorf("%s is required when Kubernetes mode is enabled", name)
+		return "", fmt.Errorf("%s is required for Kubernetes runtime", name)
 	}
 	return value, nil
 }

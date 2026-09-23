@@ -3,7 +3,7 @@
 在 PostgreSQL 测试容器内启动当前静态 Inference binary，设置：
 
 - `ANI_DATABASE_DSN`：容器 Unix socket 的 `ani_inference` 数据库；
-- `ANI_KUBERNETES_ENABLED=true`；
+- 当前版本启动即装配 Kubernetes runtime（历史的环境开关已删除）；
 - `ANI_KUBECONFIG`：当前 `kubernetes-admin@kubernetes` 的临时 flattened kubeconfig；
 - `ANI_INFERENCE_NAMESPACE=ani-inference-e2e-20260914`。
 

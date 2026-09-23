@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	inferencev1 "github.com/zhangzhe-ctrl/ani-inference-service/api/inference/v1"
@@ -18,10 +19,16 @@ import (
 	fieldmaskpb "google.golang.org/protobuf/types/known/fieldmaskpb"
 )
 
-// tenantContextKey prevents callers from forging tenant identity through a
-// request field. Authentication middleware is responsible for setting it.
+// tenantContextKey carries the tenant scope selected at the transport
+// boundary. Trusted middleware may set it directly; the isolated validation
+// middleware may derive it from the explicit direct-request metadata fallback.
 type tenantContextKey struct{}
 type actorContextKey struct{}
+
+var (
+	ErrMissingTenant  = errors.New("tenant identity is required")
+	ErrTenantMismatch = errors.New("request tenant does not match trusted tenant")
+)
 
 func WithTenantID(ctx context.Context, tenantID string) context.Context {
 	return context.WithValue(ctx, tenantContextKey{}, tenantID)
@@ -30,6 +37,24 @@ func WithTenantID(ctx context.Context, tenantID string) context.Context {
 func TenantID(ctx context.Context) (string, bool) {
 	tenantID, ok := ctx.Value(tenantContextKey{}).(string)
 	return tenantID, ok && tenantID != ""
+}
+
+// RequireTenant prefers the tenant selected by trusted transport context. The
+// direct tenant is an isolated validation fallback and, when both are set,
+// must match the trusted scope.
+func RequireTenant(ctx context.Context, directTenant string) (string, error) {
+	directTenant = strings.TrimSpace(directTenant)
+	trustedTenant, ok := TenantID(ctx)
+	if !ok {
+		if directTenant == "" {
+			return "", ErrMissingTenant
+		}
+		return directTenant, nil
+	}
+	if directTenant != "" && directTenant != trustedTenant {
+		return "", ErrTenantMismatch
+	}
+	return trustedTenant, nil
 }
 
 // WithActor supplies the authenticated subject for durable audit attribution.

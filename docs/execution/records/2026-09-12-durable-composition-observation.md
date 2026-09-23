@@ -2,7 +2,7 @@
 
 ## 已验证
 
-- `main.go` 在显式 `ANI_KUBERNETES_ENABLED=true` 且有 `ANI_DATABASE_DSN` 时创建 PostgreSQL WorkStore、durable recovery、controller-runtime manager、typed CR/runtime executor、lease-scoped operation runner/terminal reconciler、LoopServer 和 ManagerServer；未启用时不隐式访问 Kubernetes。
+- 历史实现曾由一个环境开关控制 PostgreSQL WorkStore、durable recovery、controller-runtime manager、typed CR/runtime executor、lease-scoped operation runner/terminal reconciler、LoopServer 和 ManagerServer；该开关现已删除，当前进程启动即装配 Kubernetes runtime。
 - worker 使用 `Reconciler.Execute`，必须持有 PostgreSQL `resource_work` lease token；Current、runtime 执行和 observation 写回均不能由 CR Watch 直接绕过租约。
 - Controller-runtime CR/runtime Watch 只通过 WorkNotifier 写入 PostgreSQL wake-up；Reconcile 不直接执行 runtime，也不把 Kubernetes 事件当持久任务。
 - `RuntimeExecutor` 使用 typed CR/Deployment/LWS SSA，严格校验 ownership、generation、UID/resourceVersion 和 Deployment/LWS readiness；runtime 退化保持可见。
