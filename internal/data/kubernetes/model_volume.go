@@ -21,6 +21,13 @@ func mountModel(pod *corev1.PodSpec, spec RuntimeSpec) error {
 	if spec.ArtifactProvider != "model" || spec.ContainerPort <= 0 {
 		return fmt.Errorf("model PVC requires Model provider and an explicit endpoint")
 	}
+	return mountModelVolume(pod, spec, true)
+}
+
+func mountModelVolume(pod *corev1.PodSpec, spec RuntimeSpec, probes bool) error {
+	if spec.ModelClaim == "" || spec.ArtifactProvider != "model" {
+		return fmt.Errorf("model PVC requires the Model provider")
+	}
 	pod.AutomountServiceAccountToken = boolPtr(false)
 	pod.Volumes = []corev1.Volume{
 		{Name: "model", VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: spec.ModelClaim, ReadOnly: true}}},
@@ -28,9 +35,11 @@ func mountModel(pod *corev1.PodSpec, spec RuntimeSpec) error {
 	}
 	c := &pod.Containers[0]
 	c.VolumeMounts = []corev1.VolumeMount{{Name: "model", MountPath: "/models", SubPath: "data", ReadOnly: true}, {Name: "shm", MountPath: "/dev/shm"}}
-	handler := corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/health", Port: intstr.FromInt32(spec.ContainerPort)}}
-	c.StartupProbe = &corev1.Probe{ProbeHandler: handler, PeriodSeconds: 5, TimeoutSeconds: 3, FailureThreshold: 120}
-	c.ReadinessProbe = &corev1.Probe{ProbeHandler: handler, PeriodSeconds: 5, TimeoutSeconds: 3, FailureThreshold: 3}
+	if probes {
+		handler := corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/health", Port: intstr.FromInt32(spec.ContainerPort)}}
+		c.StartupProbe = &corev1.Probe{ProbeHandler: handler, PeriodSeconds: 5, TimeoutSeconds: 3, FailureThreshold: 120}
+		c.ReadinessProbe = &corev1.Probe{ProbeHandler: handler, PeriodSeconds: 5, TimeoutSeconds: 3, FailureThreshold: 3}
+	}
 	return nil
 }
 

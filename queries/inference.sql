@@ -75,8 +75,10 @@ SELECT s.tenant_id, s.id, s.name, s.desired_state, s.desired_generation, s.appli
        COALESCE(sp.replicas, 0)::int4 AS replicas,
        COALESCE(sp.runtime_mode, 'deployment') AS runtime_mode,
        COALESCE(sp.worker_replicas, 1)::int4 AS worker_replicas,
+       COALESCE(sp.runtime_provider, 'deployment') AS runtime_provider,
        sp.endpoint_container_port, sp.endpoint_service_port,
        sp.endpoint_target_port, sp.endpoint_protocol,
+       sp.gpu_request, sp.gpu_plan, sp.gpu_plan_digest,
        COALESCE(rt.runtime_phase, 'unknown') AS runtime_phase,
        COALESCE(pub.observed_phase, 'withdrawn') AS publication_phase,
        COALESCE(rt.invocation_health, 'unknown') AS invocation_health,
@@ -108,11 +110,23 @@ WHERE tenant_id = $1 AND id = $2
 FOR UPDATE;
 
 -- name: GetSpec :one
-SELECT * FROM inference_specs
+SELECT tenant_id, id, service_id, generation, model_id, model_version_id,
+       artifact_provider, artifact_ref, artifact_sha256, image_ref, served_model_name,
+       engine_runtime, command_argv, resources, replicas, spec_json, created_at,
+       runtime_mode, worker_replicas, endpoint_container_port, endpoint_service_port,
+       endpoint_target_port, endpoint_protocol, runtime_provider,
+       gpu_request, gpu_plan, gpu_plan_digest
+FROM inference_specs
 WHERE tenant_id = $1 AND service_id = $2 AND generation = $3;
 
 -- name: GetLatestSpec :one
-SELECT * FROM inference_specs
+SELECT tenant_id, id, service_id, generation, model_id, model_version_id,
+       artifact_provider, artifact_ref, artifact_sha256, image_ref, served_model_name,
+       engine_runtime, command_argv, resources, replicas, spec_json, created_at,
+       runtime_mode, worker_replicas, endpoint_container_port, endpoint_service_port,
+       endpoint_target_port, endpoint_protocol, runtime_provider,
+       gpu_request, gpu_plan, gpu_plan_digest
+FROM inference_specs
 WHERE tenant_id = $1 AND service_id = $2 AND generation <= $3
 ORDER BY generation DESC
 LIMIT 1;
@@ -121,12 +135,14 @@ LIMIT 1;
 INSERT INTO inference_specs
   (tenant_id, id, service_id, generation, model_id, model_version_id,
    artifact_provider, artifact_ref, artifact_sha256, image_ref, served_model_name,
-   engine_runtime, command_argv, resources, replicas, runtime_mode, worker_replicas, spec_json,
-   endpoint_container_port, endpoint_service_port, endpoint_target_port, endpoint_protocol)
+   engine_runtime, command_argv, resources, replicas, runtime_mode, worker_replicas, runtime_provider, spec_json,
+   endpoint_container_port, endpoint_service_port, endpoint_target_port, endpoint_protocol,
+   gpu_request, gpu_plan, gpu_plan_digest)
 SELECT s.tenant_id, sqlc.arg(id), s.service_id, sqlc.arg(target_generation), s.model_id, s.model_version_id,
        s.artifact_provider, s.artifact_ref, s.artifact_sha256, s.image_ref, s.served_model_name,
-       s.engine_runtime, s.command_argv, s.resources, s.replicas, s.runtime_mode, s.worker_replicas, s.spec_json,
-       s.endpoint_container_port, s.endpoint_service_port, s.endpoint_target_port, s.endpoint_protocol
+       s.engine_runtime, s.command_argv, s.resources, s.replicas, s.runtime_mode, s.worker_replicas, s.runtime_provider, s.spec_json,
+       s.endpoint_container_port, s.endpoint_service_port, s.endpoint_target_port, s.endpoint_protocol,
+       s.gpu_request, s.gpu_plan, s.gpu_plan_digest
 FROM inference_specs s
 WHERE s.tenant_id = sqlc.arg(tenant_id) AND s.service_id = sqlc.arg(service_id)
   AND s.generation = sqlc.arg(source_generation);
@@ -135,8 +151,9 @@ WHERE s.tenant_id = sqlc.arg(tenant_id) AND s.service_id = sqlc.arg(service_id)
 INSERT INTO inference_specs
   (tenant_id, id, service_id, generation, model_id, model_version_id,
    artifact_provider, artifact_ref, artifact_sha256, image_ref, served_model_name,
-   engine_runtime, command_argv, resources, replicas, runtime_mode, worker_replicas, spec_json,
-   endpoint_container_port, endpoint_service_port, endpoint_target_port, endpoint_protocol)
+   engine_runtime, command_argv, resources, replicas, runtime_mode, worker_replicas, runtime_provider, spec_json,
+   endpoint_container_port, endpoint_service_port, endpoint_target_port, endpoint_protocol,
+   gpu_request, gpu_plan, gpu_plan_digest)
 SELECT s.tenant_id, sqlc.arg(id), s.service_id, sqlc.arg(target_generation), s.model_id,
        CASE WHEN sqlc.arg(model_version_id)::uuid IS NOT NULL THEN sqlc.arg(model_version_id)::uuid ELSE s.model_version_id END,
        CASE WHEN sqlc.arg(artifact_provider)::text <> '' THEN sqlc.arg(artifact_provider) ELSE s.artifact_provider END,
@@ -147,8 +164,11 @@ SELECT s.tenant_id, sqlc.arg(id), s.service_id, sqlc.arg(target_generation), s.m
        CASE WHEN sqlc.arg(engine_runtime)::text <> '' THEN sqlc.arg(engine_runtime) ELSE s.engine_runtime END,
        CASE WHEN CASE WHEN jsonb_typeof(sqlc.arg(command_argv)::jsonb) = 'array' THEN jsonb_array_length(sqlc.arg(command_argv)::jsonb) ELSE 0 END > 0 THEN sqlc.arg(command_argv) ELSE s.command_argv END,
        sqlc.arg(resources), sqlc.arg(replicas),
-       sqlc.arg(runtime_mode), sqlc.arg(worker_replicas), s.spec_json,
-       sqlc.arg(endpoint_container_port), sqlc.arg(endpoint_service_port), sqlc.arg(endpoint_target_port), sqlc.arg(endpoint_protocol)
+       sqlc.arg(runtime_mode), sqlc.arg(worker_replicas),
+       CASE WHEN sqlc.arg(runtime_provider)::text <> '' THEN sqlc.arg(runtime_provider) ELSE s.runtime_provider END,
+       s.spec_json,
+       sqlc.arg(endpoint_container_port), sqlc.arg(endpoint_service_port), sqlc.arg(endpoint_target_port), sqlc.arg(endpoint_protocol),
+       sqlc.arg(gpu_request), sqlc.arg(gpu_plan), sqlc.arg(gpu_plan_digest)
 FROM inference_specs s
 WHERE s.tenant_id = sqlc.arg(tenant_id) AND s.service_id = sqlc.arg(service_id)
   AND s.generation = sqlc.arg(source_generation);
@@ -358,10 +378,11 @@ WHERE tenant_id = sqlc.arg(tenant_id) AND id = sqlc.arg(service_id)
 INSERT INTO inference_specs
   (tenant_id, id, service_id, generation, model_id, model_version_id,
    artifact_provider, artifact_ref, artifact_sha256, image_ref, served_model_name,
-   engine_runtime, command_argv, resources, replicas, runtime_mode, worker_replicas, spec_json,
-   endpoint_container_port, endpoint_service_port, endpoint_target_port, endpoint_protocol)
+   engine_runtime, command_argv, resources, replicas, runtime_mode, worker_replicas, runtime_provider, spec_json,
+   endpoint_container_port, endpoint_service_port, endpoint_target_port, endpoint_protocol,
+   gpu_request, gpu_plan, gpu_plan_digest)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
-        $19, $20, $21, $22);
+        $19, $20, $21, $22, $23, $24, $25, $26);
 
 -- name: InsertOperation :exec
 INSERT INTO inference_operations
@@ -652,3 +673,29 @@ WHERE o.tenant_id = sqlc.arg(tenant_id)
   AND s.desired_generation = o.target_generation
   AND w.lease_token = sqlc.arg(lease_token)
   AND w.lease_until > clock_timestamp();
+
+-- name: SaveGPUPlanCAS :execrows
+-- The accelerator response becomes immutable for a generation. A worker may
+-- save it only while holding the operation lease at resolve_gpu; a retry sees
+-- the persisted plan and never resolves the same generation again.
+UPDATE inference_specs sp
+SET gpu_plan = sqlc.arg(gpu_plan)::jsonb,
+    gpu_plan_digest = sqlc.arg(gpu_plan_digest)
+FROM inference_operations o
+JOIN inference_services s
+  ON s.tenant_id = o.tenant_id AND s.id = o.service_id
+JOIN inference_resource_work w
+  ON w.tenant_id = o.tenant_id AND w.service_id = o.service_id
+WHERE sp.tenant_id = sqlc.arg(tenant_id)
+  AND sp.service_id = sqlc.arg(service_id)
+  AND sp.generation = sqlc.arg(target_generation)
+  AND o.tenant_id = sp.tenant_id
+  AND o.id = sqlc.arg(operation_id)
+  AND o.target_generation = sp.generation
+  AND o.phase = 'running'
+  AND o.step = 'resolve_gpu'
+  AND s.current_operation_id = o.id
+  AND s.desired_generation = o.target_generation
+  AND w.lease_token = sqlc.arg(lease_token)
+  AND w.lease_until > clock_timestamp()
+  AND (sp.gpu_plan IS NULL OR sp.gpu_plan = sqlc.arg(gpu_plan)::jsonb);

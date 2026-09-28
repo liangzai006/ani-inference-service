@@ -11,6 +11,7 @@ type OperationStep string
 const (
 	StepAdmission            OperationStep = "admission"
 	StepReserveQuota         OperationStep = "reserve_quota"
+	StepResolveGPU           OperationStep = "resolve_gpu"
 	StepApplyCR              OperationStep = "apply_cr"
 	StepMaterializeModel     OperationStep = "materialize_model"
 	StepApplyRuntime         OperationStep = "apply_runtime"
@@ -26,10 +27,10 @@ const (
 )
 
 var operationPaths = map[string][]OperationStep{
-	"create":  {StepAdmission, StepReserveQuota, StepApplyCR, StepMaterializeModel, StepApplyRuntime, StepObserveRuntime, StepPublish, StepComplete},
-	"start":   {StepReserveQuota, StepApplyCR, StepMaterializeModel, StepApplyRuntime, StepObserveRuntime, StepPublish, StepComplete},
-	"update":  {StepWithdrawPublication, StepDeleteRuntime, StepObserveAbsence, StepReleasePreviousQuota, StepReserveQuota, StepApplyCR, StepMaterializeModel, StepApplyRuntime, StepObserveRuntime, StepPublish, StepComplete},
-	"restart": {StepWithdrawPublication, StepDeleteRuntime, StepObserveAbsence, StepReleasePreviousQuota, StepReserveQuota, StepApplyCR, StepMaterializeModel, StepApplyRuntime, StepObserveRuntime, StepPublish, StepComplete},
+	"create":  {StepAdmission, StepReserveQuota, StepResolveGPU, StepApplyCR, StepMaterializeModel, StepApplyRuntime, StepObserveRuntime, StepPublish, StepComplete},
+	"start":   {StepReserveQuota, StepResolveGPU, StepApplyCR, StepMaterializeModel, StepApplyRuntime, StepObserveRuntime, StepPublish, StepComplete},
+	"update":  {StepWithdrawPublication, StepDeleteRuntime, StepObserveAbsence, StepReleasePreviousQuota, StepReserveQuota, StepResolveGPU, StepApplyCR, StepMaterializeModel, StepApplyRuntime, StepObserveRuntime, StepPublish, StepComplete},
+	"restart": {StepWithdrawPublication, StepDeleteRuntime, StepObserveAbsence, StepReleasePreviousQuota, StepReserveQuota, StepResolveGPU, StepApplyCR, StepMaterializeModel, StepApplyRuntime, StepObserveRuntime, StepPublish, StepComplete},
 	"stop":    {StepWithdrawPublication, StepDeleteRuntime, StepObserveAbsence, StepReleaseQuota, StepComplete},
 	"delete":  {StepWithdrawPublication, StepDeleteRuntime, StepObserveAbsence, StepDeleteCR, StepReleaseQuota, StepComplete},
 }
@@ -93,6 +94,12 @@ func ValidateOperationStepTransition(kind string, fromPhase OperationPhase, from
 		if from != to {
 			return fmt.Errorf("pending operation must be claimed at step %q before advancing", fromStep)
 		}
+		return nil
+	}
+	// Keep this compatibility edge valid for workers that loaded the operation
+	// before the explicit resolve step was introduced. New workers normally
+	// traverse resolve_gpu; that step is a no-op when resource.gpu is absent.
+	if fromStep == string(StepReserveQuota) && toStep == string(StepApplyCR) && path[from+1] == StepResolveGPU {
 		return nil
 	}
 	if to != from+1 {

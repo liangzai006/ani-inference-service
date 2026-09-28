@@ -29,7 +29,10 @@ type CreateAggregateInput struct {
 	ArtifactProvider, ArtifactRef            string
 	ArtifactSHA256, ImageRef                 string
 	ServedModelName, EngineRuntime           string
+	RuntimeProvider                          string
 	CommandArgv, Resources, SpecJSON         []byte
+	GPURequest, GPUPlan                      []byte
+	GPUPlanDigest                            string
 	Replicas, WorkerReplicas                 int32
 	RuntimeMode                              string
 	RequestHash                              string
@@ -132,6 +135,10 @@ func (r *Repository) CreateService(ctx context.Context, in CreateAggregateInput)
 	if runtimeMode == "" {
 		runtimeMode = "deployment"
 	}
+	runtimeProvider := in.RuntimeProvider
+	if runtimeProvider == "" {
+		runtimeProvider = "deployment"
+	}
 	workerReplicas := in.WorkerReplicas
 	if workerReplicas == 0 {
 		workerReplicas = 1
@@ -180,7 +187,7 @@ func (r *Repository) CreateService(ctx context.Context, in CreateAggregateInput)
 		return CreateAggregateResult{}, err
 	}
 	endpointContainerPort, endpointServicePort, endpointTargetPort, endpointProtocol := endpointParams(&in)
-	if err = q.InsertSpec(ctx, InsertSpecParams{TenantID: tenant, ID: specID, ServiceID: serviceID, Generation: generation, ModelID: modelID, ModelVersionID: modelVersionID, ArtifactProvider: in.ArtifactProvider, ArtifactRef: in.ArtifactRef, ArtifactSha256: in.ArtifactSHA256, ImageRef: in.ImageRef, ServedModelName: in.ServedModelName, EngineRuntime: in.EngineRuntime, CommandArgv: jsonOrEmpty(in.CommandArgv, []byte("[]")), Resources: jsonOrEmpty(in.Resources, []byte("{}")), Replicas: replicas, RuntimeMode: runtimeMode, WorkerReplicas: workerReplicas, SpecJson: jsonOrEmpty(in.SpecJSON, []byte("{}")), EndpointContainerPort: endpointContainerPort, EndpointServicePort: endpointServicePort, EndpointTargetPort: endpointTargetPort, EndpointProtocol: endpointProtocol}); err != nil {
+	if err = q.InsertSpec(ctx, InsertSpecParams{TenantID: tenant, ID: specID, ServiceID: serviceID, Generation: generation, ModelID: modelID, ModelVersionID: modelVersionID, ArtifactProvider: in.ArtifactProvider, ArtifactRef: in.ArtifactRef, ArtifactSha256: in.ArtifactSHA256, ImageRef: in.ImageRef, ServedModelName: in.ServedModelName, EngineRuntime: in.EngineRuntime, CommandArgv: jsonOrEmpty(in.CommandArgv, []byte("[]")), Resources: jsonOrEmpty(in.Resources, []byte("{}")), Replicas: replicas, RuntimeMode: runtimeMode, WorkerReplicas: workerReplicas, RuntimeProvider: runtimeProvider, SpecJson: jsonOrEmpty(in.SpecJSON, []byte("{}")), EndpointContainerPort: endpointContainerPort, EndpointServicePort: endpointServicePort, EndpointTargetPort: endpointTargetPort, EndpointProtocol: endpointProtocol, GpuRequest: in.GPURequest, GpuPlan: in.GPUPlan, GpuPlanDigest: pgtype.Text{String: in.GPUPlanDigest, Valid: in.GPUPlanDigest != ""}}); err != nil {
 		return CreateAggregateResult{}, err
 	}
 	if err = q.InsertRuntime(ctx, InsertRuntimeParams{TenantID: tenant, ServiceID: serviceID, Generation: generation, RuntimeMode: runtimeMode}); err != nil {

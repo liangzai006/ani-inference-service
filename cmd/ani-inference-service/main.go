@@ -28,6 +28,7 @@ import (
 	inferencebiz "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/inference"
 	bizreconcile "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/reconcile"
 	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/work"
+	"github.com/zhangzhe-ctrl/ani-inference-service/internal/data/accelerator"
 	"github.com/zhangzhe-ctrl/ani-inference-service/internal/data/kubernetes"
 	modeldata "github.com/zhangzhe-ctrl/ani-inference-service/internal/data/model"
 	"github.com/zhangzhe-ctrl/ani-inference-service/internal/data/postgres"
@@ -166,7 +167,17 @@ func buildKubernetesServers(pool *pgxpool.Pool, modelClient *modeldata.Client) (
 	reconcileStore := postgres.NewReconcileStore(pool)
 	runtimeSource := postgres.NewRuntimeSource(pool, namespace)
 	runtimeExecutor := &kubernetes.RuntimeExecutor{Source: runtimeSource, Bindings: postgres.NewRepository(pool), RequireQuota: false}
-	domain := &bizreconcile.Reconciler{Repository: reconcileStore, Runtime: runtimeExecutor}
+	kserveExecutor := &kubernetes.KServeRuntimeExecutor{RuntimeExecutor: runtimeExecutor}
+	runtimeRouter := &kubernetes.RuntimeRouter{
+		Source:              runtimeSource,
+		Deployment:          runtimeExecutor,
+		KServe:              kserveExecutor,
+		DeploymentReconcile: runtimeExecutor,
+		KServeReconcile:     kserveExecutor,
+	}
+	var runtimePort inferencebiz.RuntimePort = runtimeRouter
+	var reconcileRuntime bizreconcile.Runtime = runtimeRouter
+	domain := &bizreconcile.Reconciler{Repository: reconcileStore, Runtime: reconcileRuntime}
 	controller := &kubernetes.Controller{Work: workStore}
 	mgr, err := kubernetes.NewManager(config, controller, ctrlmanager.Options{Cache: ctrlcache.Options{DefaultNamespaces: map[string]ctrlcache.Config{namespace: {}}}})
 	if err != nil {
@@ -186,9 +197,13 @@ func buildKubernetesServers(pool *pgxpool.Pool, modelClient *modeldata.Client) (
 		Namespace:    namespace,
 	}
 	publicationPublisher := &kubernetes.HTTPRoutePublisher{
-		Client:           mgr.GetClient(),
-		APIReader:        mgr.GetAPIReader(),
-		Source:           runtimeSource,
+		Client:    mgr.GetClient(),
+		APIReader: mgr.GetAPIReader(),
+		Source:    runtimeSource,
+		// Backend selection is read from each persisted runtime generation.
+		// This compatibility field is intentionally empty so it cannot migrate
+		// an existing service through process configuration.
+		RuntimeProvider:  "",
 		GatewayNamespace: envOrDefault("ANI_HIGRESS_GATEWAY_NAMESPACE", "higress-system"),
 		GatewayName:      envOrDefault("ANI_HIGRESS_GATEWAY_NAME", "ani-higress"),
 		RouteNamespace:   envOrDefault("ANI_HIGRESS_ROUTE_NAMESPACE", namespace),
@@ -196,12 +211,17 @@ func buildKubernetesServers(pool *pgxpool.Pool, modelClient *modeldata.Client) (
 		PathPrefix:       envOrDefault("ANI_HIGRESS_PATH_PREFIX", "/v1/completions"),
 	}
 	operationStore := postgres.NewOperationStore(pool)
+	gpuResolver, err := configuredGPUResolver()
+	if err != nil {
+		return nil, err
+	}
 	operationRunner := &inferencebiz.Runner{
 		Store:       operationStore,
 		Admission:   &postgres.Admission{Source: runtimeSource},
 		Model:       modelMaterializer,
+		GPU:         gpuResolver,
 		Publication: publicationPublisher,
-		Runtime:     runtimeExecutor,
+		Runtime:     runtimePort,
 		RetryAfter:  5 * time.Second,
 	}
 	loopServer, err := server.NewLoopServer(workStore, workStore, func(ctx context.Context, item work.Item) (work.Result, error) {
@@ -227,6 +247,33 @@ func buildKubernetesServers(pool *pgxpool.Pool, modelClient *modeldata.Client) (
 			(operationRunner.Audit != nil || operationStoreSupportsAtomicAudit(operationRunner.Store))
 	}
 	return []kratosTransport.Server{loopServer, &server.ManagerServer{Manager: mgr}}, nil
+}
+
+// configuredGPUResolver is optional. An omitted endpoint leaves CPU-only
+// generations independent of the accelerator service; the runner fails a
+// generation that explicitly contains resource.gpu if no resolver is set.
+func configuredGPUResolver() (inferencebiz.GPUResolver, error) {
+	endpoint := strings.TrimSpace(os.Getenv("ANI_ACCELERATOR_GRPC_ADDR"))
+	if endpoint == "" {
+		return nil, nil
+	}
+	clusterID := strings.TrimSpace(os.Getenv("ANI_ACCELERATOR_CLUSTER_ID"))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	client, _, err := accelerator.Dial(ctx, accelerator.Config{
+		Endpoint:  endpoint,
+		ClusterID: clusterID,
+		TLS: accelerator.TLSConfig{
+			CAFile:     strings.TrimSpace(os.Getenv("ANI_ACCELERATOR_CA_FILE")),
+			CertFile:   strings.TrimSpace(os.Getenv("ANI_ACCELERATOR_CERT_FILE")),
+			KeyFile:    strings.TrimSpace(os.Getenv("ANI_ACCELERATOR_KEY_FILE")),
+			ServerName: strings.TrimSpace(os.Getenv("ANI_ACCELERATOR_SERVER_NAME")),
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("configure accelerator resolver: %w", err)
+	}
+	return client, nil
 }
 
 func operationStoreSupportsAtomicAudit(store inferencebiz.OperationStore) bool {

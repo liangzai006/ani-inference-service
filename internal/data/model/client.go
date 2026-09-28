@@ -16,9 +16,8 @@ import (
 
 // Snapshot is deployment input from Model, not an Inference runtime observation.
 type Snapshot struct {
-	VersionID, ModelID, ArtifactRef, ArtifactSHA256, EngineRuntime string
-	ArtifactSizeBytes                                              int64
-	CommandArgv                                                    []string
+	VersionID, ModelID, ArtifactRef, ArtifactSHA256 string
+	ArtifactSizeBytes                               int64
 }
 type Download struct {
 	URL, StoragePath string
@@ -53,11 +52,7 @@ func (c *Client) GetReadyVersion(ctx context.Context, tenant, versionID string) 
 	if err != nil || len(digest) != sha256.Size || strings.TrimSpace(v.GetStoragePath()) == "" {
 		return Snapshot{}, status.Error(codes.DataLoss, "Model artifact is incomplete")
 	}
-	argv := append([]string(nil), v.GetStartupArgs()...)
-	if v.GetStartupCommand() != "" {
-		argv = append([]string{v.GetStartupCommand()}, argv...)
-	}
-	return Snapshot{VersionID: v.GetId(), ModelID: v.GetModelId(), ArtifactRef: v.GetStoragePath(), ArtifactSHA256: v.GetChecksumSha256(), ArtifactSizeBytes: v.GetSizeBytes(), EngineRuntime: v.GetEngineType(), CommandArgv: argv}, nil
+	return Snapshot{VersionID: v.GetId(), ModelID: v.GetModelId(), ArtifactRef: v.GetStoragePath(), ArtifactSHA256: v.GetChecksumSha256(), ArtifactSizeBytes: v.GetSizeBytes()}, nil
 }
 
 func (c *Client) GetArtifactDownloadURL(ctx context.Context, tenant, versionID, requester string) (Download, error) {

@@ -7,10 +7,11 @@ not an Inference materialization or runtime readiness observation.
 
 With `ANI_MODEL_GRPC_ADDR` configured, the composition root wraps the PostgreSQL
 create use case with the Model lookup. It persists the authoritative artifact
-reference/SHA256 in Inference's own spec and uses Model engine/command settings
-only as defaults when the request omits them. A request may provide its own
-engine type and complete startup argv; those values are persisted and passed to
-the Kubernetes runtime unchanged. `artifact_provider=model` identifies Model
+reference/SHA256 in Inference's own spec. The request must provide the engine
+type, image, and complete startup command; Model engine/command fields are
+compatibility metadata and are never used as defaults. The request's engine
+values are persisted and passed to the Kubernetes runtime unchanged.
+`artifact_provider=model` identifies Model
 as the authority for obtaining a download URL; it does not infer a storage
 backend from an object key. Signed download URLs are acquired on demand and
 never persisted.

@@ -273,15 +273,15 @@ LeaderWorkerSet，官方 LWS v0.10.0 controller 成功创建 StatefulSet，3 个
 - 证据：[2026-09-14-formal-provider-boundary.md](records/2026-09-14-formal-provider-boundary.md)
 # 2026-09-14：Model 服务职责边界
 
-- 已确认：Model 是独立服务；它拥有模型目录、版本、制品和默认 engine 启动命令。
+- 已确认：Model 是独立服务；它拥有模型目录、版本和制品。版本中的旧 engine 启动字段仅为兼容保留，不作为 Inference 默认值。
 - 已确认：Inference 不接管 Model 的物化状态；`model_ready_known`、runtime ready 和 invocation health 是 Inference 自己的运行事实。
-- 已确认：Inference 使用 Model 返回的 `engine_type/startup_command/startup_args` 生成最终 `engine_runtime/command_argv`。
+- 已确认：Inference 创建或更新时要求请求显式提供 `engine.type`、`engine.image` 和 `engine.command`；请求中的 `engine.args` 原样作为附加参数保存，Model 不提供或拼接启动命令。
 - `not_verified`：Model gRPC 契约、真实 endpoint、鉴权和制品协议。
 - 证据：[2026-09-14-model-contract-boundary.md](records/2026-09-14-model-contract-boundary.md)
 # 2026-09-14：Model 原型契约兼容
 
 - 已只读核对旧 ANI Model Proto：`GetModelVersion`、`GetModelDownloadURL` 及制品/校验字段可复用。
-- 已确认新方案采用兼容优先：保留旧方法和字段语义，仅增量增加可选 `engine_type`、`startup_command`、`startup_args`。
+- 已确认新方案采用兼容优先：保留旧方法和字段语义，仅增量保留可选 `engine_type`、`startup_command`、`startup_args`；这些字段不作为 Inference 的默认启动配置。
 - `pass`：当前 Inference 已有 artifact 和 engine/argv 快照字段。
 - `not_verified`：新 Model 服务 Proto、endpoint、鉴权和真实联调。
 - 证据：[2026-09-14-model-legacy-contract-compatibility.md](records/2026-09-14-model-legacy-contract-compatibility.md)

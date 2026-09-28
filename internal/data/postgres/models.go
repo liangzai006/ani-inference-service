@@ -186,4 +186,8 @@ type InferenceSpec struct {
 	EndpointServicePort   pgtype.Int4
 	EndpointTargetPort    pgtype.Text
 	EndpointProtocol      pgtype.Text
+	RuntimeProvider       string
+	GpuRequest            []byte
+	GpuPlan               []byte
+	GpuPlanDigest         pgtype.Text
 }

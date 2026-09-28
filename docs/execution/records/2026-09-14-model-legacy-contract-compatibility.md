@@ -8,15 +8,15 @@
 
 ## 兼容决策
 
-新 Model 服务保留上述方法和字段语义，不复制旧实现代码。运行时默认配置采用向后兼容的可选新增字段：
+新 Model 服务保留上述方法和字段语义，不复制旧实现代码。运行时字段仅为向后兼容而保留，不作为 Inference 默认配置：
 
 - `engine_type`：`vllm`、`sglang` 等；
 - `startup_command`；
 - `startup_args`。
 
 Inference 将 `storage_path`/`checksum_sha256` 映射为自己的
-`artifact_ref`/`artifact_sha256` 快照，并把 Model 返回的默认启动配置合并到自己的
-`engine_runtime`/`command_argv`。模型导入状态属于 Model；模型加载、runtime ready 和
+`artifact_ref`/`artifact_sha256` 快照；`engine_runtime`/`command_argv` 必须来自
+Inference 请求。模型导入状态属于 Model；模型加载、runtime ready 和
 调用健康属于 Inference。
 
 ## 证据等级

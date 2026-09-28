@@ -4,6 +4,7 @@ import (
 	"context"
 
 	inferencev1 "github.com/zhangzhe-ctrl/ani-inference-service/api/inference/v1"
+	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/gpu"
 	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/resources"
 )
 
@@ -13,8 +14,11 @@ type UpdateInput struct {
 	ModelVersionID                                     string
 	ArtifactProvider, ArtifactRef, ArtifactSHA256      string
 	ImageRef, ServedModelName, EngineRuntime           string
+	RuntimeProvider                                    string
 	CommandArgv                                        []string
 	Resources                                          resources.Normalized
+	GPUPlan                                            *gpu.Plan
+	GPUPlanDigest                                      string
 	Replicas, WorkerReplicas                           int32
 	RuntimeMode                                        string
 	Endpoint                                           *EndpointSpec

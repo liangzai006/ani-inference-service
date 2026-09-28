@@ -31,6 +31,24 @@ ANI_MODEL_MATERIALIZER_IMAGE=registry.example/model-fetcher@sha256:<digest>  # r
 ANI_MODEL_STORAGE_CLASS=cephfs  # default; must support ReadWriteMany
 ```
 
+GPU resolution is opt-in per request. A request without `resource.gpu` does
+not call the Accelerator service and does not add GPU scheduling fields. Only
+when that nested object is supplied may the following optional mTLS settings
+be configured:
+
+```text
+ANI_ACCELERATOR_GRPC_ADDR=accelerator.<namespace>.svc:9000
+ANI_ACCELERATOR_CLUSTER_ID=<new-cluster-uuid>
+ANI_ACCELERATOR_CA_FILE=/var/run/secrets/accelerator/ca.crt
+ANI_ACCELERATOR_CERT_FILE=/var/run/secrets/accelerator/tls.crt
+ANI_ACCELERATOR_KEY_FILE=/var/run/secrets/accelerator/tls.key
+ANI_ACCELERATOR_SERVER_NAME=<accelerator-service-tls-name>
+```
+
+The client requires TLS 1.3 and mTLS; it has no plaintext fallback. The
+Accelerator server must grant the Inference identity `ResolveGpuRequest` before
+these settings are enabled for real GPU operations.
+
 The returned URL is `${ANI_HIGRESS_PUBLIC_BASE_URL}/v1/completions`. The
 HTTPRoute matches the configured path and the exact
 `x-higress-llm-model=<served-model-name>` header:
@@ -41,8 +59,12 @@ curl -H 'x-higress-llm-model: <served-model-name>' http://10.10.1.67:30090/v1/co
 
 Set `ANI_HIGRESS_PUBLIC_BASE_URL=https://models.example.com` when a DNS name
 points to the Higress public address. The model header distinguishes multiple
-models sharing one Gateway. The Publication adapter uses the inference-owned
-`-endpoint` Service and never calls the Higress admin API directly.
+models sharing one Gateway. New inference generations use
+`runtime.provider: "kserve"`; an update that omits the provider inherits the
+existing generation. The deployment adapter is retained only to remove and
+observe legacy Deployment generations; new requests target the KServe
+predictor or LLM workload Service.
+The Publication adapter never calls the Higress admin API directly.
 
 When Kubernetes lifecycle is enabled, the Model client resolves the immutable
 `model_version_id` and obtains a short-lived HTTP or HTTPS download URL. The materializer

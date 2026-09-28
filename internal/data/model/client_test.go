@@ -32,7 +32,7 @@ func (f *modelAPIFake) GetModelDownloadURL(context.Context, *modelv1.GetModelDow
 func readyVersion() *modelv1.ModelVersion {
 	return &modelv1.ModelVersion{Id: "version-id", ModelId: "external-model", Status: "ready", StoragePath: "tenant/model", ChecksumSha256: strings.Repeat("a", 64), SizeBytes: 3 << 30, EngineType: "vllm", StartupCommand: "vllm", StartupArgs: []string{"serve"}}
 }
-func TestGetReadyVersionMapsExplicitVersionAndDefaults(t *testing.T) {
+func TestGetReadyVersionMapsArtifactSnapshotOnly(t *testing.T) {
 	api := &modelAPIFake{version: readyVersion()}
 	got, err := NewClient(api).GetReadyVersion(context.Background(), "tenant-id", "version-id")
 	if err != nil {
@@ -41,13 +41,8 @@ func TestGetReadyVersionMapsExplicitVersionAndDefaults(t *testing.T) {
 	if api.request.GetTenantId() != "tenant-id" || api.request.GetModelVersionId() != "version-id" {
 		t.Fatalf("request=%v", api.request)
 	}
-	if got.VersionID != "version-id" || got.ModelID != "external-model" || got.ArtifactRef != "tenant/model" || got.ArtifactSHA256 != strings.Repeat("a", 64) || got.EngineRuntime != "vllm" || got.ArtifactSizeBytes != 3<<30 || strings.Join(got.CommandArgv, " ") != "vllm serve" {
+	if got.VersionID != "version-id" || got.ModelID != "external-model" || got.ArtifactRef != "tenant/model" || got.ArtifactSHA256 != strings.Repeat("a", 64) || got.ArtifactSizeBytes != 3<<30 {
 		t.Fatalf("snapshot=%+v", got)
-	}
-	api.version.StartupCommand = ""
-	got, err = NewClient(api).GetReadyVersion(context.Background(), "tenant-id", "version-id")
-	if err != nil || len(got.CommandArgv) != 1 || got.CommandArgv[0] != "serve" {
-		t.Fatalf("empty command mapping=%+v err=%v", got, err)
 	}
 }
 func TestGetReadyVersionRejectsInvalidSnapshots(t *testing.T) {

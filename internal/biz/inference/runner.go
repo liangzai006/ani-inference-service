@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/audit"
+	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/gpu"
 	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/publication"
 	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/quota"
 	bizreconcile "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/reconcile"
@@ -38,6 +39,13 @@ type OperationContext struct {
 	Reservation         quota.Reservation
 	PreviousReservation quota.Reservation
 	Publication         publication.Publication
+	// GPURequest and GPUPlan are loaded from the immutable target generation.
+	// A plan is only present after StepResolveGPU has durably saved it.
+	GPURequest     *gpu.Request
+	GPUPlan        *gpu.Plan
+	Replicas       int32
+	WorkerReplicas int32
+	RuntimeMode    string
 }
 
 // RuntimeObservation contains facts returned by the runtime adapter. Ready
@@ -87,6 +95,13 @@ type ModelObservationStore interface {
 	SaveModelObservation(context.Context, OperationContext, ModelObservation) error
 }
 
+// GPUPlanStore durably saves the accelerator result behind the operation
+// lease/generation fence. It is only needed when resource.gpu is present; a
+// requested GPU operation fails closed when the store does not implement it.
+type GPUPlanStore interface {
+	SaveGPUPlan(context.Context, OperationContext, *gpu.Plan) error
+}
+
 // AtomicStepStore is an optional stronger adapter. Production PostgreSQL
 // implementations should use it so the operation CAS and audit event commit
 // in one local transaction. The fallback path still requires an idempotent
@@ -119,6 +134,12 @@ type ModelPort interface {
 	EnsureModel(context.Context, OperationContext) (ModelObservation, error)
 }
 
+// GPUResolver resolves the request through the accelerator service. The
+// resolver is never contacted for an operation without resource.gpu.
+type GPUResolver interface {
+	ResolveGPU(context.Context, OperationContext) (*gpu.Plan, error)
+}
+
 type RuntimePort interface {
 	ApplyCR(context.Context, OperationContext) error
 	ApplyRuntime(context.Context, OperationContext) error
@@ -136,6 +157,7 @@ type Runner struct {
 	Store       OperationStore
 	Admission   AdmissionPort
 	Model       ModelPort
+	GPU         GPUResolver
 	Quota       quota.Port
 	Publication publication.Port
 	Runtime     RuntimePort
@@ -198,7 +220,7 @@ func (r *Runner) runStep(ctx context.Context, op OperationContext) (stepResult, 
 
 	case string(StepReserveQuota):
 		if r.Quota == nil {
-			return stepResult{phase: OperationRunning, step: string(StepApplyCR), event: "quota.skipped"}, nil
+			return stepResult{phase: OperationRunning, step: nextAfterQuota(op), event: "quota.skipped"}, nil
 		}
 		// A durable reservation may already have crossed the provider boundary
 		// before this worker lost its lease.  Never call Reserve again for a
@@ -213,7 +235,7 @@ func (r *Runner) runStep(ctx context.Context, op OperationContext) (stepResult, 
 			return stepResult{}, err
 		}
 		if reservation.State == "confirmed" {
-			return stepResult{phase: OperationRunning, step: string(StepApplyCR), event: "quota.already_confirmed"}, nil
+			return stepResult{phase: OperationRunning, step: nextAfterQuota(op), event: "quota.already_confirmed"}, nil
 		}
 		recovered := false
 		if reservation.State != "reserved" {
@@ -237,7 +259,7 @@ func (r *Runner) runStep(ctx context.Context, op OperationContext) (stepResult, 
 					return stepResult{}, err
 				}
 			}
-			return stepResult{phase: OperationRunning, step: string(StepApplyCR), event: "quota.recovered_confirmed"}, nil
+			return stepResult{phase: OperationRunning, step: nextAfterQuota(op), event: "quota.recovered_confirmed"}, nil
 		}
 		if reservation.State == "reserved" {
 			if err := r.Quota.Confirm(ctx, reservation); err != nil {
@@ -273,7 +295,45 @@ func (r *Runner) runStep(ctx context.Context, op OperationContext) (stepResult, 
 		if err := r.Store.SaveQuotaReservation(ctx, reservation); err != nil {
 			return stepResult{}, err
 		}
-		return stepResult{phase: OperationRunning, step: string(StepApplyCR), event: "quota.confirmed"}, nil
+		return stepResult{phase: OperationRunning, step: nextAfterQuota(op), event: "quota.confirmed"}, nil
+
+	case string(StepResolveGPU):
+		// A missing GPU request means this generation does not use a GPU. It
+		// must not contact the accelerator service or add scheduling/runtime
+		// fields; the caller's engine and command remain unchanged.
+		if op.GPURequest == nil {
+			return stepResult{phase: OperationRunning, step: string(StepApplyCR), event: "gpu.skipped"}, nil
+		}
+		if err := gpu.ValidateTopology(op.GPURequest, op.Replicas, op.RuntimeMode, op.WorkerReplicas); err != nil {
+			return stepResult{}, fmt.Errorf("validate GPU request: %w", err)
+		}
+		if op.GPUPlan != nil {
+			if err := gpu.ValidatePlan(op.GPUPlan, op.GPURequest); err != nil {
+				return stepResult{}, fmt.Errorf("validate persisted GPU plan: %w", err)
+			}
+			return stepResult{phase: OperationRunning, step: string(StepApplyCR), event: "gpu.reused"}, nil
+		}
+		if r.GPU == nil {
+			return stepResult{}, fmt.Errorf("%w: GPU resolver", ErrOperationProviderMissing)
+		}
+		store, ok := r.Store.(GPUPlanStore)
+		if !ok {
+			return stepResult{}, fmt.Errorf("%w: GPU plan store", ErrOperationProviderMissing)
+		}
+		plan, err := r.GPU.ResolveGPU(ctx, op)
+		if err != nil {
+			return stepResult{}, err
+		}
+		if err := gpu.ValidateTopology(op.GPURequest, op.Replicas, op.RuntimeMode, op.WorkerReplicas); err != nil {
+			return stepResult{}, fmt.Errorf("validate GPU request: %w", err)
+		}
+		if err := gpu.ValidatePlan(plan, op.GPURequest); err != nil {
+			return stepResult{}, fmt.Errorf("validate resolved GPU plan: %w", err)
+		}
+		if err := store.SaveGPUPlan(ctx, op, plan); err != nil {
+			return stepResult{}, err
+		}
+		return stepResult{phase: OperationRunning, step: string(StepApplyCR), event: "gpu.resolved"}, nil
 
 	case string(StepReleasePreviousQuota):
 		if r.Quota == nil {
@@ -570,6 +630,12 @@ func (r *Runner) retryAfter() time.Duration {
 		return 5 * time.Second
 	}
 	return r.RetryAfter
+}
+
+func nextAfterQuota(op OperationContext) string {
+	// Every running generation crosses the durable gate. The gate itself is a
+	// no-op for an omitted resource.gpu and never contacts the accelerator.
+	return string(StepResolveGPU)
 }
 
 func (r *Runner) validate(item work.Item) error {

@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	inferencev1 "github.com/zhangzhe-ctrl/ani-inference-service/api/inference/v1"
+	gpubiz "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/gpu"
 	inferencebiz "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/inference"
 )
 
@@ -33,6 +34,17 @@ func (u *UpdateUseCase) Update(ctx context.Context, in inferencebiz.UpdateInput)
 	if err != nil {
 		return nil, err
 	}
+	gpuPlanJSON, err := json.Marshal(in.GPUPlan)
+	if in.GPUPlan == nil {
+		gpuPlanJSON = nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	gpuPlanDigest := in.GPUPlanDigest
+	if gpuPlanDigest == "" && in.GPUPlan != nil {
+		gpuPlanDigest = in.GPUPlan.ResolutionDigest
+	}
 	commandJSON, err := json.Marshal(in.CommandArgv)
 	if err != nil {
 		return nil, err
@@ -51,7 +63,15 @@ func (u *UpdateUseCase) Update(ctx context.Context, in inferencebiz.UpdateInput)
 	resourcesJSON, err := json.Marshal(struct {
 		Requests map[string]string `json:"requests"`
 		Limits   map[string]string `json:"limits"`
-	}{in.Resources.Requests, in.Resources.Limits})
+		GPU      *gpubiz.Request   `json:"gpu,omitempty"`
+	}{in.Resources.Requests, in.Resources.Limits, in.Resources.GPU})
+	if err != nil {
+		return nil, err
+	}
+	gpuRequestJSON, err := json.Marshal(in.Resources.GPU)
+	if in.Resources.GPU == nil {
+		gpuRequestJSON = nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -102,6 +122,11 @@ func (u *UpdateUseCase) Update(ctx context.Context, in inferencebiz.UpdateInput)
 	if current.DesiredState != "running" {
 		return nil, inferencebiz.ErrInvalidState
 	}
+	// The nested resource.gpu object is the complete accelerator intent for a
+	// generation. An omitted object therefore means that this desired
+	// generation has no GPU placement; never inherit a previous generation's
+	// request or resolved plan. This also prevents a CPU-only update from
+	// accidentally recreating stale GPU workloads.
 	target := current.DesiredGeneration + 1
 	workers := in.WorkerReplicas
 	if workers < 1 {
@@ -111,8 +136,9 @@ func (u *UpdateUseCase) Update(ctx context.Context, in inferencebiz.UpdateInput)
 	if mode == "" {
 		mode = "deployment"
 	}
+	provider := in.RuntimeProvider
 	ec, es, et, ep := endpointValues(in.Endpoint)
-	rows, err := q.CloneSpecWithRuntimeUpdate(ctx, CloneSpecWithRuntimeUpdateParams{ID: pgUUID(uuid.New()), TargetGeneration: target, ModelVersionID: modelVersionID, Resources: resourcesJSON, Replicas: in.Replicas, RuntimeMode: mode, WorkerReplicas: workers, ArtifactProvider: in.ArtifactProvider, ArtifactRef: in.ArtifactRef, ArtifactSha256: in.ArtifactSHA256, ImageRef: in.ImageRef, ServedModelName: in.ServedModelName, EngineRuntime: in.EngineRuntime, CommandArgv: commandJSON, EndpointContainerPort: ec, EndpointServicePort: es, EndpointTargetPort: et, EndpointProtocol: ep, TenantID: tenant, ServiceID: serviceID, SourceGeneration: current.DesiredGeneration})
+	rows, err := q.CloneSpecWithRuntimeUpdate(ctx, CloneSpecWithRuntimeUpdateParams{ID: pgUUID(uuid.New()), TargetGeneration: target, ModelVersionID: modelVersionID, Resources: resourcesJSON, Replicas: in.Replicas, RuntimeMode: mode, WorkerReplicas: workers, RuntimeProvider: provider, ArtifactProvider: in.ArtifactProvider, ArtifactRef: in.ArtifactRef, ArtifactSha256: in.ArtifactSHA256, ImageRef: in.ImageRef, ServedModelName: in.ServedModelName, EngineRuntime: in.EngineRuntime, CommandArgv: commandJSON, EndpointContainerPort: ec, EndpointServicePort: es, EndpointTargetPort: et, EndpointProtocol: ep, GpuRequest: gpuRequestJSON, GpuPlan: gpuPlanJSON, GpuPlanDigest: pgtype.Text{String: gpuPlanDigest, Valid: gpuPlanDigest != ""}, TenantID: tenant, ServiceID: serviceID, SourceGeneration: current.DesiredGeneration})
 	if err != nil {
 		return nil, err
 	}

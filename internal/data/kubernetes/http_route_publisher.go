@@ -25,6 +25,10 @@ type HTTPRoutePublisher struct {
 	Client    client.Client
 	APIReader client.Reader
 	Source    DesiredRuntimeSource
+	// RuntimeProvider selects the backend naming contract. The legacy
+	// deployment provider owns <service-id>-endpoint; KServe owns its
+	// predictor/workload Service.
+	RuntimeProvider string
 
 	GatewayNamespace string
 	GatewayName      string
@@ -57,15 +61,74 @@ func (p *HTTPRoutePublisher) Publish(ctx context.Context, pub publication.Public
 	if p.RouteNamespace != "" && p.RouteNamespace != desired.Namespace {
 		return fmt.Errorf("publication route namespace %q does not match runtime namespace %q", p.RouteNamespace, desired.Namespace)
 	}
+	runtimeProvider := strings.ToLower(strings.TrimSpace(desired.RuntimeProvider))
+	if runtimeProvider == "" {
+		// A persisted runtime binding is authoritative while a generation is
+		// being migrated. This mirrors RuntimeRouter and keeps publication
+		// pointed at the old KServe object during a provider transition.
+		for _, binding := range desired.Bindings {
+			if binding.Role != "" && binding.Role != "runtime" {
+				continue
+			}
+			switch binding.Kind {
+			case KServeInferenceServiceKind, KServeLLMInferenceServiceKind:
+				runtimeProvider = "kserve"
+			case "Deployment", "LeaderWorkerSet":
+				runtimeProvider = "deployment"
+			}
+			if runtimeProvider != "" {
+				break
+			}
+		}
+	}
+	if runtimeProvider == "" {
+		// Keep the field for compatibility with older process configuration while
+		// persisted generations are being migrated. Once a generation has a
+		// provider, that value always wins.
+		runtimeProvider = strings.ToLower(strings.TrimSpace(p.RuntimeProvider))
+	}
+	if runtimeProvider == "" {
+		runtimeProvider = "deployment"
+	}
+	if runtimeProvider != "deployment" && runtimeProvider != "kserve" {
+		return fmt.Errorf("unsupported publication runtime provider %q", runtimeProvider)
+	}
 	servicePort := desired.ServicePort
-	if desired.Endpoint != nil {
+	backendName := pub.ServiceID + "-endpoint"
+	if runtimeProvider == "kserve" {
+		kserveKind := ""
+		for _, binding := range desired.Bindings {
+			if binding.Role == "" || binding.Role == "runtime" {
+				if isKServeBindingKind(binding.Kind) {
+					kserveKind = binding.Kind
+					break
+				}
+			}
+		}
+		// During a provider/topology replacement the persisted binding is the
+		// object that still exists. Keep the route on that object's Service until
+		// the new KServe binding has been durably recorded.
+		if kserveKind == KServeLLMInferenceServiceKind || (kserveKind == "" && desired.RuntimeMode == "leader_worker_set") {
+			backendName = KServeLLMWorkloadServiceName(desired.Name)
+			// LLMInferenceService exposes its generated workload Service on
+			// the OpenAI-compatible HTTP port 8000.
+			servicePort = KServeLLMWorkloadServicePort
+		} else {
+			backendName = KServePredictorServiceName(desired.Name)
+			// KServe's predictor Service exposes the HTTP predictor on its
+			// stable service port 80; the user endpoint port remains the
+			// container port.
+			servicePort = KServePredictorServicePort
+		}
+	}
+	if desired.Endpoint != nil && runtimeProvider != "kserve" {
 		servicePort = desired.Endpoint.ServicePort
 	}
 	if servicePort < 1 || servicePort > 65535 {
 		return fmt.Errorf("publication backend service port %d is invalid", servicePort)
 	}
 	routeNamespace := p.routeNamespace(desired.Namespace)
-	route := p.route(pub, routeNamespace, pub.ServiceID+"-endpoint", servicePort, desired.ServedModelName)
+	route := p.route(pub, routeNamespace, backendName, servicePort, desired.ServedModelName)
 	reader := p.reader()
 	current := &gatewayv1.HTTPRoute{}
 	key := client.ObjectKey{Namespace: routeNamespace, Name: route.GetName()}

@@ -152,12 +152,14 @@ const cloneSpecGeneration = `-- name: CloneSpecGeneration :execrows
 INSERT INTO inference_specs
   (tenant_id, id, service_id, generation, model_id, model_version_id,
    artifact_provider, artifact_ref, artifact_sha256, image_ref, served_model_name,
-   engine_runtime, command_argv, resources, replicas, runtime_mode, worker_replicas, spec_json,
-   endpoint_container_port, endpoint_service_port, endpoint_target_port, endpoint_protocol)
+   engine_runtime, command_argv, resources, replicas, runtime_mode, worker_replicas, runtime_provider, spec_json,
+   endpoint_container_port, endpoint_service_port, endpoint_target_port, endpoint_protocol,
+   gpu_request, gpu_plan, gpu_plan_digest)
 SELECT s.tenant_id, $1, s.service_id, $2, s.model_id, s.model_version_id,
        s.artifact_provider, s.artifact_ref, s.artifact_sha256, s.image_ref, s.served_model_name,
-       s.engine_runtime, s.command_argv, s.resources, s.replicas, s.runtime_mode, s.worker_replicas, s.spec_json,
-       s.endpoint_container_port, s.endpoint_service_port, s.endpoint_target_port, s.endpoint_protocol
+       s.engine_runtime, s.command_argv, s.resources, s.replicas, s.runtime_mode, s.worker_replicas, s.runtime_provider, s.spec_json,
+       s.endpoint_container_port, s.endpoint_service_port, s.endpoint_target_port, s.endpoint_protocol,
+       s.gpu_request, s.gpu_plan, s.gpu_plan_digest
 FROM inference_specs s
 WHERE s.tenant_id = $3 AND s.service_id = $4
   AND s.generation = $5
@@ -189,8 +191,9 @@ const cloneSpecWithRuntimeUpdate = `-- name: CloneSpecWithRuntimeUpdate :execrow
 INSERT INTO inference_specs
   (tenant_id, id, service_id, generation, model_id, model_version_id,
    artifact_provider, artifact_ref, artifact_sha256, image_ref, served_model_name,
-   engine_runtime, command_argv, resources, replicas, runtime_mode, worker_replicas, spec_json,
-   endpoint_container_port, endpoint_service_port, endpoint_target_port, endpoint_protocol)
+   engine_runtime, command_argv, resources, replicas, runtime_mode, worker_replicas, runtime_provider, spec_json,
+   endpoint_container_port, endpoint_service_port, endpoint_target_port, endpoint_protocol,
+   gpu_request, gpu_plan, gpu_plan_digest)
 SELECT s.tenant_id, $1, s.service_id, $2, s.model_id,
        CASE WHEN $3::uuid IS NOT NULL THEN $3::uuid ELSE s.model_version_id END,
        CASE WHEN $4::text <> '' THEN $4 ELSE s.artifact_provider END,
@@ -201,11 +204,14 @@ SELECT s.tenant_id, $1, s.service_id, $2, s.model_id,
        CASE WHEN $9::text <> '' THEN $9 ELSE s.engine_runtime END,
        CASE WHEN CASE WHEN jsonb_typeof($10::jsonb) = 'array' THEN jsonb_array_length($10::jsonb) ELSE 0 END > 0 THEN $10 ELSE s.command_argv END,
        $11, $12,
-       $13, $14, s.spec_json,
-       $15, $16, $17, $18
+       $13, $14,
+       CASE WHEN $15::text <> '' THEN $15 ELSE s.runtime_provider END,
+       s.spec_json,
+       $16, $17, $18, $19,
+       $20, $21, $22
 FROM inference_specs s
-WHERE s.tenant_id = $19 AND s.service_id = $20
-  AND s.generation = $21
+WHERE s.tenant_id = $23 AND s.service_id = $24
+  AND s.generation = $25
 `
 
 type CloneSpecWithRuntimeUpdateParams struct {
@@ -223,10 +229,14 @@ type CloneSpecWithRuntimeUpdateParams struct {
 	Replicas              int32
 	RuntimeMode           string
 	WorkerReplicas        int32
+	RuntimeProvider       string
 	EndpointContainerPort pgtype.Int4
 	EndpointServicePort   pgtype.Int4
 	EndpointTargetPort    pgtype.Text
 	EndpointProtocol      pgtype.Text
+	GpuRequest            []byte
+	GpuPlan               []byte
+	GpuPlanDigest         pgtype.Text
 	TenantID              pgtype.UUID
 	ServiceID             pgtype.UUID
 	SourceGeneration      int64
@@ -248,10 +258,14 @@ func (q *Queries) CloneSpecWithRuntimeUpdate(ctx context.Context, arg CloneSpecW
 		arg.Replicas,
 		arg.RuntimeMode,
 		arg.WorkerReplicas,
+		arg.RuntimeProvider,
 		arg.EndpointContainerPort,
 		arg.EndpointServicePort,
 		arg.EndpointTargetPort,
 		arg.EndpointProtocol,
+		arg.GpuRequest,
+		arg.GpuPlan,
+		arg.GpuPlanDigest,
 		arg.TenantID,
 		arg.ServiceID,
 		arg.SourceGeneration,
@@ -419,7 +433,13 @@ func (q *Queries) GetLatestPublication(ctx context.Context, arg GetLatestPublica
 }
 
 const getLatestSpec = `-- name: GetLatestSpec :one
-SELECT tenant_id, id, service_id, generation, model_id, model_version_id, artifact_provider, artifact_ref, artifact_sha256, image_ref, served_model_name, engine_runtime, command_argv, resources, replicas, spec_json, created_at, runtime_mode, worker_replicas, endpoint_container_port, endpoint_service_port, endpoint_target_port, endpoint_protocol FROM inference_specs
+SELECT tenant_id, id, service_id, generation, model_id, model_version_id,
+       artifact_provider, artifact_ref, artifact_sha256, image_ref, served_model_name,
+       engine_runtime, command_argv, resources, replicas, spec_json, created_at,
+       runtime_mode, worker_replicas, endpoint_container_port, endpoint_service_port,
+       endpoint_target_port, endpoint_protocol, runtime_provider,
+       gpu_request, gpu_plan, gpu_plan_digest
+FROM inference_specs
 WHERE tenant_id = $1 AND service_id = $2 AND generation <= $3
 ORDER BY generation DESC
 LIMIT 1
@@ -458,6 +478,10 @@ func (q *Queries) GetLatestSpec(ctx context.Context, arg GetLatestSpecParams) (I
 		&i.EndpointServicePort,
 		&i.EndpointTargetPort,
 		&i.EndpointProtocol,
+		&i.RuntimeProvider,
+		&i.GpuRequest,
+		&i.GpuPlan,
+		&i.GpuPlanDigest,
 	)
 	return i, err
 }
@@ -894,7 +918,13 @@ func (q *Queries) GetServiceForUpdate(ctx context.Context, arg GetServiceForUpda
 }
 
 const getSpec = `-- name: GetSpec :one
-SELECT tenant_id, id, service_id, generation, model_id, model_version_id, artifact_provider, artifact_ref, artifact_sha256, image_ref, served_model_name, engine_runtime, command_argv, resources, replicas, spec_json, created_at, runtime_mode, worker_replicas, endpoint_container_port, endpoint_service_port, endpoint_target_port, endpoint_protocol FROM inference_specs
+SELECT tenant_id, id, service_id, generation, model_id, model_version_id,
+       artifact_provider, artifact_ref, artifact_sha256, image_ref, served_model_name,
+       engine_runtime, command_argv, resources, replicas, spec_json, created_at,
+       runtime_mode, worker_replicas, endpoint_container_port, endpoint_service_port,
+       endpoint_target_port, endpoint_protocol, runtime_provider,
+       gpu_request, gpu_plan, gpu_plan_digest
+FROM inference_specs
 WHERE tenant_id = $1 AND service_id = $2 AND generation = $3
 `
 
@@ -931,6 +961,10 @@ func (q *Queries) GetSpec(ctx context.Context, arg GetSpecParams) (InferenceSpec
 		&i.EndpointServicePort,
 		&i.EndpointTargetPort,
 		&i.EndpointProtocol,
+		&i.RuntimeProvider,
+		&i.GpuRequest,
+		&i.GpuPlan,
+		&i.GpuPlanDigest,
 	)
 	return i, err
 }
@@ -1188,10 +1222,11 @@ const insertSpec = `-- name: InsertSpec :exec
 INSERT INTO inference_specs
   (tenant_id, id, service_id, generation, model_id, model_version_id,
    artifact_provider, artifact_ref, artifact_sha256, image_ref, served_model_name,
-   engine_runtime, command_argv, resources, replicas, runtime_mode, worker_replicas, spec_json,
-   endpoint_container_port, endpoint_service_port, endpoint_target_port, endpoint_protocol)
+   engine_runtime, command_argv, resources, replicas, runtime_mode, worker_replicas, runtime_provider, spec_json,
+   endpoint_container_port, endpoint_service_port, endpoint_target_port, endpoint_protocol,
+   gpu_request, gpu_plan, gpu_plan_digest)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
-        $19, $20, $21, $22)
+        $19, $20, $21, $22, $23, $24, $25, $26)
 `
 
 type InsertSpecParams struct {
@@ -1212,11 +1247,15 @@ type InsertSpecParams struct {
 	Replicas              int32
 	RuntimeMode           string
 	WorkerReplicas        int32
+	RuntimeProvider       string
 	SpecJson              []byte
 	EndpointContainerPort pgtype.Int4
 	EndpointServicePort   pgtype.Int4
 	EndpointTargetPort    pgtype.Text
 	EndpointProtocol      pgtype.Text
+	GpuRequest            []byte
+	GpuPlan               []byte
+	GpuPlanDigest         pgtype.Text
 }
 
 func (q *Queries) InsertSpec(ctx context.Context, arg InsertSpecParams) error {
@@ -1238,11 +1277,15 @@ func (q *Queries) InsertSpec(ctx context.Context, arg InsertSpecParams) error {
 		arg.Replicas,
 		arg.RuntimeMode,
 		arg.WorkerReplicas,
+		arg.RuntimeProvider,
 		arg.SpecJson,
 		arg.EndpointContainerPort,
 		arg.EndpointServicePort,
 		arg.EndpointTargetPort,
 		arg.EndpointProtocol,
+		arg.GpuRequest,
+		arg.GpuPlan,
+		arg.GpuPlanDigest,
 	)
 	return err
 }
@@ -1424,8 +1467,10 @@ SELECT s.tenant_id, s.id, s.name, s.desired_state, s.desired_generation, s.appli
        COALESCE(sp.replicas, 0)::int4 AS replicas,
        COALESCE(sp.runtime_mode, 'deployment') AS runtime_mode,
        COALESCE(sp.worker_replicas, 1)::int4 AS worker_replicas,
+       COALESCE(sp.runtime_provider, 'deployment') AS runtime_provider,
        sp.endpoint_container_port, sp.endpoint_service_port,
        sp.endpoint_target_port, sp.endpoint_protocol,
+       sp.gpu_request, sp.gpu_plan, sp.gpu_plan_digest,
        COALESCE(rt.runtime_phase, 'unknown') AS runtime_phase,
        COALESCE(pub.observed_phase, 'withdrawn') AS publication_phase,
        COALESCE(rt.invocation_health, 'unknown') AS invocation_health,
@@ -1478,10 +1523,14 @@ type ListServicesRow struct {
 	Replicas              int32
 	RuntimeMode           string
 	WorkerReplicas        int32
+	RuntimeProvider       string
 	EndpointContainerPort pgtype.Int4
 	EndpointServicePort   pgtype.Int4
 	EndpointTargetPort    pgtype.Text
 	EndpointProtocol      pgtype.Text
+	GpuRequest            []byte
+	GpuPlan               []byte
+	GpuPlanDigest         pgtype.Text
 	RuntimePhase          string
 	PublicationPhase      string
 	InvocationHealth      string
@@ -1524,10 +1573,14 @@ func (q *Queries) ListServices(ctx context.Context, arg ListServicesParams) ([]L
 			&i.Replicas,
 			&i.RuntimeMode,
 			&i.WorkerReplicas,
+			&i.RuntimeProvider,
 			&i.EndpointContainerPort,
 			&i.EndpointServicePort,
 			&i.EndpointTargetPort,
 			&i.EndpointProtocol,
+			&i.GpuRequest,
+			&i.GpuPlan,
+			&i.GpuPlanDigest,
 			&i.RuntimePhase,
 			&i.PublicationPhase,
 			&i.InvocationHealth,
@@ -1735,6 +1788,59 @@ func (q *Queries) RetryOperationStepCAS(ctx context.Context, arg RetryOperationS
 		arg.TargetGeneration,
 		arg.ExpectedPhase,
 		arg.ExpectedStep,
+		arg.LeaseToken,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const saveGPUPlanCAS = `-- name: SaveGPUPlanCAS :execrows
+UPDATE inference_specs sp
+SET gpu_plan = $1::jsonb,
+    gpu_plan_digest = $2
+FROM inference_operations o
+JOIN inference_services s
+  ON s.tenant_id = o.tenant_id AND s.id = o.service_id
+JOIN inference_resource_work w
+  ON w.tenant_id = o.tenant_id AND w.service_id = o.service_id
+WHERE sp.tenant_id = $3
+  AND sp.service_id = $4
+  AND sp.generation = $5
+  AND o.tenant_id = sp.tenant_id
+  AND o.id = $6
+  AND o.target_generation = sp.generation
+  AND o.phase = 'running'
+  AND o.step = 'resolve_gpu'
+  AND s.current_operation_id = o.id
+  AND s.desired_generation = o.target_generation
+  AND w.lease_token = $7
+  AND w.lease_until > clock_timestamp()
+  AND (sp.gpu_plan IS NULL OR sp.gpu_plan = $1::jsonb)
+`
+
+type SaveGPUPlanCASParams struct {
+	GpuPlan          []byte
+	GpuPlanDigest    pgtype.Text
+	TenantID         pgtype.UUID
+	ServiceID        pgtype.UUID
+	TargetGeneration int64
+	OperationID      pgtype.UUID
+	LeaseToken       pgtype.UUID
+}
+
+// The accelerator response becomes immutable for a generation. A worker may
+// save it only while holding the operation lease at resolve_gpu; a retry sees
+// the persisted plan and never resolves the same generation again.
+func (q *Queries) SaveGPUPlanCAS(ctx context.Context, arg SaveGPUPlanCASParams) (int64, error) {
+	result, err := q.db.Exec(ctx, saveGPUPlanCAS,
+		arg.GpuPlan,
+		arg.GpuPlanDigest,
+		arg.TenantID,
+		arg.ServiceID,
+		arg.TargetGeneration,
+		arg.OperationID,
 		arg.LeaseToken,
 	)
 	if err != nil {

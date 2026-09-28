@@ -27,7 +27,7 @@ func TestUpdateResolvesModelVersionBeforePersistingSpec(t *testing.T) {
 	if _, err := NewUpdateUseCase(NewClient(api), next).Update(context.Background(), in); err != nil {
 		t.Fatal(err)
 	}
-	if !next.called || next.in.ModelVersionID != in.ModelVersionID || next.in.ArtifactRef != api.version.StoragePath || next.in.ArtifactSHA256 != api.version.ChecksumSha256 || next.in.EngineRuntime != "vllm" || len(next.in.CommandArgv) != 2 {
+	if !next.called || next.in.ModelVersionID != in.ModelVersionID || next.in.ArtifactRef != api.version.StoragePath || next.in.ArtifactSHA256 != api.version.ChecksumSha256 || next.in.EngineRuntime != "" || len(next.in.CommandArgv) != 0 {
 		t.Fatalf("persisted input=%+v", next.in)
 	}
 }

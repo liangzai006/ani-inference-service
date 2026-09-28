@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	inferencev1 "github.com/zhangzhe-ctrl/ani-inference-service/api/inference/v1"
+	gpubiz "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/gpu"
 	inferencebiz "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/inference"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -130,7 +131,7 @@ func (u *ReadUseCase) GetService(ctx context.Context, tenantID, serviceID string
 			return nil, err
 		}
 		result.Replicas = spec.Replicas
-		result.Runtime = &inferencev1.RuntimeSpec{Mode: runtimeModeEnum(spec.RuntimeMode), WorkerReplicas: spec.WorkerReplicas}
+		result.Runtime = &inferencev1.RuntimeSpec{Mode: runtimeModeEnum(spec.RuntimeMode), WorkerReplicas: spec.WorkerReplicas, Provider: runtimeProviderEnum(spec.RuntimeProvider)}
 		result.Runtime.Endpoint = endpointProto(spec.EndpointContainerPort, spec.EndpointServicePort, spec.EndpointTargetPort, spec.EndpointProtocol)
 		var resource struct {
 			Requests map[string]string `json:"requests"`
@@ -141,7 +142,11 @@ func (u *ReadUseCase) GetService(ctx context.Context, tenantID, serviceID string
 				return nil, err
 			}
 		}
-		result.Resource = &inferencev1.ResourceSpec{Requests: resource.Requests, Limits: resource.Limits}
+		gpuRequest, err := decodeGPURequest(spec.GpuRequest)
+		if err != nil {
+			return nil, err
+		}
+		result.Resource = &inferencev1.ResourceSpec{Requests: resource.Requests, Limits: resource.Limits, Gpu: gpuRequest}
 	}
 	runtime, e := q.GetRuntime(ctx, GetRuntimeParams{TenantID: tenant, ServiceID: service})
 	if e != nil && !errors.Is(e, pgx.ErrNoRows) {
@@ -204,7 +209,7 @@ func (u *ReadUseCase) ListServices(ctx context.Context, tenantID string, pageSiz
 			Generation: row.DesiredGeneration, AppliedGeneration: row.AppliedGeneration, ModelVersionId: row.ModelVersionID.String(),
 			Replicas: row.Replicas, RuntimePhase: row.RuntimePhase,
 			PublicationPhase: row.PublicationPhase, InvocationHealth: row.InvocationHealth,
-			Runtime: &inferencev1.RuntimeSpec{Mode: runtimeModeEnum(row.RuntimeMode), WorkerReplicas: row.WorkerReplicas},
+			Runtime: &inferencev1.RuntimeSpec{Mode: runtimeModeEnum(row.RuntimeMode), WorkerReplicas: row.WorkerReplicas, Provider: runtimeProviderEnum(row.RuntimeProvider)},
 		}
 		item.Runtime.Endpoint = endpointProto(row.EndpointContainerPort, row.EndpointServicePort, row.EndpointTargetPort, row.EndpointProtocol)
 		if err := applySpecProjection(item, row.ModelVersionID.String(), row.ArtifactProvider, row.ArtifactRef, row.ArtifactSha256, row.ImageRef, row.ServedModelName, row.EngineRuntime, row.CommandArgv); err != nil {
@@ -219,7 +224,11 @@ func (u *ReadUseCase) ListServices(ctx context.Context, tenantID string, pageSiz
 				return nil, "", err
 			}
 		}
-		item.Resource = &inferencev1.ResourceSpec{Requests: resource.Requests, Limits: resource.Limits}
+		gpuRequest, err := decodeGPURequest(row.GpuRequest)
+		if err != nil {
+			return nil, "", err
+		}
+		item.Resource = &inferencev1.ResourceSpec{Requests: resource.Requests, Limits: resource.Limits, Gpu: gpuRequest}
 		if row.ObservedAt.Valid {
 			item.ObservedAt = timestamppb.New(row.ObservedAt.Time)
 		}
@@ -234,6 +243,24 @@ func (u *ReadUseCase) ListServices(ctx context.Context, tenantID string, pageSiz
 		}
 	}
 	return result, next, nil
+}
+
+func decodeGPURequest(payload []byte) (*inferencev1.GpuRequest, error) {
+	if len(payload) == 0 {
+		return nil, nil
+	}
+	var request gpubiz.Request
+	if err := json.Unmarshal(payload, &request); err != nil {
+		return nil, fmt.Errorf("decode gpu request: %w", err)
+	}
+	return gpuProto(&request), nil
+}
+
+func runtimeProviderEnum(provider string) string {
+	if provider == "" {
+		return "deployment"
+	}
+	return provider
 }
 
 func endpointProto(containerPort, servicePort pgtype.Int4, targetPort, protocol pgtype.Text) *inferencev1.EndpointSpec {

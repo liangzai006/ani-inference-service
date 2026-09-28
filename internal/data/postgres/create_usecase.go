@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	inferencev1 "github.com/zhangzhe-ctrl/ani-inference-service/api/inference/v1"
+	gpubiz "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/gpu"
 	inferencebiz "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/inference"
 )
 
@@ -28,9 +29,28 @@ func (u *CreateUseCase) Create(ctx context.Context, in inferencebiz.CreateInput)
 	resourcesJSON, err := json.Marshal(struct {
 		Requests map[string]string `json:"requests"`
 		Limits   map[string]string `json:"limits"`
-	}{Requests: in.Resources.Requests, Limits: in.Resources.Limits})
+		GPU      *gpubiz.Request   `json:"gpu,omitempty"`
+	}{Requests: in.Resources.Requests, Limits: in.Resources.Limits, GPU: in.Resources.GPU})
 	if err != nil {
 		return nil, err
+	}
+	gpuRequestJSON, err := json.Marshal(in.Resources.GPU)
+	if in.Resources.GPU == nil {
+		gpuRequestJSON = nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	gpuPlanJSON, err := json.Marshal(in.GPUPlan)
+	if in.GPUPlan == nil {
+		gpuPlanJSON = nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	gpuPlanDigest := in.GPUPlanDigest
+	if gpuPlanDigest == "" && in.GPUPlan != nil {
+		gpuPlanDigest = in.GPUPlan.ResolutionDigest
 	}
 	commandJSON, err := json.Marshal(in.CommandArgv)
 	if err != nil {
@@ -43,7 +63,9 @@ func (u *CreateUseCase) Create(ctx context.Context, in inferencebiz.CreateInput)
 		ArtifactProvider: in.ArtifactProvider, ArtifactRef: in.ArtifactRef, ArtifactSHA256: in.ArtifactSHA256,
 		ImageRef: in.ImageRef, ServedModelName: in.ServedModelName, EngineRuntime: in.EngineRuntime, CommandArgv: commandJSON,
 		Replicas: in.Replicas, RequestHash: in.RequestHash, Method: "CreateInferenceService",
-		RuntimeMode: in.RuntimeMode, WorkerReplicas: in.WorkerReplicas,
+		RuntimeMode: in.RuntimeMode, WorkerReplicas: in.WorkerReplicas, RuntimeProvider: in.RuntimeProvider,
+		GPURequest: gpuRequestJSON,
+		GPUPlan:    gpuPlanJSON, GPUPlanDigest: gpuPlanDigest,
 		EndpointEnabled:       in.Endpoint != nil,
 		EndpointContainerPort: endpointContainerPort(in.Endpoint), EndpointServicePort: endpointServicePort(in.Endpoint),
 		EndpointTargetPort: endpointTargetPort(in.Endpoint), EndpointProtocol: endpointProtocol(in.Endpoint),
@@ -54,7 +76,7 @@ func (u *CreateUseCase) Create(ctx context.Context, in inferencebiz.CreateInput)
 	}
 	engine := &inferencev1.EngineSpec{Type: in.EngineRuntime, Image: in.ImageRef, Command: append([]string(nil), in.CommandArgv...)}
 	artifact := &inferencev1.ModelArtifact{Provider: in.ArtifactProvider, Reference: in.ArtifactRef, Sha256: in.ArtifactSHA256}
-	runtime := &inferencev1.RuntimeSpec{Mode: runtimeModeEnum(in.RuntimeMode), WorkerReplicas: in.WorkerReplicas}
+	runtime := &inferencev1.RuntimeSpec{Mode: runtimeModeEnum(in.RuntimeMode), WorkerReplicas: in.WorkerReplicas, Provider: runtimeProviderEnum(in.RuntimeProvider)}
 	if in.Endpoint != nil {
 		runtime.Endpoint = &inferencev1.EndpointSpec{ContainerPort: in.Endpoint.ContainerPort, ServicePort: in.Endpoint.ServicePort, TargetPort: in.Endpoint.TargetPort, Protocol: in.Endpoint.Protocol}
 	}
@@ -62,12 +84,19 @@ func (u *CreateUseCase) Create(ctx context.Context, in inferencebiz.CreateInput)
 		Resource: &inferencev1.InferenceService{
 			Id: result.ServiceID, Name: in.Name, DesiredState: "running", Generation: 1,
 			ModelVersionId: in.ModelVersionID, Replicas: in.Replicas,
-			Resource:      &inferencev1.ResourceSpec{Requests: in.Resources.Requests, Limits: in.Resources.Limits},
+			Resource:      &inferencev1.ResourceSpec{Requests: in.Resources.Requests, Limits: in.Resources.Limits, Gpu: gpuProto(in.Resources.GPU)},
 			Runtime:       runtime,
 			ModelArtifact: artifact, Engine: engine,
 		},
 		Operation: &inferencev1.Operation{Id: result.OperationID, ServiceId: result.ServiceID, Kind: "create", Phase: "pending", Step: "admission", TargetGeneration: 1},
 	}, nil
+}
+
+func gpuProto(in *gpubiz.Request) *inferencev1.GpuRequest {
+	if in == nil {
+		return nil
+	}
+	return &inferencev1.GpuRequest{ClusterId: in.ClusterID, PoolId: in.PoolID, ProfileId: in.ProfileID, ProfileVersion: in.ProfileVersion, Replicas: in.Replicas, DevicesPerReplica: in.DevicesPerReplica, ContainerName: in.ContainerName}
 }
 
 func endpointContainerPort(e *inferencebiz.EndpointSpec) int32 {

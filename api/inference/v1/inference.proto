@@ -10,6 +10,21 @@ import "google/protobuf/timestamp.proto";
 message ResourceSpec {
   map<string, string> requests = 1;
   map<string, string> limits = 2;
+  GpuRequest gpu = 3;
+}
+
+// GPU placement is resolved by the accelerator service. The inference API
+// carries the immutable request shape; it does not accept physical devices or
+// synthesize provider flags.
+message GpuRequest {
+  string cluster_id = 1;
+  string pool_id = 2;
+  string profile_id = 3;
+  uint64 profile_version = 4;
+  // Number of GPU-bearing Pods. For LWS this is groups * (leader + workers).
+  uint32 replicas = 5;
+  uint32 devices_per_replica = 6;
+  string container_name = 7;
 }
 
 enum RuntimeMode {
@@ -24,6 +39,10 @@ message RuntimeSpec {
   // Deployment and must be positive for the distributed mode.
   int32 worker_replicas = 2;
   EndpointSpec endpoint = 3;
+  // Runtime provider for new requests is KServe. Create omits this field to
+  // use KServe; update treats empty as inherit for an existing generation.
+  // The legacy deployment value is persisted only for old generations.
+  string provider = 4;
 }
 
 // EndpointSpec describes the optional Kubernetes Service exposed for this

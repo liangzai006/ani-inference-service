@@ -29,7 +29,9 @@ func TestUpdateUseCaseClonesSpecWithGenerationCAS(t *testing.T) {
 		t.Fatal(err)
 	}
 	tenant, service, createOp, nextVersion := uuid.New(), uuid.New(), uuid.New(), uuid.New()
-	if _, err := NewRepository(pool).CreateService(ctx, CreateAggregateInput{TenantID: tenant.String(), ServiceID: service.String(), OperationID: createOp.String(), Name: "update-" + service.String(), ModelVersionID: uuid.New().String(), RequestHash: "create-update", IdempotencyKey: "create-update-" + createOp.String()}); err != nil {
+	gpuRequest := []byte(`{"cluster_id":"10000000-0000-4000-8000-000000000001","pool_id":"10000000-0000-4000-8000-000000000002","profile_id":"10000000-0000-4000-8000-000000000003","profile_version":1,"replicas":1,"devices_per_replica":1,"container_name":"kserve-container"}`)
+	resourcesJSON := []byte(`{"requests":{"cpu":"1"},"limits":{"cpu":"1"},"gpu":{"cluster_id":"10000000-0000-4000-8000-000000000001","pool_id":"10000000-0000-4000-8000-000000000002","profile_id":"10000000-0000-4000-8000-000000000003","profile_version":1,"replicas":1,"devices_per_replica":1,"container_name":"kserve-container"}}`)
+	if _, err := NewRepository(pool).CreateService(ctx, CreateAggregateInput{TenantID: tenant.String(), ServiceID: service.String(), OperationID: createOp.String(), Name: "update-" + service.String(), ModelVersionID: uuid.New().String(), RequestHash: "create-update", IdempotencyKey: "create-update-" + createOp.String(), Resources: resourcesJSON, GPURequest: gpuRequest}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, "UPDATE inference_operations SET phase='succeeded', step='complete', completed_at=now() WHERE tenant_id=$1 AND id=$2", tenant, createOp); err != nil {
@@ -79,6 +81,9 @@ func TestUpdateUseCaseClonesSpecWithGenerationCAS(t *testing.T) {
 	}
 	if spec.ModelVersionID != pgUUID(nextVersion) {
 		t.Fatalf("model version=%v want=%v", spec.ModelVersionID, pgUUID(nextVersion))
+	}
+	if len(spec.GpuRequest) != 0 || len(spec.GpuPlan) != 0 || spec.GpuPlanDigest.Valid {
+		t.Fatalf("GPU snapshot inherited by CPU-only update: request=%s plan=%s digest=%v", spec.GpuRequest, spec.GpuPlan, spec.GpuPlanDigest)
 	}
 	previous, err := New(pool).GetPreviousQuotaReservation(ctx, GetPreviousQuotaReservationParams{TenantID: pgUUID(tenant), ServiceID: pgUUID(service), Generation: 2})
 	if err != nil {

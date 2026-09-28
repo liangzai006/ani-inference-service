@@ -22,13 +22,21 @@ func (c *createCapture) Create(_ context.Context, in inference.CreateInput) (*in
 func TestCreateResolvesVersionBeforePersistingSpec(t *testing.T) {
 	api := &modelAPIFake{version: readyVersion()}
 	next := &createCapture{}
-	in := inference.CreateInput{TenantID: "tenant", ModelVersionID: "version-id", RequestID: "distinct-operation-request"}
+	in := inference.CreateInput{TenantID: "tenant", ModelVersionID: "version-id", RequestID: "distinct-operation-request", EngineRuntime: "custom", CommandArgv: []string{"custom-server", "serve"}}
 	_, err := NewCreateUseCase(NewClient(api), next).Create(context.Background(), in)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !next.called || api.request.GetModelVersionId() != in.ModelVersionID || next.in.ArtifactRef != api.version.StoragePath || next.in.ArtifactSHA256 != api.version.ChecksumSha256 || next.in.EngineRuntime != "vllm" || len(next.in.CommandArgv) != 2 || next.in.RequestID != in.RequestID {
+	if !next.called || api.request.GetModelVersionId() != in.ModelVersionID || next.in.ArtifactRef != api.version.StoragePath || next.in.ArtifactSHA256 != api.version.ChecksumSha256 || next.in.EngineRuntime != in.EngineRuntime || !slices.Equal(next.in.CommandArgv, in.CommandArgv) || next.in.RequestID != in.RequestID {
 		t.Fatalf("persisted input=%+v", next.in)
+	}
+}
+
+func TestCreateRequiresCallerEngineConfiguration(t *testing.T) {
+	next := &createCapture{}
+	_, err := NewCreateUseCase(NewClient(&modelAPIFake{version: readyVersion()}), next).Create(context.Background(), inference.CreateInput{TenantID: "tenant", ModelVersionID: "version-id"})
+	if err == nil || next.called {
+		t.Fatalf("missing caller engine accepted: err=%v called=%v", err, next.called)
 	}
 }
 func TestCreateRejectsUnreadyModelBeforeWriting(t *testing.T) {

@@ -6,6 +6,7 @@ package kubernetes
 import (
 	"fmt"
 
+	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/gpu"
 	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/resources"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -27,6 +28,7 @@ type RuntimeSpec struct {
 	TenantID, ServiceID, Name, Namespace, Image                   string
 	ModelVersionID, ArtifactProvider, ArtifactRef, ArtifactSHA256 string
 	ServedModelName, EngineRuntime                                string
+	RuntimeProvider                                               string
 	Generation                                                    int64
 	CommandArgv                                                   []string
 	Resources                                                     resources.Normalized
@@ -40,6 +42,9 @@ type RuntimeSpec struct {
 	Endpoint                   *EndpointSpec
 	// ModelClaim names a PVC populated and verified by the materializer.
 	ModelClaim string
+	// GPUPlan is an immutable accelerator resolution. GPU requests are invalid
+	// unless this plan is present and validated before rendering.
+	GPUPlan *gpu.Plan
 }
 
 type EndpointSpec struct {

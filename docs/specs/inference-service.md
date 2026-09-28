@@ -7,7 +7,7 @@
 - 独立仓库、构建、版本和进程，使用固定版本 `ani-kratos-layout` 生成；生成后自行维护，不运行时依赖模板。
 - 遵循 layout 的实际目录和 Kratos gRPC 装配。新接口独立版本化，不复制旧 ANI Proto、不经 Core PlatformWorkload 执行、不导入 ANI 业务 runtime。
 - 用 client-go + controller-runtime 驱动 Kubernetes 执行和持续观察，不搬运旧自定义 Observer/Reconciler。框架接口本身仍叫 `Reconcile`，这不等于复用旧实现。
-- GPU 通过 Kubernetes 扩展资源名（例如 `nvidia.com/gpu`）进入 `resources.requests/limits`；不传则正常启动，不设置专门 CPU 模式、不强制添加 `--device=cpu`。
+- GPU 只通过显式的 `resource.gpu` 对象请求；未传 `resource.gpu` 时不使用 GPU、不解析 GPU 计划，也不添加 GPU 调度字段。不会因此自动切换引擎或拼接 CPU 参数。
 - 新业务存储使用 PostgreSQL + sqlc，显式租户隔离，不使用 RLS、不写其他领域表。
 - 不使用 `ani-core-platform` 技能及其旧 ANI 分层/契约门禁。本服务的工程依据是本规格、独立领域准则及固定模板运行合同。
 - 本设计不授权前端修改、远程仓库创建、旧环境接管或集群部署。
@@ -78,7 +78,7 @@ ani-inference-service/
 - `resource_id`、模型目录 ID、模型版本 ID 分离，不再用一个 `model` 字段时而传名称、时而传版本 UUID。
 - `model_artifact` 包含提供方、不可变版本引用、摘要和装载约定。有效性/租户可访问性由可信 Model 契约验证；不接受客户端任意内网 URL 作为制品下载位置。
 - `engine` 包含固定镜像引用、类型及可选 command/args。保留自定义启动命令；传入时以 argv 执行，不经 shell 拼接、不被默认参数静默覆盖。装载目录、端口、模型别名和健康协议需与引擎契约一致，不一致返回明确原因。
-- `resources.requests/limits` 直接遵循 Kubernetes `ResourceRequirements`。GPU 使用 `nvidia.com/gpu` 等扩展资源键；不可解析的资源量或资源名拒绝，绝不静默降级。不传 GPU 则不注入 GPU 资源、selector 或 GPU 专用队列；普通网络/存储调度约束仍保留。
+- `resources.requests/limits` 只承载 CPU、内存及其他普通资源；GPU 使用 `resource.gpu` 的集群、池、profile 和拓扑字段。旧的 `nvidia.com/gpu` 等 GPU 扩展资源键会被拒绝，不能绕过显式 GPU 请求。不传 `resource.gpu` 则不注入 GPU 资源、selector、队列或 runtime class；普通网络/存储调度约束仍保留。
 - 普通 CPU/内存资源字段拟保留为容器资源配置，不能把 CPU 资源声明等同于 CPU 引擎模式。字段默认值、上下限在冻结 API 时确定；这不是对“cpu 去掉”扩大解释后的既定结论。
 - 不传卡时，能否启动仍取决于镜像/引擎/模型兼容性。不自动附加旧实现的 CPU 专用环境变量或参数组合；模型通用参数来自显式引擎配置。正常启动不是保证 GPU-only 镜像可在 CPU 上运行，不能据此编造成功证据。
 - `name` 是租户内推理资源展示/管理名称；`served_model_name` 是调用时的模型路由别名。建议后者在同租户有效发布集合唯一，冲突返回具体字段；不自动拼 UUID，不把别名冲突报成服务 name 冲突。将来同名多副本/多后端需要显式路由组，而不是偶然覆盖。

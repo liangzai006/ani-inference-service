@@ -47,5 +47,5 @@ func Aggregate(spec Spec, replicas int32, runtimeMode string, workerReplicas int
 			quantities[name] = quantity.String()
 		}
 	}
-	return Demand{Resources: Spec{Requests: values.Requests, Limits: values.Limits}, Units: units}, nil
+	return Demand{Resources: Spec{Requests: values.Requests, Limits: values.Limits, GPU: values.GPU}, Units: units}, nil
 }

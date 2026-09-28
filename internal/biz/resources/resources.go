@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/gpu"
 	resource "k8s.io/apimachinery/pkg/api/resource"
 	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
 )
@@ -15,6 +16,7 @@ import (
 type Spec struct {
 	Requests map[string]string `json:"requests"`
 	Limits   map[string]string `json:"limits"`
+	GPU      *gpu.Request      `json:"gpu,omitempty"`
 }
 
 // Normalized contains canonical quantities and effective requests. Kubernetes
@@ -23,11 +25,27 @@ type Spec struct {
 type Normalized struct {
 	Requests map[string]string
 	Limits   map[string]string
+	GPU      *gpu.Request `json:"gpu,omitempty"`
 }
 
 func Normalize(in Spec) (Normalized, error) {
+	if in.GPU != nil {
+		if err := gpu.ValidateRequest(in.GPU); err != nil {
+			return Normalized{}, err
+		}
+		for name := range in.Requests {
+			if strings.Contains(name, "/") {
+				return Normalized{}, fmt.Errorf("GPU request cannot use extended resource %s", name)
+			}
+		}
+		for name := range in.Limits {
+			if strings.Contains(name, "/") {
+				return Normalized{}, fmt.Errorf("GPU request cannot use extended resource %s", name)
+			}
+		}
+	}
 	if len(in.Requests) == 0 && len(in.Limits) == 0 {
-		return Normalized{Requests: map[string]string{}, Limits: map[string]string{}}, nil
+		return Normalized{Requests: map[string]string{}, Limits: map[string]string{}, GPU: in.GPU}, nil
 	}
 	keys := make(map[string]struct{}, len(in.Requests)+len(in.Limits))
 	for k := range in.Requests {
@@ -85,7 +103,7 @@ func Normalize(in Spec) (Normalized, error) {
 			limits[name] = lq.String()
 		}
 	}
-	return Normalized{Requests: requests, Limits: limits}, nil
+	return Normalized{Requests: requests, Limits: limits, GPU: in.GPU}, nil
 }
 
 func parseQuantity(raw string) (*resource.Quantity, error) {

@@ -12,6 +12,7 @@ import (
 	"strconv"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/gpu"
 	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/resources"
 	kube "github.com/zhangzhe-ctrl/ani-inference-service/internal/data/kubernetes"
 	corev1 "k8s.io/api/core/v1"
@@ -80,19 +81,41 @@ func (s *RuntimeSource) CurrentRuntime(ctx context.Context, tenantID, serviceID 
 			return kube.DesiredRuntime{}, fmt.Errorf("decode command argv: %w", err)
 		}
 	}
-	var resourceSpec struct {
-		Requests map[string]string `json:"requests"`
-		Limits   map[string]string `json:"limits"`
-	}
+	var resourceSpec resources.Spec
 	if len(row.Resources) != 0 {
 		if err := json.Unmarshal(row.Resources, &resourceSpec); err != nil {
 			return kube.DesiredRuntime{}, fmt.Errorf("decode resources: %w", err)
 		}
 	}
-	normalized, err := resources.Normalize(resources.Spec{Requests: resourceSpec.Requests, Limits: resourceSpec.Limits})
+	if resourceSpec.GPU == nil && len(row.GpuRequest) != 0 {
+		if err := json.Unmarshal(row.GpuRequest, &resourceSpec.GPU); err != nil {
+			return kube.DesiredRuntime{}, fmt.Errorf("decode gpu request: %w", err)
+		}
+	}
+	normalized, err := resources.Normalize(resources.Spec{Requests: resourceSpec.Requests, Limits: resourceSpec.Limits, GPU: resourceSpec.GPU})
 	if err != nil {
 		return kube.DesiredRuntime{}, err
 	}
+	var gpuPlan *gpu.Plan
+	if len(row.GpuPlan) > 0 {
+		gpuPlan = new(gpu.Plan)
+		if err := json.Unmarshal(row.GpuPlan, gpuPlan); err != nil {
+			return kube.DesiredRuntime{}, fmt.Errorf("decode gpu plan: %w", err)
+		}
+		if row.GpuPlanDigest.Valid && gpuPlan.ResolutionDigest != row.GpuPlanDigest.String {
+			return kube.DesiredRuntime{}, fmt.Errorf("GPU plan digest does not match persisted digest")
+		}
+		if resourceSpec.GPU == nil {
+			return kube.DesiredRuntime{}, fmt.Errorf("GPU plan has no GPU request")
+		}
+		if err := gpu.ValidatePlan(gpuPlan, resourceSpec.GPU); err != nil {
+			return kube.DesiredRuntime{}, err
+		}
+	}
+	// Resolution is a durable worker step before ApplyCR. Admission and
+	// deletion still need to read a generation while that step is pending, so
+	// an absent plan is not a read error here. The Kubernetes adapter remains
+	// fail-closed and rejects applying a GPU generation without its plan.
 	workers := row.WorkerReplicas
 	if workers == 0 {
 		workers = 1
@@ -100,6 +123,10 @@ func (s *RuntimeSource) CurrentRuntime(ctx context.Context, tenantID, serviceID 
 	mode := row.RuntimeMode
 	if mode == "" {
 		mode = "deployment"
+	}
+	provider := row.RuntimeProvider
+	if provider == "" {
+		provider = "deployment"
 	}
 	var endpoint *kube.EndpointSpec
 	if row.EndpointContainerPort.Valid || row.EndpointServicePort.Valid || row.EndpointTargetPort.Valid || row.EndpointProtocol.Valid {
@@ -152,10 +179,11 @@ func (s *RuntimeSource) CurrentRuntime(ctx context.Context, tenantID, serviceID 
 	}
 	result := kube.DesiredRuntime{
 		RuntimeSpec: kube.RuntimeSpec{
-			TenantID: tenantID, ServiceID: serviceID, Name: aggregate.Name,
+			TenantID: tenantID, ServiceID: serviceID, Name: aggregate.Name, RuntimeProvider: provider,
 			Namespace: s.Namespace, Image: row.ImageRef, ModelVersionID: row.ModelVersionID.String(), ArtifactProvider: row.ArtifactProvider, ArtifactRef: row.ArtifactRef, ArtifactSHA256: row.ArtifactSha256, ServedModelName: row.ServedModelName, EngineRuntime: row.EngineRuntime, Generation: generation,
 			CommandArgv: command, Resources: normalized, Replicas: row.Replicas,
 			WorkerReplicas: workers, RuntimeMode: mode,
+			GPUPlan:  gpuPlan,
 			Endpoint: endpoint,
 		},
 		Bindings:        owned,

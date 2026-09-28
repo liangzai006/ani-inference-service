@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/audit"
+	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/gpu"
 	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/publication"
 	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/quota"
 	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/work"
@@ -22,6 +23,7 @@ type runnerStore struct {
 	observations []RuntimeObservation
 	models       []ModelObservation
 	modelStarted int
+	gpuPlans     []*gpu.Plan
 }
 
 type sequencedRunnerStore struct{ runnerStore }
@@ -70,6 +72,11 @@ func (s *runnerStore) SaveModelObservation(_ context.Context, _ OperationContext
 }
 func (s *runnerStore) MarkModelMaterializing(context.Context, OperationContext) error {
 	s.modelStarted++
+	return nil
+}
+func (s *runnerStore) SaveGPUPlan(_ context.Context, op OperationContext, plan *gpu.Plan) error {
+	s.gpuPlans = append(s.gpuPlans, plan)
+	s.op.GPUPlan = plan
 	return nil
 }
 
@@ -140,6 +147,16 @@ type runnerRuntime struct {
 
 type runnerModel struct{ observation ModelObservation }
 
+type runnerGPU struct {
+	plan  *gpu.Plan
+	calls int
+}
+
+func (r *runnerGPU) ResolveGPU(context.Context, OperationContext) (*gpu.Plan, error) {
+	r.calls++
+	return r.plan, nil
+}
+
 func (m *runnerModel) EnsureModel(context.Context, OperationContext) (ModelObservation, error) {
 	return m.observation, nil
 }
@@ -176,6 +193,70 @@ func item() work.Item {
 }
 func operation(step string) OperationContext {
 	return OperationContext{TenantID: "t", ServiceID: "s", ID: "o", Kind: "create", Phase: OperationRunning, Step: step, TargetGeneration: 1, Publication: publication.Publication{TenantID: "t", ServiceID: "s", Generation: 1, State: "withdrawn"}}
+}
+
+func validGPURequest() *gpu.Request {
+	return &gpu.Request{
+		ClusterID: "00000000-0000-1000-8000-000000000001", PoolID: "00000000-0000-1000-8000-000000000002", ProfileID: "00000000-0000-1000-8000-000000000003",
+		ProfileVersion: 1, Replicas: 1, DevicesPerReplica: 1, ContainerName: "kserve-container",
+	}
+}
+
+func validGPUPlan(t *testing.T, request *gpu.Request) *gpu.Plan {
+	t.Helper()
+	plan := &gpu.Plan{SchemaVersion: 1, Request: request,
+		Profile:  &gpu.Profile{ProfileID: request.ProfileID, ProfileVersion: request.ProfileVersion, Spec: &gpu.ProfileSpec{}},
+		Encoding: &gpu.MemoryEncoding{}, Totals: &gpu.ResourceTotals{},
+		Runtime: &gpu.RuntimeFragment{SchedulerName: "volcano", QueueName: "queue"}}
+	digest, err := gpu.PlanDigest(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan.ResolutionDigest = digest
+	return plan
+}
+
+func TestRunnerSkipsGPUResolverWhenRequestOmitted(t *testing.T) {
+	store := &runnerStore{op: operation(string(StepResolveGPU))}
+	resolver := &runnerGPU{}
+	runner := &Runner{Store: store, GPU: resolver, Audit: &runnerAudit{}}
+	if _, err := runner.Execute(context.Background(), item()); err != nil {
+		t.Fatalf("Execute error=%v", err)
+	}
+	if resolver.calls != 0 {
+		t.Fatalf("resolver calls=%d, want 0 without resource.gpu", resolver.calls)
+	}
+	if len(store.advanced) != 1 || store.advanced[0].NextStep != string(StepApplyCR) {
+		t.Fatalf("transition=%+v, want apply_cr", store.advanced)
+	}
+}
+
+func TestRunnerPersistsAndReusesGPUPlanAcrossRetry(t *testing.T) {
+	request := validGPURequest()
+	plan := validGPUPlan(t, request)
+	store := &runnerStore{op: operation(string(StepResolveGPU))}
+	store.op.GPURequest, store.op.Replicas, store.op.RuntimeMode = request, 1, "deployment"
+	resolver := &runnerGPU{plan: plan}
+	runner := &Runner{Store: store, GPU: resolver, Audit: &runnerAudit{}}
+	if _, err := runner.Execute(context.Background(), item()); err != nil {
+		t.Fatalf("first Execute error=%v", err)
+	}
+	if resolver.calls != 1 || len(store.gpuPlans) != 1 {
+		t.Fatalf("first resolve calls=%d saves=%d, want 1/1", resolver.calls, len(store.gpuPlans))
+	}
+	// Simulate a worker crash after the immutable save and before the step CAS.
+	store.op.Step = string(StepResolveGPU)
+	store.op.GPUPlan = plan
+	store.advanced = nil
+	if _, err := runner.Execute(context.Background(), item()); err != nil {
+		t.Fatalf("retry Execute error=%v", err)
+	}
+	if resolver.calls != 1 {
+		t.Fatalf("retry resolver calls=%d, want plan reuse", resolver.calls)
+	}
+	if len(store.advanced) != 1 || store.advanced[0].NextStep != string(StepApplyCR) {
+		t.Fatalf("retry transition=%+v, want apply_cr", store.advanced)
+	}
 }
 
 func TestRunnerMissingProviderRetriesOperation(t *testing.T) {
@@ -286,7 +367,7 @@ func TestRunnerQuotaReserveConfirmPersistsBeforeApply(t *testing.T) {
 	if !q.reserved || !q.confirmed || len(store.quotaSaved) != 1 || store.quotaSaved[0].State != "confirmed" {
 		t.Fatalf("quota calls reserved=%v confirmed=%v saved=%+v", q.reserved, q.confirmed, store.quotaSaved)
 	}
-	if len(store.advanced) != 1 || store.advanced[0].NextStep != string(StepApplyCR) {
+	if len(store.advanced) != 1 || store.advanced[0].NextStep != string(StepResolveGPU) {
 		t.Fatalf("advance=%+v", store.advanced)
 	}
 }
@@ -319,8 +400,8 @@ func TestRunnerQuotaRetryConfirmsPersistedReservationWithoutReReserve(t *testing
 	if len(store.quotaSaved) != 2 || store.quotaSaved[1].State != "confirmed" || store.quotaSaved[1].LastErrorCode != "" {
 		t.Fatalf("retry persistence=%+v, want confirmed", store.quotaSaved)
 	}
-	if len(store.advanced) != 1 || store.advanced[0].NextStep != string(StepApplyCR) {
-		t.Fatalf("retry transition=%+v, want apply_cr", store.advanced)
+	if len(store.advanced) != 1 || store.advanced[0].NextStep != string(StepResolveGPU) {
+		t.Fatalf("retry transition=%+v, want resolve_gpu", store.advanced)
 	}
 }
 
@@ -372,7 +453,7 @@ func TestRunnerCreateLifecycleAdvancesDurableStepsBeforePublish(t *testing.T) {
 		Quota: quotaProvider, Publication: publicationProvider, Runtime: runtimeProvider,
 		Audit: &runnerAudit{},
 	}
-	for i := 0; i < 7 && store.op.Phase != OperationSucceeded; i++ {
+	for i := 0; i < 8 && store.op.Phase != OperationSucceeded; i++ {
 		if _, err := runner.Execute(context.Background(), item()); err != nil {
 			t.Fatalf("create step %d: %v", i, err)
 		}
@@ -386,7 +467,7 @@ func TestRunnerCreateLifecycleAdvancesDurableStepsBeforePublish(t *testing.T) {
 	if !publicationProvider.published || len(store.publication) < 2 || store.publication[0].State != "publishing" || store.publication[len(store.publication)-1].State != "published" {
 		t.Fatalf("publication writes=%+v published=%v", store.publication, publicationProvider.published)
 	}
-	wantSteps := []string{string(StepAdmission), string(StepReserveQuota), string(StepApplyCR), string(StepMaterializeModel), string(StepApplyRuntime), string(StepObserveRuntime), string(StepPublish)}
+	wantSteps := []string{string(StepAdmission), string(StepReserveQuota), string(StepResolveGPU), string(StepApplyCR), string(StepMaterializeModel), string(StepApplyRuntime), string(StepObserveRuntime), string(StepPublish)}
 	if len(store.advanced) != len(wantSteps)+1 {
 		t.Fatalf("durable transitions=%d, want %d: %+v", len(store.advanced), len(wantSteps)+1, store.advanced)
 	}

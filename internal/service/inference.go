@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	inferencev1 "github.com/zhangzhe-ctrl/ani-inference-service/api/inference/v1"
 	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/admission"
+	gpubiz "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/gpu"
 	inferencebiz "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/inference"
 	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/resources"
 	"google.golang.org/grpc/codes"
@@ -85,13 +86,87 @@ func runtimeMode(req *inferencev1.RuntimeSpec) string {
 	return "unsupported"
 }
 
+func runtimeProvider(req *inferencev1.RuntimeSpec) string {
+	// New inference services are reconciled through KServe. Persisted services
+	// still carry their provider explicitly, so this default only affects the
+	// create request path and does not rewrite legacy resources on update.
+	provider := "kserve"
+	if req != nil && req.GetProvider() != "" {
+		provider = strings.ToLower(strings.TrimSpace(req.GetProvider()))
+	}
+	if provider != "kserve" {
+		return "unsupported"
+	}
+	return provider
+}
+
+func gpuInput(in *inferencev1.GpuRequest) *gpubiz.Request {
+	if in == nil {
+		return nil
+	}
+	return &gpubiz.Request{ClusterID: in.GetClusterId(), PoolID: in.GetPoolId(), ProfileID: in.GetProfileId(), ProfileVersion: in.GetProfileVersion(), Replicas: in.GetReplicas(), DevicesPerReplica: in.GetDevicesPerReplica(), ContainerName: in.GetContainerName()}
+}
+
+func gpuProto(in *gpubiz.Request) *inferencev1.GpuRequest {
+	if in == nil {
+		return nil
+	}
+	return &inferencev1.GpuRequest{ClusterId: in.ClusterID, PoolId: in.PoolID, ProfileId: in.ProfileID, ProfileVersion: in.ProfileVersion, Replicas: in.Replicas, DevicesPerReplica: in.DevicesPerReplica, ContainerName: in.ContainerName}
+}
+
 func engineInput(engine *inferencev1.EngineSpec) (image, runtime string, argv []string) {
 	if engine == nil {
 		return "", "", nil
 	}
+	// The current persistence contract stores a legacy argv slice. Both pieces
+	// still originate in the request; preserving command and args as separate
+	// fields is a follow-up migration so the runtime adapter can pass them
+	// through without flattening them.
 	argv = append(argv, engine.GetCommand()...)
 	argv = append(argv, engine.GetArgs()...)
 	return engine.GetImage(), engine.GetType(), argv
+}
+
+func validateEngineInput(engine *inferencev1.EngineSpec) error {
+	if engine == nil {
+		return errors.New("engine is required")
+	}
+	if strings.TrimSpace(engine.GetType()) == "" {
+		return errors.New("engine.type is required")
+	}
+	if strings.TrimSpace(engine.GetImage()) == "" {
+		return errors.New("engine.image is required")
+	}
+	if len(engine.GetCommand()) == 0 {
+		return errors.New("engine.command is required")
+	}
+	return nil
+}
+
+// validateGPUResourceMap keeps GPU selection in the explicit resource.gpu
+// object. A request that omits that object must not silently enable a device
+// through a legacy Kubernetes extended-resource key. Non-GPU extended
+// resources remain available to callers that need them.
+func validateGPUResourceMap(resourceSpec *inferencev1.ResourceSpec) error {
+	if resourceSpec == nil || resourceSpec.GetGpu() != nil {
+		return nil
+	}
+	for name := range resourceSpec.GetRequests() {
+		if isLegacyGPUResourceName(name) {
+			return fmt.Errorf("GPU resource %q must be supplied as resource.gpu", name)
+		}
+	}
+	for name := range resourceSpec.GetLimits() {
+		if isLegacyGPUResourceName(name) {
+			return fmt.Errorf("GPU resource %q must be supplied as resource.gpu", name)
+		}
+	}
+	return nil
+}
+
+func isLegacyGPUResourceName(name string) bool {
+	name = strings.ToLower(strings.TrimSpace(name))
+	return strings.Contains(name, "gpu") || strings.Contains(name, "gaudi")
 }
 
 // InferenceServer is the transport adapter. Business behavior is injected so
@@ -135,17 +210,29 @@ func (s *InferenceServer) UpdateInferenceService(ctx context.Context, req *infer
 	if req.GetRequestId() == "" || req.GetResourceId() == "" || req.GetExpectedGeneration() < 1 {
 		return nil, status.Error(codes.InvalidArgument, "request_id, resource_id and positive expected_generation are required")
 	}
+	if req.GetEngine() != nil {
+		if err := validateEngineInput(req.GetEngine()); err != nil {
+			return nil, status.Error(codes.InvalidArgument, err.Error())
+		}
+	}
 	if s.update == nil {
 		return nil, status.Error(codes.FailedPrecondition, "inference update use case is not configured")
+	}
+	if err := validateGPUResourceMap(req.GetResource()); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 	if err := validateUpdateMask(req.GetUpdateMask(), req.GetModelVersionId()); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	normalized, err := resources.Normalize(resources.Spec{Requests: req.GetResource().GetRequests(), Limits: req.GetResource().GetLimits()})
+	normalized, err := resources.Normalize(resources.Spec{Requests: req.GetResource().GetRequests(), Limits: req.GetResource().GetLimits(), GPU: gpuInput(req.GetResource().GetGpu())})
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 	mode := runtimeMode(req.GetRuntime())
+	provider := strings.ToLower(strings.TrimSpace(req.GetRuntime().GetProvider()))
+	if provider != "" && provider != "kserve" {
+		return nil, status.Error(codes.InvalidArgument, "runtime provider must be kserve")
+	}
 	if err := validateEndpoint(req.GetRuntime().GetEndpoint()); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
@@ -156,12 +243,20 @@ func (s *InferenceServer) UpdateInferenceService(ctx context.Context, req *infer
 	if err := admission.ValidateCreate(admission.CreateRequest{Replicas: req.GetReplicas(), WorkerReplicas: workers, RuntimeMode: mode, Resources: admission.ResourceInput{Requests: normalized.Requests, Limits: normalized.Limits}}); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
+	if normalized.GPU != nil {
+		if err := gpubiz.ValidateTopology(normalized.GPU, req.GetReplicas(), mode, workers); err != nil {
+			return nil, status.Error(codes.InvalidArgument, err.Error())
+		}
+	}
 	canonical := proto.Clone(req).(*inferencev1.UpdateInferenceServiceRequest)
-	canonical.Resource = &inferencev1.ResourceSpec{Requests: normalized.Requests, Limits: normalized.Limits}
+	canonical.Resource = &inferencev1.ResourceSpec{Requests: normalized.Requests, Limits: normalized.Limits, Gpu: gpuProto(normalized.GPU)}
 	canonical.Runtime = &inferencev1.RuntimeSpec{Mode: inferencev1.RuntimeMode_RUNTIME_MODE_DEPLOYMENT, WorkerReplicas: workers}
 	if mode == "leader_worker_set" {
 		canonical.Runtime.Mode = inferencev1.RuntimeMode_RUNTIME_MODE_LEADER_WORKER_SET
 	}
+	// Preserve an omitted provider as the inherit marker on update; the
+	// persistence layer resolves it against the existing service provider.
+	canonical.Runtime.Provider = provider
 	canonical.Runtime.Endpoint = req.GetRuntime().GetEndpoint()
 	image, engineRuntime, commandArgv := engineInput(req.GetEngine())
 	artifactProvider, artifactRef, artifactSHA := "", "", ""
@@ -172,7 +267,7 @@ func (s *InferenceServer) UpdateInferenceService(ctx context.Context, req *infer
 	if err != nil {
 		return nil, status.Error(codes.Internal, "marshal request: "+err.Error())
 	}
-	out, err := s.update.Update(ctx, inferencebiz.UpdateInput{TenantID: tenantID, RequestID: req.GetRequestId(), Actor: Actor(ctx), ServiceID: req.GetResourceId(), ExpectedGeneration: req.GetExpectedGeneration(), ModelVersionID: req.GetModelVersionId(), ArtifactProvider: artifactProvider, ArtifactRef: artifactRef, ArtifactSHA256: artifactSHA, ImageRef: image, ServedModelName: req.GetServedModelName(), EngineRuntime: engineRuntime, CommandArgv: commandArgv, Resources: normalized, Replicas: req.GetReplicas(), WorkerReplicas: workers, RuntimeMode: mode, Endpoint: endpointInput(req.GetRuntime().GetEndpoint()), RequestHash: hashBytes(encoded)})
+	out, err := s.update.Update(ctx, inferencebiz.UpdateInput{TenantID: tenantID, RequestID: req.GetRequestId(), Actor: Actor(ctx), ServiceID: req.GetResourceId(), ExpectedGeneration: req.GetExpectedGeneration(), ModelVersionID: req.GetModelVersionId(), ArtifactProvider: artifactProvider, ArtifactRef: artifactRef, ArtifactSHA256: artifactSHA, ImageRef: image, ServedModelName: req.GetServedModelName(), EngineRuntime: engineRuntime, RuntimeProvider: provider, CommandArgv: commandArgv, Resources: normalized, Replicas: req.GetReplicas(), WorkerReplicas: workers, RuntimeMode: mode, Endpoint: endpointInput(req.GetRuntime().GetEndpoint()), RequestHash: hashBytes(encoded)})
 	if err != nil {
 		return nil, commandStatusError(err)
 	}
@@ -372,11 +467,21 @@ func (s *InferenceServer) CreateInferenceService(ctx context.Context, req *infer
 	if req.GetRequestId() == "" || req.GetName() == "" || req.GetModelVersionId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "request_id, name and model_version_id are required")
 	}
-	normalized, err := resources.Normalize(resources.Spec{Requests: req.GetResource().GetRequests(), Limits: req.GetResource().GetLimits()})
+	if err := validateEngineInput(req.GetEngine()); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	if err := validateGPUResourceMap(req.GetResource()); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	normalized, err := resources.Normalize(resources.Spec{Requests: req.GetResource().GetRequests(), Limits: req.GetResource().GetLimits(), GPU: gpuInput(req.GetResource().GetGpu())})
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 	mode := runtimeMode(req.GetRuntime())
+	provider := runtimeProvider(req.GetRuntime())
+	if provider == "unsupported" {
+		return nil, status.Error(codes.InvalidArgument, "runtime provider must be kserve")
+	}
 	if err := validateEndpoint(req.GetRuntime().GetEndpoint()); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
@@ -387,12 +492,20 @@ func (s *InferenceServer) CreateInferenceService(ctx context.Context, req *infer
 	if err := admission.ValidateCreate(admission.CreateRequest{Replicas: req.GetReplicas(), WorkerReplicas: workers, RuntimeMode: mode, Resources: admission.ResourceInput{Requests: normalized.Requests, Limits: normalized.Limits}}); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
+	if normalized.GPU != nil {
+		if err := gpubiz.ValidateTopology(normalized.GPU, req.GetReplicas(), mode, workers); err != nil {
+			return nil, status.Error(codes.InvalidArgument, err.Error())
+		}
+	}
 	canonical := proto.Clone(req).(*inferencev1.CreateInferenceServiceRequest)
-	canonical.Resource = &inferencev1.ResourceSpec{Requests: normalized.Requests, Limits: normalized.Limits}
+	canonical.Resource = &inferencev1.ResourceSpec{Requests: normalized.Requests, Limits: normalized.Limits, Gpu: gpuProto(normalized.GPU)}
 	canonical.Runtime = &inferencev1.RuntimeSpec{Mode: inferencev1.RuntimeMode_RUNTIME_MODE_DEPLOYMENT, WorkerReplicas: workers}
 	if mode == "leader_worker_set" {
 		canonical.Runtime.Mode = inferencev1.RuntimeMode_RUNTIME_MODE_LEADER_WORKER_SET
 	}
+	// Hash the effective provider so an omitted provider (which defaults to
+	// KServe) and an explicit provider produce the same idempotency payload.
+	canonical.Runtime.Provider = provider
 	canonical.Runtime.Endpoint = req.GetRuntime().GetEndpoint()
 	image, engineRuntime, commandArgv := engineInput(req.GetEngine())
 	artifactProvider, artifactRef, artifactSHA := "", "", ""
@@ -406,7 +519,7 @@ func (s *InferenceServer) CreateInferenceService(ctx context.Context, req *infer
 	if s.create == nil {
 		return nil, status.Error(codes.FailedPrecondition, "inference create use case is not configured")
 	}
-	out, err := s.create.Create(ctx, CreateInput{TenantID: tenantID, RequestID: req.GetRequestId(), Actor: Actor(ctx), Name: req.GetName(), ModelVersionID: req.GetModelVersionId(), ArtifactProvider: artifactProvider, ArtifactRef: artifactRef, ArtifactSHA256: artifactSHA, ImageRef: image, ServedModelName: req.GetServedModelName(), EngineRuntime: engineRuntime, CommandArgv: commandArgv, Resources: normalized, Replicas: req.GetReplicas(), WorkerReplicas: workers, RuntimeMode: mode, Endpoint: endpointInput(req.GetRuntime().GetEndpoint()), RequestHash: hashBytes(encoded)})
+	out, err := s.create.Create(ctx, CreateInput{TenantID: tenantID, RequestID: req.GetRequestId(), Actor: Actor(ctx), Name: req.GetName(), ModelVersionID: req.GetModelVersionId(), ArtifactProvider: artifactProvider, ArtifactRef: artifactRef, ArtifactSHA256: artifactSHA, ImageRef: image, ServedModelName: req.GetServedModelName(), EngineRuntime: engineRuntime, RuntimeProvider: provider, CommandArgv: commandArgv, Resources: normalized, Replicas: req.GetReplicas(), WorkerReplicas: workers, RuntimeMode: mode, Endpoint: endpointInput(req.GetRuntime().GetEndpoint()), RequestHash: hashBytes(encoded)})
 	if err != nil {
 		if errors.Is(err, inferencebiz.ErrIdempotencyConflict) {
 			return nil, status.Error(codes.AlreadyExists, err.Error())

@@ -18,7 +18,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -148,6 +150,10 @@ func (c *Controller) SetupWithManager(mgr manager.Manager) error {
 		return err
 	}
 	obj := &crdv1.InferenceService{}
+	kserve := &unstructured.Unstructured{}
+	kserve.SetGroupVersionKind(schema.GroupVersionKind{Group: "serving.kserve.io", Version: "v1beta1", Kind: "InferenceService"})
+	llmInferenceService := &unstructured.Unstructured{}
+	llmInferenceService.SetGroupVersionKind(schema.GroupVersionKind{Group: "serving.kserve.io", Version: "v1alpha1", Kind: "LLMInferenceService"})
 	mapRuntime := handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, o client.Object) []reconcile.Request {
 		return c.mapRuntimeObject(ctx, o)
 	})
@@ -160,6 +166,8 @@ func (c *Controller) SetupWithManager(mgr manager.Manager) error {
 		Watches(&corev1.Pod{}, mapRuntime).
 		Watches(&batchv1.Job{}, mapRuntime).
 		Watches(&lwsv1.LeaderWorkerSet{}, mapRuntime).
+		Watches(kserve, mapRuntime).
+		Watches(llmInferenceService, mapRuntime).
 		Complete(c)
 }
 

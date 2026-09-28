@@ -16,6 +16,10 @@ type fakeCreate struct{ in CreateInput }
 
 type fakeUpdate struct{ in inferencebiz.UpdateInput }
 
+func validEngine() *inferencev1.EngineSpec {
+	return &inferencev1.EngineSpec{Type: "vllm", Image: "engine:v1", Command: []string{"vllm", "serve", "/models"}}
+}
+
 func TestRequireTenantAllowsDirectRequestTenant(t *testing.T) {
 	got, err := RequireTenant(context.Background(), "tenant-a")
 	if err != nil || got != "tenant-a" {
@@ -62,15 +66,23 @@ func TestCreateRequiresTenant(t *testing.T) {
 	}
 }
 
+func TestCreateRequiresCallerEngineConfiguration(t *testing.T) {
+	req := &inferencev1.CreateInferenceServiceRequest{RequestId: "engine-required", Name: "svc", ModelVersionId: "mv", Replicas: 1}
+	_, err := NewInferenceServer(&fakeCreate{}).CreateInferenceService(WithTenantID(context.Background(), "tenant-a"), req)
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("code=%v err=%v, want InvalidArgument", status.Code(err), err)
+	}
+}
+
 func TestCreateNormalizesAndHashesDeterministically(t *testing.T) {
 	f := &fakeCreate{}
-	req := &inferencev1.CreateInferenceServiceRequest{Name: "svc", ModelVersionId: "mv", RequestId: "r1", Replicas: 1,
-		Resource: &inferencev1.ResourceSpec{Limits: map[string]string{"nvidia.com/gpu": "1", "memory": "8Gi"}}}
+	req := &inferencev1.CreateInferenceServiceRequest{Name: "svc", ModelVersionId: "mv", RequestId: "r1", Replicas: 1, Engine: validEngine(),
+		Resource: &inferencev1.ResourceSpec{Limits: map[string]string{"cpu": "2", "memory": "8Gi"}}}
 	ctx := WithTenantID(context.Background(), "tenant-a")
 	if _, err := NewInferenceServer(f).CreateInferenceService(ctx, req); err != nil {
 		t.Fatal(err)
 	}
-	if f.in.TenantID != "tenant-a" || f.in.Resources.Requests["nvidia.com/gpu"] != "1" {
+	if f.in.TenantID != "tenant-a" || f.in.Resources.Limits["memory"] != "8Gi" {
 		t.Fatalf("input not normalized: %+v", f.in)
 	}
 	if len(f.in.RequestHash) != 64 {
@@ -78,7 +90,7 @@ func TestCreateNormalizesAndHashesDeterministically(t *testing.T) {
 	}
 	first := f.in.RequestHash
 	// Map insertion order must not affect the deterministic request hash.
-	req.Resource.Limits = map[string]string{"memory": "8Gi", "nvidia.com/gpu": "1"}
+	req.Resource.Limits = map[string]string{"memory": "8Gi", "cpu": "2"}
 	if _, err := NewInferenceServer(f).CreateInferenceService(ctx, req); err != nil {
 		t.Fatal(err)
 	}
@@ -87,9 +99,33 @@ func TestCreateNormalizesAndHashesDeterministically(t *testing.T) {
 	}
 }
 
+func TestCreateRejectsLegacyGPUMapWithoutNestedRequest(t *testing.T) {
+	req := &inferencev1.CreateInferenceServiceRequest{
+		RequestId: "legacy-gpu-map", Name: "gpu", ModelVersionId: "mv", Replicas: 1, Engine: validEngine(),
+		Resource: &inferencev1.ResourceSpec{Limits: map[string]string{"nvidia.com/gpu": "1"}},
+	}
+	_, err := NewInferenceServer(&fakeCreate{}).CreateInferenceService(WithTenantID(context.Background(), "tenant-a"), req)
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("code=%v err=%v, want InvalidArgument", status.Code(err), err)
+	}
+}
+
+func TestCreateCarriesNestedGpuRequest(t *testing.T) {
+	f := &fakeCreate{}
+	req := &inferencev1.CreateInferenceServiceRequest{RequestId: "gpu-1", Name: "gpu", ModelVersionId: "mv", Replicas: 1, Engine: validEngine(), Resource: &inferencev1.ResourceSpec{Gpu: &inferencev1.GpuRequest{
+		ClusterId: "10000000-0000-4000-8000-000000000001", PoolId: "10000000-0000-4000-8000-000000000002", ProfileId: "10000000-0000-4000-8000-000000000003", ProfileVersion: 1, Replicas: 1, DevicesPerReplica: 1, ContainerName: "kserve-container",
+	}}}
+	if _, err := NewInferenceServer(f).CreateInferenceService(WithTenantID(context.Background(), "tenant-a"), req); err != nil {
+		t.Fatal(err)
+	}
+	if f.in.Resources.GPU == nil || f.in.Resources.GPU.ProfileID != req.GetResource().GetGpu().GetProfileId() {
+		t.Fatalf("gpu request not propagated: %#v", f.in.Resources.GPU)
+	}
+}
+
 func TestCreatePropagatesAuditActor(t *testing.T) {
 	f := &fakeCreate{}
-	req := &inferencev1.CreateInferenceServiceRequest{Name: "svc", ModelVersionId: "mv", RequestId: "actor-1", Replicas: 1}
+	req := &inferencev1.CreateInferenceServiceRequest{Name: "svc", ModelVersionId: "mv", RequestId: "actor-1", Replicas: 1, Engine: validEngine()}
 	if _, err := NewInferenceServer(f).CreateInferenceService(WithActor(WithTenantID(context.Background(), "tenant-a"), "workload:caller"), req); err != nil {
 		t.Fatal(err)
 	}
@@ -100,13 +136,54 @@ func TestCreatePropagatesAuditActor(t *testing.T) {
 
 func TestCreatePassesExplicitEndpoint(t *testing.T) {
 	f := &fakeCreate{}
-	req := &inferencev1.CreateInferenceServiceRequest{RequestId: "endpoint-1", Name: "svc", ModelVersionId: "mv", Replicas: 1,
+	req := &inferencev1.CreateInferenceServiceRequest{RequestId: "endpoint-1", Name: "svc", ModelVersionId: "mv", Replicas: 1, Engine: validEngine(),
 		Runtime: &inferencev1.RuntimeSpec{Endpoint: &inferencev1.EndpointSpec{ContainerPort: 8080, ServicePort: 80, TargetPort: "8080", Protocol: "TCP"}}}
 	if _, err := NewInferenceServer(f).CreateInferenceService(WithTenantID(context.Background(), "tenant-a"), req); err != nil {
 		t.Fatal(err)
 	}
 	if f.in.Endpoint == nil || f.in.Endpoint.ContainerPort != 8080 || f.in.Endpoint.ServicePort != 80 {
 		t.Fatalf("endpoint not passed to use case: %+v", f.in.Endpoint)
+	}
+}
+
+func TestCreatePassesRuntimeProvider(t *testing.T) {
+	f := &fakeCreate{}
+	req := &inferencev1.CreateInferenceServiceRequest{RequestId: "provider-1", Name: "svc", ModelVersionId: "mv", Replicas: 1, Engine: validEngine(),
+		Runtime: &inferencev1.RuntimeSpec{Provider: "kserve"}}
+	if _, err := NewInferenceServer(f).CreateInferenceService(WithTenantID(context.Background(), "tenant-a"), req); err != nil {
+		t.Fatal(err)
+	}
+	if f.in.RuntimeProvider != "kserve" {
+		t.Fatalf("runtime provider=%q, want kserve", f.in.RuntimeProvider)
+	}
+}
+
+func TestCreateDefaultsRuntimeProviderToKServe(t *testing.T) {
+	f := &fakeCreate{}
+	req := &inferencev1.CreateInferenceServiceRequest{RequestId: "provider-default", Name: "svc", ModelVersionId: "mv", Replicas: 1, Engine: validEngine()}
+	if _, err := NewInferenceServer(f).CreateInferenceService(WithTenantID(context.Background(), "tenant-a"), req); err != nil {
+		t.Fatal(err)
+	}
+	if f.in.RuntimeProvider != "kserve" {
+		t.Fatalf("runtime provider=%q, want kserve", f.in.RuntimeProvider)
+	}
+}
+
+func TestCreateRejectsUnsupportedRuntimeProvider(t *testing.T) {
+	req := &inferencev1.CreateInferenceServiceRequest{RequestId: "provider-invalid", Name: "svc", ModelVersionId: "mv", Replicas: 1, Engine: validEngine(),
+		Runtime: &inferencev1.RuntimeSpec{Provider: "unknown"}}
+	_, err := NewInferenceServer(&fakeCreate{}).CreateInferenceService(WithTenantID(context.Background(), "tenant-a"), req)
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("code=%v err=%v, want InvalidArgument", status.Code(err), err)
+	}
+}
+
+func TestCreateRejectsLegacyDeploymentProvider(t *testing.T) {
+	req := &inferencev1.CreateInferenceServiceRequest{RequestId: "provider-legacy", Name: "svc", ModelVersionId: "mv", Replicas: 1, Engine: validEngine(),
+		Runtime: &inferencev1.RuntimeSpec{Provider: "deployment"}}
+	_, err := NewInferenceServer(&fakeCreate{}).CreateInferenceService(WithTenantID(context.Background(), "tenant-a"), req)
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("code=%v err=%v, want InvalidArgument", status.Code(err), err)
 	}
 }
 
@@ -159,14 +236,14 @@ func TestUpdateRequiresModelVersionMaskConsistency(t *testing.T) {
 
 func TestCreateAcceptsScaledDeployment(t *testing.T) {
 	f := &fakeCreate{}
-	req := &inferencev1.CreateInferenceServiceRequest{RequestId: "r1", Name: "svc", ModelVersionId: "mv", Replicas: 2}
+	req := &inferencev1.CreateInferenceServiceRequest{RequestId: "r1", Name: "svc", ModelVersionId: "mv", Replicas: 2, Engine: validEngine()}
 	if _, err := NewInferenceServer(f).CreateInferenceService(WithTenantID(context.Background(), "tenant-a"), req); err != nil {
 		t.Fatalf("scaled deployment was rejected: %v", err)
 	}
 }
 
 func TestCreateRequiresUseCase(t *testing.T) {
-	req := &inferencev1.CreateInferenceServiceRequest{RequestId: "r1", Name: "svc", ModelVersionId: "mv", Replicas: 1}
+	req := &inferencev1.CreateInferenceServiceRequest{RequestId: "r1", Name: "svc", ModelVersionId: "mv", Replicas: 1, Engine: validEngine()}
 	_, err := NewInferenceServer().CreateInferenceService(WithTenantID(context.Background(), "tenant-a"), req)
 	if status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("code=%v err=%v", status.Code(err), err)
@@ -213,12 +290,28 @@ func TestCreateAcceptsLeaderWorkerSetShape(t *testing.T) {
 	f := &fakeCreate{}
 	req := &inferencev1.CreateInferenceServiceRequest{
 		RequestId: "r-lws", Name: "distributed", ModelVersionId: "mv", Replicas: 2,
+		Engine:  validEngine(),
 		Runtime: &inferencev1.RuntimeSpec{Mode: inferencev1.RuntimeMode_RUNTIME_MODE_LEADER_WORKER_SET, WorkerReplicas: 4},
 	}
 	if _, err := NewInferenceServer(f).CreateInferenceService(WithTenantID(context.Background(), "tenant-a"), req); err != nil {
 		t.Fatal(err)
 	}
 	if f.in.RuntimeMode != "leader_worker_set" || f.in.WorkerReplicas != 4 || f.in.Replicas != 2 {
+		t.Fatalf("runtime shape not preserved: %+v", f.in)
+	}
+}
+
+func TestCreateAcceptsKServeLeaderWorkerSetShape(t *testing.T) {
+	f := &fakeCreate{}
+	req := &inferencev1.CreateInferenceServiceRequest{
+		RequestId: "r-kserve-lws", Name: "distributed-kserve", ModelVersionId: "mv", Replicas: 1,
+		Engine:  validEngine(),
+		Runtime: &inferencev1.RuntimeSpec{Provider: "kserve", Mode: inferencev1.RuntimeMode_RUNTIME_MODE_LEADER_WORKER_SET, WorkerReplicas: 1},
+	}
+	if _, err := NewInferenceServer(f).CreateInferenceService(WithTenantID(context.Background(), "tenant-a"), req); err != nil {
+		t.Fatal(err)
+	}
+	if f.in.RuntimeProvider != "kserve" || f.in.RuntimeMode != "leader_worker_set" {
 		t.Fatalf("runtime shape not preserved: %+v", f.in)
 	}
 }
@@ -233,8 +326,50 @@ func TestUpdateRequiresFullSupportedMaskAndPreservesRuntime(t *testing.T) {
 	if err != nil || out.GetOperation().GetId() != "op-update" || f.in.RuntimeMode != "leader_worker_set" || f.in.WorkerReplicas != 2 {
 		t.Fatalf("out=%v err=%v input=%+v", out, err, f.in)
 	}
+	if f.in.RuntimeProvider != "" {
+		t.Fatalf("omitted runtime provider=%q, want inherit marker", f.in.RuntimeProvider)
+	}
 	_, err = s.UpdateInferenceService(WithTenantID(context.Background(), "tenant-a"), &inferencev1.UpdateInferenceServiceRequest{RequestId: "u2", ResourceId: "svc", ExpectedGeneration: 2, UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"replicas"}}, Replicas: 1})
 	if status.Code(err) != codes.InvalidArgument {
 		t.Fatalf("partial mask code=%v err=%v", status.Code(err), err)
+	}
+}
+
+func TestUpdatePassesRuntimeProvider(t *testing.T) {
+	f := &fakeUpdate{}
+	s := NewInferenceServerWithAll(nil, nil, nil, f)
+	req := &inferencev1.UpdateInferenceServiceRequest{RequestId: "provider-update", ResourceId: "svc", ExpectedGeneration: 2,
+		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"resource", "replicas", "runtime"}}, Resource: &inferencev1.ResourceSpec{Requests: map[string]string{"cpu": "2"}}, Replicas: 1,
+		Runtime: &inferencev1.RuntimeSpec{Provider: "kserve"}}
+	if _, err := s.UpdateInferenceService(WithTenantID(context.Background(), "tenant-a"), req); err != nil {
+		t.Fatal(err)
+	}
+	if f.in.RuntimeProvider != "kserve" {
+		t.Fatalf("runtime provider=%q, want kserve", f.in.RuntimeProvider)
+	}
+}
+
+func TestUpdateRejectsLegacyGPUMapWithoutNestedRequest(t *testing.T) {
+	s := NewInferenceServerWithAll(nil, nil, nil, &fakeUpdate{})
+	req := &inferencev1.UpdateInferenceServiceRequest{
+		RequestId: "legacy-gpu-update", ResourceId: "svc", ExpectedGeneration: 1,
+		Resource: &inferencev1.ResourceSpec{Limits: map[string]string{"nvidia.com/gpu": "1"}}, Replicas: 1,
+		Runtime:    &inferencev1.RuntimeSpec{Mode: inferencev1.RuntimeMode_RUNTIME_MODE_DEPLOYMENT},
+		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"resource", "replicas", "runtime"}},
+	}
+	_, err := s.UpdateInferenceService(WithTenantID(context.Background(), "tenant-a"), req)
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("code=%v err=%v, want InvalidArgument", status.Code(err), err)
+	}
+}
+
+func TestUpdateRejectsLegacyDeploymentProvider(t *testing.T) {
+	s := NewInferenceServerWithAll(nil, nil, nil, &fakeUpdate{})
+	req := &inferencev1.UpdateInferenceServiceRequest{RequestId: "provider-update-legacy", ResourceId: "svc", ExpectedGeneration: 2,
+		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"resource", "replicas", "runtime"}}, Resource: &inferencev1.ResourceSpec{Requests: map[string]string{"cpu": "2"}}, Replicas: 1,
+		Runtime: &inferencev1.RuntimeSpec{Provider: "deployment"}}
+	_, err := s.UpdateInferenceService(WithTenantID(context.Background(), "tenant-a"), req)
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("code=%v err=%v, want InvalidArgument", status.Code(err), err)
 	}
 }

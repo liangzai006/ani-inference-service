@@ -10,8 +10,8 @@ import (
 )
 
 // UpdateUseCase refreshes the authoritative Model artifact snapshot when a
-// caller selects another version. Model runtime settings fill only omitted
-// request fields; explicit engine type and argv remain caller-owned.
+// caller selects another version. Model supplies artifact metadata only; it
+// never fills or changes the request-owned engine type or startup argv.
 type UpdateUseCase struct {
 	client *Client
 	next   inference.UpdateUseCase
@@ -39,11 +39,5 @@ func (u *UpdateUseCase) Update(ctx context.Context, in inference.UpdateInput) (*
 		return nil, status.Error(codes.InvalidArgument, "artifact does not match Model version")
 	}
 	in.ArtifactProvider, in.ArtifactRef, in.ArtifactSHA256 = "model", v.ArtifactRef, v.ArtifactSHA256
-	if in.EngineRuntime == "" {
-		in.EngineRuntime = v.EngineRuntime
-	}
-	if len(in.CommandArgv) == 0 {
-		in.CommandArgv = v.CommandArgv
-	}
 	return u.next.Update(ctx, in)
 }

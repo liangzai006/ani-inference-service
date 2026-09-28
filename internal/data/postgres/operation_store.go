@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/audit"
+	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/gpu"
 	inferencebiz "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/inference"
 	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/publication"
 	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/quota"
@@ -31,6 +32,54 @@ func NewOperationStore(pool *pgxpool.Pool) *OperationStore { return &OperationSt
 
 var _ inferencebiz.OperationStore = (*OperationStore)(nil)
 var _ inferencebiz.AtomicStepStore = (*OperationStore)(nil)
+
+// SaveGPUPlan persists one validated accelerator result while the worker still
+// owns the resolve_gpu operation lease. The SQL predicate also permits an
+// idempotent retry to write the same bytes, but rejects replacing a different
+// plan for the same immutable generation.
+func (s *OperationStore) SaveGPUPlan(ctx context.Context, op inferencebiz.OperationContext, plan *gpu.Plan) error {
+	if s == nil || s.pool == nil {
+		return errors.New("nil postgres operation store")
+	}
+	if op.GPURequest == nil {
+		return errors.New("GPU request is required")
+	}
+	if err := gpu.ValidatePlan(plan, op.GPURequest); err != nil {
+		return err
+	}
+	payload, err := json.Marshal(plan)
+	if err != nil {
+		return err
+	}
+	tenant, err := tenantUUID(op.TenantID)
+	if err != nil {
+		return err
+	}
+	service, err := workUUID("service_id", op.ServiceID)
+	if err != nil {
+		return err
+	}
+	operation, err := workUUID("operation_id", op.ID)
+	if err != nil {
+		return err
+	}
+	lease, err := workUUID("lease_token", op.LeaseToken)
+	if err != nil {
+		return err
+	}
+	rows, err := New(s.pool).SaveGPUPlanCAS(ctx, SaveGPUPlanCASParams{
+		TenantID: tenant, ServiceID: service, OperationID: operation,
+		TargetGeneration: op.TargetGeneration, LeaseToken: lease,
+		GpuPlan: payload, GpuPlanDigest: pgtype.Text{String: plan.ResolutionDigest, Valid: true},
+	})
+	if err != nil {
+		return err
+	}
+	if rows != 1 {
+		return ErrOperationCAS
+	}
+	return nil
+}
 
 func (s *OperationStore) AdvanceOperationStepCAS(ctx context.Context, in inferencebiz.StepTransition) error {
 	return NewRepository(s.pool).AdvanceOperationStepCAS(ctx, operationStepInput(in))
@@ -64,6 +113,36 @@ func (s *OperationStore) CurrentOperation(ctx context.Context, item work.Item) (
 		return inferencebiz.OperationContext{}, err
 	}
 	op := inferencebiz.OperationContext{TenantID: row.TenantID.String(), ServiceID: row.ServiceID.String(), ID: row.ID.String(), Kind: row.Kind, Phase: inferencebiz.OperationPhase(row.Phase), Step: row.Step, Attempt: row.Attempt, TargetGeneration: row.TargetGeneration, LeaseToken: item.LeaseToken}
+	// Load accelerator state from the immutable target generation. This is
+	// intentionally best-effort for delete/legacy rows that have no spec; a
+	// malformed persisted GPU snapshot remains an error so a worker cannot
+	// project an unverified plan.
+	if spec, specErr := New(s.pool).GetSpec(ctx, GetSpecParams{TenantID: tenant, ServiceID: row.ServiceID, Generation: row.TargetGeneration}); specErr == nil {
+		op.Replicas, op.WorkerReplicas, op.RuntimeMode = spec.Replicas, spec.WorkerReplicas, spec.RuntimeMode
+		if op.WorkerReplicas == 0 {
+			op.WorkerReplicas = 1
+		}
+		if op.RuntimeMode == "" {
+			op.RuntimeMode = "deployment"
+		}
+		if len(spec.GpuRequest) > 0 {
+			op.GPURequest = new(gpu.Request)
+			if err := json.Unmarshal(spec.GpuRequest, op.GPURequest); err != nil {
+				return inferencebiz.OperationContext{}, fmt.Errorf("decode GPU request: %w", err)
+			}
+		}
+		if len(spec.GpuPlan) > 0 {
+			op.GPUPlan = new(gpu.Plan)
+			if err := json.Unmarshal(spec.GpuPlan, op.GPUPlan); err != nil {
+				return inferencebiz.OperationContext{}, fmt.Errorf("decode GPU plan: %w", err)
+			}
+			if spec.GpuPlanDigest.Valid && op.GPUPlan.ResolutionDigest != spec.GpuPlanDigest.String {
+				return inferencebiz.OperationContext{}, fmt.Errorf("GPU plan digest does not match persisted digest")
+			}
+		}
+	} else if !errors.Is(specErr, pgx.ErrNoRows) {
+		return inferencebiz.OperationContext{}, specErr
+	}
 	// The request has already returned by the time a worker runs. Reload the
 	// acceptance audit row so step events retain the durable caller context.
 	if contextRow, contextErr := New(s.pool).GetOperationAuditContext(ctx, GetOperationAuditContextParams{TenantID: tenant, OperationID: row.ID}); contextErr == nil {
@@ -144,7 +223,7 @@ func decodeResourceSpec(payload []byte) (resources.Spec, error) {
 	if err != nil {
 		return resources.Spec{}, err
 	}
-	return resources.Spec{Requests: normalized.Requests, Limits: normalized.Limits}, nil
+	return resources.Spec{Requests: normalized.Requests, Limits: normalized.Limits, GPU: normalized.GPU}, nil
 }
 
 func (s *OperationStore) populateQuotaDemand(ctx context.Context, reservation *quota.Reservation, tenant pgtype.UUID) error {
