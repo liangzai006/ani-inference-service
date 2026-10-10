@@ -38,6 +38,11 @@ func buildAppWithAllDependenciesAndManagedGPU(bc *inferencev1.Bootstrap, logger 
 		return nil, err
 	}
 	middlewares := observability.ServerMiddleware(logger)
+
+	// Add RPC method authorization policy when mTLS is configured
+	// This enforces that only authorized services can call specific methods
+	middlewares = append(middlewares, RPCPolicyMiddleware(InferenceServicePolicy()))
+
 	for _, backgroundServer := range background {
 		if sourceProvider, ok := backgroundServer.(interface{ MetricsSource() work.MetricsSource }); ok {
 			observability.SetMetricsSource(sourceProvider.MetricsSource())
