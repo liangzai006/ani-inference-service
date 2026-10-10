@@ -14,9 +14,16 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// DirectTenantMiddleware provides the isolated plaintext validation path with
-// a tenant scope from request metadata. A trusted middleware may bind a tenant
-// first; metadata must then match it exactly.
+// DirectTenantMiddleware provides defensive tenant validation from request
+// metadata. It MUST run after trusted middleware (IAM/mTLS) that establishes
+// tenant identity in context. Under zero-trust, requests without trusted context
+// are rejected regardless of metadata.
+//
+// Behavior:
+// - If trusted context is already set: metadata must match exactly (or be absent)
+// - If trusted context is absent: metadata is extracted but RequireTenant will
+//   still reject due to missing trusted context (this ensures consistency)
+// - Always reject mismatches between trusted and metadata tenants
 func DirectTenantMiddleware() middleware.Middleware {
 	return func(next middleware.Handler) middleware.Handler {
 		return func(ctx context.Context, req interface{}) (interface{}, error) {

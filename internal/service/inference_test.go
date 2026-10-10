@@ -20,10 +20,11 @@ func validEngine() *inferencev1.EngineSpec {
 	return &inferencev1.EngineSpec{Type: "vllm", Image: "engine:v1", Command: []string{"vllm", "serve", "/models"}}
 }
 
-func TestRequireTenantAllowsDirectRequestTenant(t *testing.T) {
-	got, err := RequireTenant(context.Background(), "tenant-a")
-	if err != nil || got != "tenant-a" {
-		t.Fatalf("tenant = %q, err = %v; want tenant-a", got, err)
+func TestRequireTenantRejectsAbsentTrustedContext(t *testing.T) {
+	// Zero-trust: absence of trusted context always fails, even with directTenant.
+	_, err := RequireTenant(context.Background(), "tenant-a")
+	if !errors.Is(err, ErrMissingTenant) {
+		t.Fatalf("error = %v; want ErrMissingTenant", err)
 	}
 }
 
@@ -31,6 +32,22 @@ func TestRequireTenantRejectsDirectTenantMismatch(t *testing.T) {
 	_, err := RequireTenant(WithTenantID(context.Background(), "tenant-a"), "tenant-b")
 	if !errors.Is(err, ErrTenantMismatch) {
 		t.Fatalf("error = %v, want tenant mismatch", err)
+	}
+}
+
+func TestRequireTenantAcceptsMatchingDirectTenant(t *testing.T) {
+	// With trusted context, matching directTenant is accepted for defensive verification.
+	got, err := RequireTenant(WithTenantID(context.Background(), "tenant-a"), "tenant-a")
+	if err != nil || got != "tenant-a" {
+		t.Fatalf("tenant = %q, err = %v; want tenant-a", got, err)
+	}
+}
+
+func TestRequireTenantAcceptsTrustedWithoutDirect(t *testing.T) {
+	// Trusted context alone is sufficient; directTenant is optional.
+	got, err := RequireTenant(WithTenantID(context.Background(), "tenant-a"), "")
+	if err != nil || got != "tenant-a" {
+		t.Fatalf("tenant = %q, err = %v; want tenant-a", got, err)
 	}
 }
 
