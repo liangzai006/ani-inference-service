@@ -1,0 +1,63 @@
+apiVersion: extensions.higress.io/v1alpha1
+kind: WasmPlugin
+metadata:
+  name: ani-model-router
+  namespace: higress-system
+  labels:
+    ani.liangzai006.io/environment: new-cluster
+    ani.liangzai006.io/purpose: inference-gateway
+spec:
+  defaultConfig:
+    modelToHeader: x-higress-llm-model
+    enableOnPathSuffix:
+      - /completions
+  defaultConfigDisable: false
+  failStrategy: FAIL_OPEN
+  imagePullPolicy: IfNotPresent
+  phase: AUTHN
+  priority: 900
+  url: oci://docker.changqingyun.cn/mirror/plugins/model-router:2.0.2
+---
+apiVersion: extensions.higress.io/v1alpha1
+kind: WasmPlugin
+metadata:
+  name: ani-ai-statistics
+  namespace: higress-system
+  labels:
+    ani.liangzai006.io/environment: new-cluster
+    ani.liangzai006.io/purpose: inference-observability
+spec:
+  defaultConfig:
+    enable_path_suffixes:
+      - /completions
+    use_default_response_attributes: true
+  defaultConfigDisable: false
+  failStrategy: FAIL_OPEN
+  imagePullPolicy: IfNotPresent
+  phase: STATS
+  priority: 200
+  url: oci://docker.changqingyun.cn/mirror/plugins/ai-statistics:2.0.2
+---
+apiVersion: extensions.higress.io/v1alpha1
+kind: WasmPlugin
+metadata:
+  name: ani-request-rate-limit
+  namespace: higress-system
+  labels:
+    ani.liangzai006.io/environment: new-cluster
+    ani.liangzai006.io/purpose: inference-protection
+spec:
+  defaultConfig:
+    # No IAM is enabled in this validation cluster. Limit requests by the
+    # model selected by model-router; add a key when a new served model is
+    # published.
+    limit_by_header: x-higress-llm-model
+    limit_keys:
+      - key: smollm2-135m
+        query_per_second: 10
+  defaultConfigDisable: false
+  failStrategy: FAIL_CLOSE
+  imagePullPolicy: IfNotPresent
+  phase: UNSPECIFIED_PHASE
+  priority: 10
+  url: oci://docker.changqingyun.cn/mirror/plugins/key-rate-limit:1.0.0

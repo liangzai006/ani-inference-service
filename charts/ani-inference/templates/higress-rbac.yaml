@@ -1,0 +1,30 @@
+{{- if .Values.higress.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "ani-inference.higressRoleName" . }}
+  namespace: {{ default .Values.higress.rateLimitNamespace .Values.higress.rbac.namespace }}
+  labels:
+    {{- include "ani-inference.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["extensions.higress.io"]
+    resources: ["wasmplugins"]
+    resourceNames: [{{ .Values.higress.rateLimitPlugin | quote }}]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "ani-inference.higressRoleName" . }}
+  namespace: {{ default .Values.higress.rateLimitNamespace .Values.higress.rbac.namespace }}
+  labels:
+    {{- include "ani-inference.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "ani-inference.fullname" . }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "ani-inference.higressRoleName" . }}
+{{- end }}

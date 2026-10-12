@@ -1,0 +1,55 @@
+# Platform Installer Image
+# This image contains tools needed to install KServe, LWS, Higress and other
+# platform dependencies as a Helm pre-install hook.
+
+FROM alpine:3.19
+
+# Install required tools
+RUN apk add --no-cache \
+    bash \
+    curl \
+    python3 \
+    py3-pip \
+    git \
+    tar \
+    ca-certificates
+
+# Install kubectl
+ARG KUBECTL_VERSION=v1.31.0
+RUN curl -LO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" && \
+    chmod +x kubectl && \
+    mv kubectl /usr/local/bin/
+
+# Install Helm
+ARG HELM_VERSION=v3.16.0
+RUN curl -fsSL https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz | \
+    tar -xz && \
+    mv linux-amd64/helm /usr/local/bin/ && \
+    rm -rf linux-amd64
+
+# Verify installations
+RUN kubectl version --client && \
+    helm version && \
+    python3 --version
+
+# Create workspace
+WORKDIR /workspace
+
+# Copy scripts and vendor charts (will be populated at build time)
+COPY scripts/ ./scripts/
+COPY charts/vendor/ ./charts/vendor/
+COPY charts/platform-values/ ./charts/platform-values/
+COPY docs/deploy/higress/ ./docs/deploy/higress/
+COPY charts/ani-inference-config/ ./charts/ani-inference-config/
+
+# Make scripts executable
+RUN chmod +x scripts/*.sh && \
+    chmod +x scripts/*.py || true
+
+# The hook will override these via ConfigMaps, but having defaults helps testing
+ENV KUBE_CONTEXT=in-cluster \
+    HELM_TIMEOUT=15m \
+    KUBE_REQUEST_TIMEOUT=30s
+
+# Default command for testing
+CMD ["bash"]

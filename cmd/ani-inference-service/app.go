@@ -7,6 +7,7 @@ import (
 	"time"
 
 	kratos "github.com/go-kratos/kratos/v3"
+	"github.com/go-kratos/kratos/v3/middleware"
 	kratosTransport "github.com/go-kratos/kratos/v3/transport"
 	kratosgrpc "github.com/go-kratos/kratos/v3/transport/grpc"
 	kratoshttp "github.com/go-kratos/kratos/v3/transport/http"
@@ -37,7 +38,12 @@ func buildAppWithAllDependenciesAndManagedGPU(bc *inferencev1.Bootstrap, logger 
 	if err != nil {
 		return nil, err
 	}
-	middlewares := observability.ServerMiddleware(logger)
+	// Keep the base middleware set for the admin HTTP server. Health, readiness,
+	// and metrics are intentionally probeable without a client certificate.
+	// The RPC identity policy below applies only to the gRPC business surface;
+	// putting it on the HTTP server makes Kubernetes probes return 401.
+	adminMiddlewares := observability.ServerMiddleware(logger)
+	middlewares := append([]middleware.Middleware(nil), adminMiddlewares...)
 
 	// Add RPC method authorization policy when mTLS is configured
 	// This enforces that only authorized services can call specific methods
@@ -63,7 +69,7 @@ func buildAppWithAllDependenciesAndManagedGPU(bc *inferencev1.Bootstrap, logger 
 	}
 	referenceReader, _ := read.(inferencebiz.ModelReferenceReader)
 	inferencev1.RegisterModelReferenceServiceServer(grpcServer, service.NewModelReferenceServer(referenceReader))
-	adminServer := server.NewAdminServer(bc.Server.Admin, readiness, observability.Gatherer(), middlewares...)
+	adminServer := server.NewAdminServer(bc.Server.Admin, readiness, observability.Gatherer(), adminMiddlewares...)
 	return newApp(logger, grpcServer, adminServer, readiness, observability, bc.Server.ShutdownTimeout.AsDuration(), readyOnStart, background...), nil
 }
 

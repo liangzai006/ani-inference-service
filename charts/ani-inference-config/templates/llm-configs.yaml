@@ -1,0 +1,8 @@
+{{- range .Values.configs }}
+apiVersion: serving.kserve.io/v1alpha1
+kind: LLMInferenceServiceConfig
+metadata:
+  name: {{ . | quote }}
+spec: {}
+---
+{{- end }}

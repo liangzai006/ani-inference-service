@@ -1,0 +1,24 @@
+kserve:
+  # The new environment pulls control-plane images from the local mirror.
+  # Runtime model images remain caller-supplied in the Inference request.
+  agent:
+    image: docker.changqingyun.cn/mirror/kserve/agent
+    tag: v0.16.0
+  router:
+    image: docker.changqingyun.cn/mirror/kserve/router
+    tag: v0.16.0
+  storage:
+    image: docker.changqingyun.cn/mirror/kserve/storage-initializer
+    tag: v0.16.0
+  controller:
+    image: docker.changqingyun.cn/mirror/kserve/kserve-controller
+    tag: v0.16.0
+    rbacProxyImage: docker.changqingyun.cn/mirror/brancz/kube-rbac-proxy:v0.18.0
+    deploymentMode: Standard
+    gateway:
+      # ANI publishes the model-specific Higress HTTPRoutes.
+      disableIngressCreation: true
+      ingressGateway:
+        enableGatewayApi: true
+        createGateway: false
+        kserveGateway: higress-system/ani-higress

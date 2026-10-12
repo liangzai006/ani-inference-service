@@ -1,0 +1,3 @@
+{{- if ne .Release.Namespace "ani-system" }}
+{{- fail "ani-inference must be installed in namespace ani-system" }}
+{{- end }}

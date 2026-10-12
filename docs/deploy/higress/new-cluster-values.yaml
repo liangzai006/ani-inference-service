@@ -1,0 +1,87 @@
+# 新环境 Higress 网关配置；StorageClass、镜像仓库及端口按目标环境调整。
+
+global:
+  enableGatewayAPI: true
+  enableIstioAPI: false
+  gatewayClass: higress
+  hub: docker.changqingyun.cn/mirror
+  imagePullPolicy: IfNotPresent
+  local: false
+  o11y:
+    enabled: true
+    grafana:
+      image:
+        repository: docker.changqingyun.cn/mirror/higress/grafana
+        tag: 9.3.6
+      storage: 2Gi
+      pvc:
+        storageClassName: cephfs
+    prometheus:
+      image:
+        repository: docker.changqingyun.cn/mirror/higress/prometheus
+        tag: v2.40.7
+      storage: 4Gi
+      pvc:
+        storageClassName: cephfs
+    loki:
+      image:
+        repository: docker.changqingyun.cn/mirror/higress/loki
+        tag: 2.9.4
+      storage: 4Gi
+      pvc:
+        storageClassName: cephfs
+
+higress-core:
+  gateway:
+    replicas: 1
+    image: gateway
+    tag: 2.2.4
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+    service:
+      type: NodePort
+      ports:
+        - name: http2
+          port: 80
+          protocol: TCP
+          targetPort: 80
+          nodePort: 30090
+        - name: https
+          port: 443
+          protocol: TCP
+          targetPort: 443
+          nodePort: 30443
+    metrics:
+      enabled: false
+  controller:
+    replicas: 1
+    image: higress
+    tag: 2.2.4
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+higress-console:
+  replicaCount: 1
+  image:
+    repository: docker.changqingyun.cn/mirror/higress/console
+    tag: 2.2.4
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi

@@ -1,0 +1,62 @@
+# Apply only the KServe binding migration to an Inference database that has
+# already applied migrations 000001 through 000012.
+# Create the ConfigMap with:
+# kubectl --context="$KUBE_CONTEXT" -n ani-system create configmap inference-kserve-migration \
+#   --from-file=000013_inference_kserve_binding.sql=/path/to/ani-inference-service/migrations/000013_inference_kserve_binding.sql
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: inference-kserve-migration-20260923
+  namespace: ani-system
+  labels:
+    app.kubernetes.io/name: inference-kserve-migration
+    ani.liangzai006.io/environment: new-cluster
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: inference-kserve-migration
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: quay.io/sclorg/postgresql-16-c9s@sha256:8cfb29c886b54dd2c535e24896dffe45ff47a3006b9e880ef864415683f1daed
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: POSTGRESQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: inference-postgres-auth
+                  key: username
+            - name: POSTGRESQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: inference-postgres-auth
+                  key: password
+            - name: POSTGRESQL_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: inference-postgres-auth
+                  key: database
+            - name: PGHOST
+              value: postgres
+            - name: PGPORT
+              value: "5432"
+          command: ["sh", "-ec"]
+          args:
+            - |
+              export PGPASSWORD="$POSTGRESQL_PASSWORD"
+              psql -v ON_ERROR_STOP=1 -h "$PGHOST" -p "$PGPORT" -U "$POSTGRESQL_USER" -d "$POSTGRESQL_DATABASE" -f /migrations/000013_inference_kserve_binding.sql
+          volumeMounts:
+            - name: migrations
+              mountPath: /migrations
+              readOnly: true
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+      volumes:
+        - name: migrations
+          configMap:
+            name: inference-kserve-migration-20260923

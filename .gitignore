@@ -3,3 +3,6 @@
 /tmp/
 *.local
 .DS_Store
+
+# Local service binary
+.build/

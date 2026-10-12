@@ -1,0 +1,6 @@
+# The installation post-renderer removes upstream engine command defaults.
+kserve:
+  llmisvc:
+    controller:
+      image: docker.changqingyun.cn/mirror/kserve/llmisvc-controller
+      tag: v0.16.0

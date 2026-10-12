@@ -1,0 +1,14 @@
+apiVersion: serving.kserve.io/v1alpha1
+kind: LLMInferenceServiceConfig
+metadata:
+  name: kserve-config-llm-worker-pipeline-parallel
+  # The current Kubeflow v1.10 cluster runs KServe in kubeflow. If the LLMI
+  # addon is installed in a separate kserve namespace, move this resource
+  # there together with the controller's KServeNamespace setting.
+  namespace: kubeflow
+# KServe 0.16 selects this well-known name whenever spec.worker and
+# spec.parallelism.pipeline are present, but the 0.16 addon does not ship the
+# resource. Keep it empty so ANI's caller-provided command and args are the
+# complete engine configuration; KServe still uses parallelism.pipeline to set
+# the native LeaderWorkerSet size.
+spec: {}

@@ -1,0 +1,6 @@
+apiVersion: v2
+name: ani-inference
+description: ANI inference control-plane service
+type: application
+version: 0.1.0
+appVersion: "ani-inference-new-20260930-cleanup-limit-r2"

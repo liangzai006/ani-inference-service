@@ -1,0 +1,30 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: higress
+  labels:
+    ani.liangzai006.io/environment: new-cluster
+    ani.liangzai006.io/purpose: inference-gateway
+spec:
+  controllerName: higress.io/gateway-controller
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: ani-higress
+  namespace: higress-system
+  labels:
+    ani.liangzai006.io/environment: new-cluster
+    ani.liangzai006.io/purpose: inference-gateway
+spec:
+  gatewayClassName: higress
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              ani.liangzai006.io/environment: new-cluster
