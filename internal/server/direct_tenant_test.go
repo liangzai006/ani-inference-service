@@ -35,6 +35,39 @@ func (s *tenantProbeCreate) Create(ctx context.Context, in inferenceservice.Crea
 }
 
 func TestDirectTenantMiddlewareBindsRequestMetadata(t *testing.T) {
+	// Zero-trust: metadata alone is insufficient; trusted context must be present.
+	// This test now validates that metadata is extracted but fails without trusted context.
+	handler := DirectTenantMiddleware()(func(ctx context.Context, _ interface{}) (interface{}, error) {
+		// Should not reach here due to zero-trust rejection
+		t.Fatal("handler should not be called without trusted context")
+		return nil, nil
+	})
+
+	ctx := kratosmetadata.NewServerContext(context.Background(), kratosmetadata.New(map[string][]string{
+		"tenant-id": {"tenant-a"},
+	}))
+	_, err := handler(ctx, struct{}{})
+	// Expect Unauthenticated because there's no trusted context
+	if status.Code(err) != codes.Unauthenticated {
+		t.Fatalf("error code = %v, want Unauthenticated; err=%v", status.Code(err), err)
+	}
+}
+
+func TestDirectTenantMiddlewareBindsGRPCIncomingMetadata(t *testing.T) {
+	// Zero-trust: metadata alone is insufficient; trusted context must be present.
+	handler := DirectTenantMiddleware()(func(ctx context.Context, _ interface{}) (interface{}, error) {
+		t.Fatal("handler should not be called without trusted context")
+		return nil, nil
+	})
+	ctx := grpcmetadata.NewIncomingContext(context.Background(), grpcmetadata.Pairs("x-tenant-id", "tenant-a"))
+	_, err := handler(ctx, struct{}{})
+	if status.Code(err) != codes.Unauthenticated {
+		t.Fatalf("error code = %v, want Unauthenticated; err=%v", status.Code(err), err)
+	}
+}
+
+func TestDirectTenantMiddlewareValidatesMetadataAgainstTrustedContext(t *testing.T) {
+	// With trusted context present, metadata must match (or be absent).
 	handler := DirectTenantMiddleware()(func(ctx context.Context, _ interface{}) (interface{}, error) {
 		tenant, ok := inferenceservice.TenantID(ctx)
 		if !ok || tenant != "tenant-a" {
@@ -43,26 +76,13 @@ func TestDirectTenantMiddlewareBindsRequestMetadata(t *testing.T) {
 		return "ok", nil
 	})
 
-	ctx := kratosmetadata.NewServerContext(context.Background(), kratosmetadata.New(map[string][]string{
-		"tenant-id": {"tenant-a"},
-	}))
+	ctx := kratosmetadata.NewServerContext(
+		inferenceservice.WithTenantID(context.Background(), "tenant-a"),
+		kratosmetadata.New(map[string][]string{"tenant-id": {"tenant-a"}}),
+	)
 	got, err := handler(ctx, struct{}{})
 	if err != nil || got != "ok" {
 		t.Fatalf("handler() = (%v, %v), want (ok, nil)", got, err)
-	}
-}
-
-func TestDirectTenantMiddlewareBindsGRPCIncomingMetadata(t *testing.T) {
-	handler := DirectTenantMiddleware()(func(ctx context.Context, _ interface{}) (interface{}, error) {
-		tenant, ok := inferenceservice.TenantID(ctx)
-		if !ok || tenant != "tenant-a" {
-			t.Fatalf("tenant = %q, ok=%v; want tenant-a", tenant, ok)
-		}
-		return nil, nil
-	})
-	ctx := grpcmetadata.NewIncomingContext(context.Background(), grpcmetadata.Pairs("x-tenant-id", "tenant-a"))
-	if _, err := handler(ctx, struct{}{}); err != nil {
-		t.Fatalf("handler() error = %v", err)
 	}
 }
 
@@ -95,9 +115,31 @@ func TestDirectTenantMiddlewareLeavesMissingMetadataForService(t *testing.T) {
 	}
 }
 
+func TestDirectTenantMiddlewareValidatesMetadataWithTrustedContext(t *testing.T) {
+	// When trusted context is set, metadata must match exactly.
+	handler := DirectTenantMiddleware()(func(ctx context.Context, _ interface{}) (interface{}, error) {
+		tenant, ok := inferenceservice.TenantID(ctx)
+		if !ok || tenant != "tenant-a" {
+			t.Fatalf("tenant = %q, ok=%v; want tenant-a", tenant, ok)
+		}
+		return "ok", nil
+	})
+	ctx := kratosmetadata.NewServerContext(
+		inferenceservice.WithTenantID(context.Background(), "tenant-a"),
+		kratosmetadata.New(map[string][]string{"tenant-id": {"tenant-a"}}),
+	)
+	got, err := handler(ctx, struct{}{})
+	if err != nil || got != "ok" {
+		t.Fatalf("handler() = (%v, %v), want (ok, nil)", got, err)
+	}
+}
+
 var _ middleware.Middleware = DirectTenantMiddleware()
 
 func TestDirectTenantMiddlewareWorksThroughGRPC(t *testing.T) {
+	// Zero-trust: requests must have trusted context. This test demonstrates
+	// that the gRPC call fails due to missing trusted context (which would be
+	// set by IAM/mTLS middleware in production).
 	grpcServer := kratosgrpc.NewServer(
 		kratosgrpc.Network("tcp"),
 		kratosgrpc.Address("127.0.0.1:0"),
@@ -133,11 +175,9 @@ func TestDirectTenantMiddlewareWorksThroughGRPC(t *testing.T) {
 	}
 	defer conn.Close()
 	callCtx := grpcmetadata.NewOutgoingContext(ctx, grpcmetadata.Pairs("tenant-id", "tenant-a"))
-	out, err := inferencev1.NewInferenceServiceManagerClient(conn).CreateInferenceService(callCtx, &inferencev1.CreateInferenceServiceRequest{RequestId: "request-1", Name: "service", ModelVersionId: "version", Replicas: 1, Engine: &inferencev1.EngineSpec{Type: "vllm", Image: "engine:v1", Command: []string{"serve", "/models"}}})
-	if err != nil {
-		t.Fatalf("GetOperation() error = %v", err)
-	}
-	if out.GetOperation().GetId() != "tenant-a" || probe.tenant != "tenant-a" {
-		t.Fatalf("tenant = %q, probe tenant = %q; want tenant-a", out.GetOperation().GetId(), probe.tenant)
+	_, err = inferencev1.NewInferenceServiceManagerClient(conn).CreateInferenceService(callCtx, &inferencev1.CreateInferenceServiceRequest{RequestId: "request-1", Name: "service", ModelVersionId: "version", Replicas: 1, Engine: &inferencev1.EngineSpec{Type: "vllm", Image: "engine:v1", Command: []string{"serve", "/models"}}})
+	// Expect authentication error because there's no trusted context (IAM/mTLS would set this)
+	if status.Code(err) != codes.Unauthenticated {
+		t.Fatalf("error code = %v, want Unauthenticated; err=%v", status.Code(err), err)
 	}
 }

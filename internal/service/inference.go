@@ -40,21 +40,26 @@ func TenantID(ctx context.Context) (string, bool) {
 	return tenantID, ok && tenantID != ""
 }
 
-// RequireTenant prefers the tenant selected by trusted transport context. The
-// direct tenant is an isolated validation fallback and, when both are set,
-// must match the trusted scope.
+// RequireTenant enforces zero-trust: tenant identity MUST come from trusted
+// transport context (IAM/mTLS middleware). The directTenant parameter is
+// optional defensive validation only when trusted context is present.
+// Absence of trusted context always fails; no fallback is permitted.
 func RequireTenant(ctx context.Context, directTenant string) (string, error) {
 	directTenant = strings.TrimSpace(directTenant)
 	trustedTenant, ok := TenantID(ctx)
-	if !ok {
-		if directTenant == "" {
-			return "", ErrMissingTenant
-		}
-		return directTenant, nil
+
+	// Zero-trust: absence of trusted context is always an error.
+	// The transport layer MUST establish tenant identity via IAM/mTLS.
+	if !ok || trustedTenant == "" {
+		return "", ErrMissingTenant
 	}
+
+	// Defensive verification: if the request also specifies a tenant,
+	// it must match the trusted one. This prevents request field injection.
 	if directTenant != "" && directTenant != trustedTenant {
 		return "", ErrTenantMismatch
 	}
+
 	return trustedTenant, nil
 }
 

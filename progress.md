@@ -1,5 +1,16 @@
 # Progress
 
+## 2026-10-10 zero-trust tenant verification
+
+- 修正 `RequireTenant` 违反零信任架构的 fallback 行为。原实现在缺失可信上下文时接受请求字段租户参数，违反零信任原则。
+- 新实现强制要求：租户身份必须来自可信上下文（IAM/mTLS 中间件职责），请求元数据仅用于防御性验证。缺失可信上下文时总是拒绝，无降级路径。
+- 同时更新租户验证测试和 DirectTenantMiddleware 单元测试，验证新的零信任语义：
+  - 新增 `TestRequireTenantRejectsAbsentTrustedContext` 验证无可信上下文时拒绝
+  - 新增 `TestRequireTenantAcceptsMatchingDirectTenant` 验证有可信上下文时的防御性检查
+  - 新增 `TestRequireTenantAcceptsTrustedWithoutDirect` 验证可信上下文充分
+  - 中间件测试纠正对缺失可信上下文场景的预期
+- 所有 service、server、biz、data 层测试通过；build、vet、lint 通过。记录见 `docs/execution/records/2026-10-10-zero-trust-tenant-verification.md`。
+
 ## 2026-09-12 official LWS controller handoff
 
 - 目标仍未完成。typed LWS renderer 现在显式填充官方 webhook 的
