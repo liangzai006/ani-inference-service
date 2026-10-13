@@ -195,7 +195,7 @@ type ModelVersion struct {
 	Status         string                 `protobuf:"bytes,12,opt,name=status,proto3" json:"status,omitempty"`
 	EngineType     string                 `protobuf:"bytes,13,opt,name=engine_type,json=engineType,proto3" json:"engine_type,omitempty"`
 	StartupCommand string                 `protobuf:"bytes,14,opt,name=startup_command,json=startupCommand,proto3" json:"startup_command,omitempty"`
-	StartupArgs    []string               `protobuf:"bytes,15,rep,name=startup_args,json=startupArgs,proto3" json:"startup_args,omitempty"`
+	EngineImage    string                 `protobuf:"bytes,16,opt,name=engine_image,json=engineImage,proto3" json:"engine_image,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -328,11 +328,11 @@ func (x *ModelVersion) GetStartupCommand() string {
 	return ""
 }
 
-func (x *ModelVersion) GetStartupArgs() []string {
+func (x *ModelVersion) GetEngineImage() string {
 	if x != nil {
-		return x.StartupArgs
+		return x.EngineImage
 	}
-	return nil
+	return ""
 }
 
 type ModelArtifact struct {
@@ -1094,7 +1094,7 @@ type CreateModelVersionRequest struct {
 	IdempotencyKey string                 `protobuf:"bytes,11,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
 	EngineType     string                 `protobuf:"bytes,12,opt,name=engine_type,json=engineType,proto3" json:"engine_type,omitempty"`
 	StartupCommand string                 `protobuf:"bytes,13,opt,name=startup_command,json=startupCommand,proto3" json:"startup_command,omitempty"`
-	StartupArgs    []string               `protobuf:"bytes,14,rep,name=startup_args,json=startupArgs,proto3" json:"startup_args,omitempty"`
+	EngineImage    string                 `protobuf:"bytes,15,opt,name=engine_image,json=engineImage,proto3" json:"engine_image,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -1220,11 +1220,11 @@ func (x *CreateModelVersionRequest) GetStartupCommand() string {
 	return ""
 }
 
-func (x *CreateModelVersionRequest) GetStartupArgs() []string {
+func (x *CreateModelVersionRequest) GetEngineImage() string {
 	if x != nil {
-		return x.StartupArgs
+		return x.EngineImage
 	}
-	return nil
+	return ""
 }
 
 type GetUploadURLRequest struct {
@@ -1796,7 +1796,7 @@ const file_model_v1_model_proto_rawDesc = "" +
 	"created_at\x18\r \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
 	"updated_at\x18\x0e \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12\x19\n" +
-	"\bmodel_id\x18\x0f \x01(\tR\amodelId\"\xff\x03\n" +
+	"\bmodel_id\x18\x0f \x01(\tR\amodelId\"\x93\x04\n" +
 	"\fModelVersion\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x19\n" +
 	"\bmodel_id\x18\x02 \x01(\tR\amodelId\x12\x18\n" +
@@ -1816,7 +1816,7 @@ const file_model_v1_model_proto_rawDesc = "" +
 	"\vengine_type\x18\r \x01(\tR\n" +
 	"engineType\x12'\n" +
 	"\x0fstartup_command\x18\x0e \x01(\tR\x0estartupCommand\x12!\n" +
-	"\fstartup_args\x18\x0f \x03(\tR\vstartupArgs\"\x98\x01\n" +
+	"\fengine_image\x18\x10 \x01(\tR\vengineImageJ\x04\b\x0f\x10\x10R\fstartup_args\"\x98\x01\n" +
 	"\rModelArtifact\x12\x1a\n" +
 	"\bprovider\x18\x01 \x01(\tR\bprovider\x12\x1c\n" +
 	"\treference\x18\x02 \x01(\tR\treference\x12\x16\n" +
@@ -1871,7 +1871,7 @@ const file_model_v1_model_proto_rawDesc = "" +
 	"\x04page\x18\x03 \x01(\v2\x1b.model.v1.CursorPageRequestR\x04page\"}\n" +
 	"\x19ListModelVersionsResponse\x122\n" +
 	"\bversions\x18\x01 \x03(\v2\x16.model.v1.ModelVersionR\bversions\x12,\n" +
-	"\x04meta\x18\x02 \x01(\v2\x18.model.v1.CursorPageMetaR\x04meta\"\xef\x03\n" +
+	"\x04meta\x18\x02 \x01(\v2\x18.model.v1.CursorPageMetaR\x04meta\"\x83\x04\n" +
 	"\x19CreateModelVersionRequest\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x19\n" +
 	"\bmodel_id\x18\x02 \x01(\tR\amodelId\x12\x18\n" +
@@ -1889,7 +1889,7 @@ const file_model_v1_model_proto_rawDesc = "" +
 	"\vengine_type\x18\f \x01(\tR\n" +
 	"engineType\x12'\n" +
 	"\x0fstartup_command\x18\r \x01(\tR\x0estartupCommand\x12!\n" +
-	"\fstartup_args\x18\x0e \x03(\tR\vstartupArgs\"\xf5\x01\n" +
+	"\fengine_image\x18\x0f \x01(\tR\vengineImageJ\x04\b\x0e\x10\x0fR\fstartup_args\"\xf5\x01\n" +
 	"\x13GetUploadURLRequest\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x19\n" +
 	"\bmodel_id\x18\x02 \x01(\tR\amodelId\x12\x18\n" +
