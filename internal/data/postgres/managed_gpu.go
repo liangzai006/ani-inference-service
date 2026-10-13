@@ -9,9 +9,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	integrationv1 "github.com/zhangzhe-ctrl/ani-accelerator-service/api/gen/go/accelerator/integration/v1"
-	inferencev1 "github.com/zhangzhe-ctrl/ani-inference-service/api/inference/v1"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/gpu"
-	inferencebiz "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/inference"
+	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
+	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
+	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
 	"google.golang.org/protobuf/encoding/protojson"
 )
 

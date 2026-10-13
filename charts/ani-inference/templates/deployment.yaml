@@ -46,6 +46,12 @@ spec:
               value: {{ printf "0.0.0.0:%d" (int .Values.service.grpcPort) | quote }}
             - name: ANI_SERVER_ADMIN_ADDR
               value: {{ printf "0.0.0.0:%d" (int .Values.service.adminPort) | quote }}
+            - name: ANI_SERVER_TLS_CA_FILE
+              value: {{ printf "%s/%s" (trim .Values.serverTLS.mountPath) (trim .Values.serverTLS.caKey) | quote }}
+            - name: ANI_SERVER_TLS_CERT_FILE
+              value: {{ printf "%s/%s" (trim .Values.serverTLS.mountPath) (trim .Values.serverTLS.certKey) | quote }}
+            - name: ANI_SERVER_TLS_KEY_FILE
+              value: {{ printf "%s/%s" (trim .Values.serverTLS.mountPath) (trim .Values.serverTLS.keyKey) | quote }}
             - name: ANI_DATABASE_DSN
               valueFrom:
                 secretKeyRef:
@@ -127,6 +133,9 @@ spec:
             {{- toYaml . | nindent 12 }}
           {{- end }}
           volumeMounts:
+            - name: server-tls
+              mountPath: {{ .Values.serverTLS.mountPath | quote }}
+              readOnly: true
             - name: model-tls
               mountPath: {{ .Values.model.tls.mountPath | quote }}
               readOnly: true
@@ -136,6 +145,9 @@ spec:
               readOnly: true
             {{- end }}
       volumes:
+        - name: server-tls
+          secret:
+            secretName: {{ required "serverTLS.existingSecret is required" (trim .Values.serverTLS.existingSecret) }}
         - name: model-tls
           secret:
             secretName: {{ required "model.tls.existingSecret is required" (trim .Values.model.tls.existingSecret) }}

@@ -27,9 +27,11 @@ Inference → KServe 的新接口契约。命令字段在业务接口中是一�
 
 - Inference 根目录的直接 `buf lint` / `buf generate` 仍不会自动加载外部导入
   `accelerator/integration/v1/owner_gpu_attachment.proto`；请使用上面的仓库脚本。
-- Gov `make verify-ci`：业务测试执行到最后，但安全审计门禁不可用：本机
-  工具问题已解决；剩余结果以扫描输出为准。当前 Model 扫描发现 Go 标准库、
-  `golang.org/x/net` 和 OpenTelemetry 相关漏洞，需要单独升级依赖或 Go 工具链。
+- Gov `make verify-ci`：业务测试执行到最后，但安全审计门禁仍不能全绿。Model 和
+  Inference 已将 `golang.org/x/net` 升级到 `v0.60.0`、OpenTelemetry 升级到
+  `v1.45.0`，这两类代码调用漏洞已消除。当前本机仍使用 Go `1.26.8`，因此
+  标准库漏洞要等本机/构建环境升级到 `1.26.9` 后才能消除；`x/crypto/openpgp`
+  只有模块级告警、业务依赖实际只使用 `argon2`，且上游没有修复版本。
 - 集群没有任何节点上报 `nvidia.com/gpu`，因此 GPU、Accelerator 和多机多卡为
   `not_verified`。
 - 本次只做了集群预检，没有在集群创建新的推理实例。Model 导入端点、Gov 认证凭据、

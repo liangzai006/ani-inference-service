@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	inferencev1 "github.com/zhangzhe-ctrl/ani-inference-service/api/inference/v1"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/inference"
+	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
+	"github.com/liangzai006/ani-inference-service/internal/biz/inference"
 )
 
 type updateCapture struct {

@@ -11,6 +11,9 @@ model="${ANI_TEST_MODEL:?set ANI_TEST_MODEL to a served model name}"
 completion_url="${base_url%/}/v1/completions"
 
 body=$(printf '{"model":"%s","prompt":"higress smoke test","max_tokens":2}' "$model")
+unauthenticated_status=$(curl -sS -m 20 -o /dev/null -w '%{http_code}' \
+  -H 'content-type: application/json' -d "$body" "$completion_url")
+test "$unauthenticated_status" = 401
 status=$(curl -sS -m 60 -o /tmp/ani-higress-completion.json -w '%{http_code}' \
   -H 'content-type: application/json' \
   -H "x-api-key: ${api_key}" \
@@ -24,6 +27,8 @@ unknown_status=$(curl -sS -m 20 -o /dev/null -w '%{http_code}' \
   -H 'content-type: application/json' \
   -H "x-api-key: ${api_key}" \
   -d "$unknown_body" "$completion_url")
-test "$unknown_status" = 404
+# The bootstrap HTTPRoute deliberately has no backend: Gateway API rejects an
+# unmatched model with 500 after the plugin has had a chance to reroute it.
+test "$unknown_status" = 500
 
-printf 'Higress completion passed for %s; unknown model returned 404.\n' "$model"
+printf 'Higress body-model completion passed for %s; no key returned 401; unknown model returned 500.\n' "$model"

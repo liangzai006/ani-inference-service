@@ -9,8 +9,10 @@ import (
 	"strings"
 	"time"
 
-	modelv1 "github.com/zhangzhe-ctrl/ani-inference-service/api/model/v1"
+	"github.com/google/uuid"
+	modelv1 "github.com/liangzai006/ani-inference-service/api/model/v1"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
@@ -27,6 +29,14 @@ type Client struct{ api modelv1.ModelServiceClient }
 
 func NewClient(api modelv1.ModelServiceClient) *Client { return &Client{api: api} }
 
+func modelCallContext(ctx context.Context, tenant string) context.Context {
+	return metadata.NewOutgoingContext(ctx, metadata.Pairs(
+		"x-ani-tenant-id", tenant,
+		"x-ani-actor", "inference:service",
+		"x-ani-request-id", uuid.NewString(),
+	))
+}
+
 func (c *Client) GetReadyVersion(ctx context.Context, tenant, versionID string) (Snapshot, error) {
 	if c == nil || c.api == nil {
 		return Snapshot{}, status.Error(codes.FailedPrecondition, "Model client is not configured")
@@ -34,7 +44,7 @@ func (c *Client) GetReadyVersion(ctx context.Context, tenant, versionID string) 
 	if tenant == "" || versionID == "" {
 		return Snapshot{}, status.Error(codes.InvalidArgument, "tenant and model version ID are required")
 	}
-	r, err := c.api.GetModelVersion(ctx, &modelv1.GetModelVersionRequest{TenantId: tenant, ModelVersionId: versionID})
+	r, err := c.api.GetModelVersion(modelCallContext(ctx, tenant), &modelv1.GetModelVersionRequest{TenantId: tenant, ModelVersionId: versionID})
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -62,7 +72,7 @@ func (c *Client) GetArtifactDownloadURL(ctx context.Context, tenant, versionID, 
 	if tenant == "" || versionID == "" {
 		return Download{}, status.Error(codes.InvalidArgument, "tenant and model version ID are required")
 	}
-	r, err := c.api.GetModelDownloadURL(ctx, &modelv1.GetModelDownloadURLRequest{TenantId: tenant, ModelVersionId: versionID, Requester: requester})
+	r, err := c.api.GetModelDownloadURL(modelCallContext(ctx, tenant), &modelv1.GetModelDownloadURLRequest{TenantId: tenant, ModelVersionId: versionID, Requester: requester})
 	if err != nil {
 		return Download{}, err
 	}

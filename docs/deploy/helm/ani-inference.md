@@ -48,11 +48,17 @@ Model Chart 的命令和 S3 参数见 Model 仓库的
 `docs/deploy/helm/ani-model.md`。正式安装不要给 Helm 传 `--kube-context`，只使用
 当前 kubeconfig context。
 
+Gov 调用普通 Inference gRPC 时必须使用由 `ani-internal` 签发、DNS SAN 为
+`ani-governance.ani.internal` 的客户端证书，并在每次请求携带唯一的
+`x-ani-tenant-id` 和 `x-ani-actor`（值以 `governance:` 开头）。Inference 会把这些
+元数据绑定到请求上下文，不能用请求体字段替代。Model 调用引用检查时同样必须使用
+已签发的客户端证书和租户元数据。
+
 安装前还要准备：
 
 - cert-manager：上面的 Helm 命令安装固定版本；如果已经完整且就绪则直接复用。发现只有部分 CRD/Deployment 时应先停止，不要覆盖未知安装；
 - `ani-system/inference-database` Secret，键名 `dsn`；
-- 公共 ClusterIssuer `ani-internal`。Chart 用它向 cert-manager 申请零信任客户端证书 `inference-model-mtls`，DNS SAN 只有 `ani-inference.ani.internal`；Model 对端身份是 `ani-model.ani.internal`。不要手工创建这张证书；
+- 公共 ClusterIssuer `ani-internal`。Chart 用它向 cert-manager 申请普通 gRPC 服务端证书 `ani-inference-server-tls`（DNS SAN `ani-inference.ani.internal`）和调用 Model 的客户端证书 `inference-model-mtls`（DNS SAN `ani-inference.ani.internal`）；Model 对端身份是 `ani-model.ani.internal`。不要手工创建这两张证书；
 - `ani-system/ani-model-grpc` Service；
 - Model Chart 使用的 S3/Ceph 访问配置和 StorageClass；
 - 依赖镜像已同步到新环境可访问的镜像仓库。

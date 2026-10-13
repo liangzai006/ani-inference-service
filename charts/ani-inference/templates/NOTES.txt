@@ -1,6 +1,7 @@
 1. Inference Chart 只安装本服务；cert-manager、PostgreSQL、Ceph/S3、Model Service 必须已经存在。
-2. {{ .Values.model.tls.existingSecret }} 由本 Chart 的 Certificate 向 cert-manager 申请，不是手工 Secret。身份 DNS SAN 只有 {{ .Values.model.tls.certificate.dnsName }}。
-3. 签发者是已有的 {{ .Values.model.tls.issuer.kind }}/{{ .Values.model.tls.issuer.name }}。本 Chart 不创建签发者；按部署文档用独立 Helm 命令管理 cert-manager。
-4. 对端 Model 的零信任身份是 {{ .Values.model.tls.serverName }}。
-5. 数据库仍使用已有 Secret {{ .Values.database.existingSecret }}，键 {{ .Values.database.secretKey }}。
-6. 数据面入口是安装时传入的 {{ .Values.higress.publicBaseURL }}{{ .Values.higress.pathPrefix }}。
+2. {{ .Values.serverTLS.existingSecret }} 由本 Chart 的 Certificate 向 cert-manager 申请，作为普通 gRPC 服务端的 TLS 1.3/mTLS 证书；服务端 DNS SAN 是 {{ .Values.serverTLS.certificate.dnsName }}。
+3. {{ .Values.model.tls.existingSecret }} 由本 Chart 的 Certificate 向 cert-manager 申请，作为 Inference 调用 Model 的客户端证书；客户端 DNS SAN 是 {{ .Values.model.tls.certificate.dnsName }}。
+4. 签发者是已有的 {{ .Values.serverTLS.certificate.issuer.kind }}/{{ .Values.serverTLS.certificate.issuer.name }}。本 Chart 不创建签发者；按部署文档用独立 Helm 命令管理 cert-manager。
+5. 对端 Model 的零信任身份是 {{ .Values.model.tls.serverName }}。
+6. 数据库仍使用已有 Secret {{ .Values.database.existingSecret }}，键 {{ .Values.database.secretKey }}。
+7. 数据面入口是安装时传入的 {{ .Values.higress.publicBaseURL }}{{ .Values.higress.pathPrefix }}。

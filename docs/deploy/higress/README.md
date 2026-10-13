@@ -8,8 +8,11 @@ Higress 版本为 2.2.4，启用 Gateway API。网关通过 NodePort `30090`（H
 指标和日志写入新集群 CephFS 提供的 PVC。
 
 model-router 插件从路径以 `/completions` 结尾的 JSON 请求中读取 `model`，
-再写入 `x-higress-llm-model` 请求头。ANI 为每个模型发布一条 HTTPRoute，
-使用该请求头精确匹配，并固定使用 `/v1/completions` 路径。
+再写入 `x-higress-llm-model` 请求头。Inference Chart 会安装一条没有后端的
+`/v1/completions` 兜底 HTTPRoute，让插件有机会先执行并重新计算路由；ANI
+随后为每个模型发布一条 HTTPRoute，使用该请求头精确匹配，并固定使用
+`/v1/completions` 路径。未知模型不会落到任意一个已部署模型，当前由无后端
+HTTPRoute 返回 500。调用方只传 JSON `model`，不应手工添加内部模型路由头。
 
 ## 推理网关 API Key
 

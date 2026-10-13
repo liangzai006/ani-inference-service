@@ -6,8 +6,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/gpu"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/resources"
+	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
+	"github.com/liangzai006/ani-inference-service/internal/biz/resources"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -74,7 +74,7 @@ func TestManagedLWSPreCreateProjection(t *testing.T) {
 					}
 				}
 				if !reflect.DeepEqual(container.Command, []string{"engine"}) || !reflect.DeepEqual(container.Args, []string{"serve", "--caller-flag"}) {
-					t.Fatalf("projection changed engine argv: %+v", container)
+					t.Fatalf("projection changed engine command/args: %+v", container)
 				}
 			}
 		})

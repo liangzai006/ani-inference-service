@@ -12,9 +12,9 @@ import (
 	"strconv"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/gpu"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/resources"
-	kube "github.com/zhangzhe-ctrl/ani-inference-service/internal/data/kubernetes"
+	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
+	"github.com/liangzai006/ani-inference-service/internal/biz/resources"
+	kube "github.com/liangzai006/ani-inference-service/internal/data/kubernetes"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 )

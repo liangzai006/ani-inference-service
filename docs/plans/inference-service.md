@@ -10,7 +10,7 @@
 
 ## INF-01：独立骨架、gRPC 与持久受理
 
-在独立目标位置，从固定的干净 layout 分支运行其生成器；记录模板 commit、命令、工具版本、生成后 tree 和差异。拟定模块名为 `github.com/zhangzhe-ctrl/ani-inference-service`，只是提案，不代表已创建远程仓库。
+在独立目标位置，从固定的干净 layout 分支运行其生成器；记录模板 commit、命令、工具版本、生成后 tree 和差异。拟定模块名为 `github.com/liangzai006/ani-inference-service`，只是提案，不代表已创建远程仓库。
 
 允许：新服务 `cmd/internal/api/migrations/configs` 和必要脚本/文档；不允许导入 ANI runtime、复制旧 Proto、修改其他领域 DB、应用集群资源。固定新 Proto、PG/sqlc 和迁移/运行双凭据，完成 V-01、V-02、V-07 的适用范围。无真实引擎启动证据时只称“受理/进程切片”。
 

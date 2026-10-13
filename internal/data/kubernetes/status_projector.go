@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"time"
 
-	crdv1 "github.com/zhangzhe-ctrl/ani-inference-service/api/inference/crd/v1"
+	crdv1 "github.com/liangzai006/ani-inference-service/api/inference/crd/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/retry"

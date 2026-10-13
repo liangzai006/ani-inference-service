@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	acceleratorv1 "github.com/zhangzhe-ctrl/ani-accelerator-service/api/gen/go/accelerator/v1"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/gpu"
+	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/test/bufconn"

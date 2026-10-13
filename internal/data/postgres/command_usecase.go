@@ -10,8 +10,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
-	inferencev1 "github.com/zhangzhe-ctrl/ani-inference-service/api/inference/v1"
-	inferencebiz "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/inference"
+	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
+	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
 )
 
 // CommandUseCase durably accepts lifecycle commands. Runtime changes happen

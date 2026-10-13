@@ -18,10 +18,14 @@ helm template ani-inference-config "$repo_root/charts/ani-inference-config" \
 test -s "$tmp_dir/inference.yaml"
 test -s "$tmp_dir/config.yaml"
 grep -q '^kind: Certificate$' "$tmp_dir/inference.yaml"
+grep -q 'ANI_SERVER_TLS_CA_FILE' "$tmp_dir/inference.yaml"
+grep -q 'ani-inference-server-tls' "$tmp_dir/inference.yaml"
 grep -q 'CREATE TABLE IF NOT EXISTS public.inference_schema_migrations' "$tmp_dir/inference.yaml"
 grep -q 'pg_advisory_xact_lock' "$tmp_dir/inference.yaml"
 grep -q -- '--single-transaction' "$tmp_dir/inference.yaml"
 grep -q 'partial legacy inference schema' "$tmp_dir/inference.yaml"
+grep -q 'name: ani-inference-model-router' "$tmp_dir/inference.yaml"
+grep -q 'type: PathPrefix' "$tmp_dir/inference.yaml"
 if grep -Eq '^kind: (ClusterIssuer|Issuer)$' "$tmp_dir/inference.yaml"; then
   echo 'ani-inference must not create a certificate issuer' >&2
   exit 1

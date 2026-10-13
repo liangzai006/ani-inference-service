@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/data/kubernetes"
+	"github.com/liangzai006/ani-inference-service/internal/data/kubernetes"
 )
 
 // ErrRuntimeBindingCAS reports that the binding changed since the caller's

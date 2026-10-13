@@ -11,7 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/work"
+	"github.com/liangzai006/ani-inference-service/internal/biz/work"
 )
 
 // WorkStoreOptions controls durable lease and observation cadence.

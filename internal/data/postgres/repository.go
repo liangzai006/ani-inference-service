@@ -12,7 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
-	inferencebiz "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/inference"
+	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
 	"google.golang.org/protobuf/encoding/protojson"
 )
 

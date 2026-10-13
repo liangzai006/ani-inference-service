@@ -12,9 +12,10 @@ TLS、IAM 和可信身份接入暂不作为业务门禁。
   `ANI_KUBERNETES_ENABLED` 开关；ServiceAccount、Role、RoleBinding、模型 PVC、Job、
   Deployment、endpoint Service 和 Gateway API HTTPRoute 均由运行时创建/维护。
 - `pass`：新集群使用 Higress 2.2.4。固定入口为
-  `POST http://192.168.102.68:30090/v1/completions`；model-router 从 JSON `model`
-  设置 Header，HTTPRoute 以模型 Header 精确分流，旧环境未操作。
-- `pass`：SmolLM2-135M CPU 模型真实返回 HTTP 200 和非空文本，未知模型返回 404，
+  `POST http://192.168.102.68:30090/v1/completions`；Inference Chart 提供路径兜底
+  HTTPRoute，让 model-router 从 JSON `model` 设置 Header 后重新计算路由，模型专属
+  HTTPRoute 再按 Header 精确分流，旧环境未操作。
+- `pass`：SmolLM2-135M CPU 模型真实返回 HTTP 200 和非空文本，未知模型返回 500，
   streaming 返回 SSE；Higress AI statistics 已记录模型、token、耗时和流式首 token
   指标，Prometheus gateway target 为 `up`。
 - `pass`：按模型的本地请求保护限流已验证：临时设置 1 RPS 时四个并发请求得到

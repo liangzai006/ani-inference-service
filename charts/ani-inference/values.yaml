@@ -62,6 +62,13 @@ higress:
   gatewayNamespace: higress-system
   gatewayName: ani-higress
   pathPrefix: /v1/completions
+  # A path-only route gives the body model-router plugin an initial route. The
+  # plugin extracts `model`, adds x-higress-llm-model, and Higress recalculates
+  # the route to the model-specific HTTPRoute published by Inference. With no
+  # backendRefs, unknown models are rejected by the gateway instead of falling
+  # through to an arbitrary model.
+  modelRouterBootstrapRoute:
+    enabled: true
   rateLimitNamespace: higress-system
   rateLimitPlugin: ani-request-rate-limit
   rbac:
@@ -86,6 +93,24 @@ service:
   type: ClusterIP
   grpcPort: 19090
   adminPort: 19091
+
+# Ordinary Inference gRPC is always TLS 1.3 with a verified client
+# certificate. This is the listener used by Governance for non-GPU lifecycle
+# commands and by Model for reference checks. The managed GPU receiver, when
+# enabled, has its own separate certificate contract.
+serverTLS:
+  existingSecret: ani-inference-server-tls
+  mountPath: /var/run/secrets/inference-server
+  caKey: ca.crt
+  certKey: tls.crt
+  keyKey: tls.key
+  certificate:
+    create: true
+    dnsName: ani-inference.ani.internal
+    issuer:
+      name: ani-internal
+      kind: ClusterIssuer
+      group: cert-manager.io
 
 resources:
   requests:

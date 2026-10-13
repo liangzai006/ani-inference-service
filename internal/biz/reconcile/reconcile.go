@@ -6,7 +6,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/work"
+	"github.com/liangzai006/ani-inference-service/internal/biz/work"
 )
 
 var ErrStaleGeneration = errors.New("stale generation")

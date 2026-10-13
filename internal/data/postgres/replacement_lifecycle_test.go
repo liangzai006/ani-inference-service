@@ -9,12 +9,12 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/audit"
-	inference "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/inference"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/publication"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/quota"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/resources"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/work"
+	"github.com/liangzai006/ani-inference-service/internal/biz/audit"
+	inference "github.com/liangzai006/ani-inference-service/internal/biz/inference"
+	"github.com/liangzai006/ani-inference-service/internal/biz/publication"
+	"github.com/liangzai006/ani-inference-service/internal/biz/quota"
+	"github.com/liangzai006/ani-inference-service/internal/biz/resources"
+	"github.com/liangzai006/ani-inference-service/internal/biz/work"
 )
 
 // The same persisted service is replaced, stopped, started and finally deleted.

@@ -1761,7 +1761,7 @@ const file_inference_v1_inference_proto_rawDesc = "" +
 	"\x17RestartInferenceService\x12#.inference.v1.ServiceCommandRequest\x1a\x1f.inference.v1.OperationResponse\x12f\n" +
 	"\x16DeleteInferenceService\x12+.inference.v1.DeleteInferenceServiceRequest\x1a\x1f.inference.v1.OperationResponse\x12J\n" +
 	"\fGetOperation\x12!.inference.v1.GetOperationRequest\x1a\x17.inference.v1.Operation\x12[\n" +
-	"\x0eListOperations\x12#.inference.v1.ListOperationsRequest\x1a$.inference.v1.ListOperationsResponseBMZKgithub.com/zhangzhe-ctrl/ani-inference-service/api/inference/v1;inferencev1b\x06proto3"
+	"\x0eListOperations\x12#.inference.v1.ListOperationsRequest\x1a$.inference.v1.ListOperationsResponseBKZIgithub.com/liangzai006/ani-inference-service/api/inference/v1;inferencev1b\x06proto3"
 
 var (
 	file_inference_v1_inference_proto_rawDescOnce sync.Once

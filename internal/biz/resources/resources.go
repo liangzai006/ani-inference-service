@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/gpu"
+	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
 	resource "k8s.io/apimachinery/pkg/api/resource"
 	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
 )

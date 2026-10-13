@@ -3,9 +3,9 @@ package postgres
 import (
 	"context"
 
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/admission"
-	inferencebiz "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/inference"
-	kube "github.com/zhangzhe-ctrl/ani-inference-service/internal/data/kubernetes"
+	"github.com/liangzai006/ani-inference-service/internal/biz/admission"
+	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
+	kube "github.com/liangzai006/ani-inference-service/internal/data/kubernetes"
 )
 
 // Admission validates the immutable Inference spec before an operation asks

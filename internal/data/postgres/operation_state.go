@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/inference"
+	"github.com/liangzai006/ani-inference-service/internal/biz/inference"
 )
 
 // ErrOperationCAS means the operation was no longer at the expected

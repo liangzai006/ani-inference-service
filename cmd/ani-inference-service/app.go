@@ -12,12 +12,12 @@ import (
 	kratosgrpc "github.com/go-kratos/kratos/v3/transport/grpc"
 	kratoshttp "github.com/go-kratos/kratos/v3/transport/http"
 
-	inferencev1 "github.com/zhangzhe-ctrl/ani-inference-service/api/inference/v1"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/gpu"
-	inferencebiz "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/inference"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/work"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/server"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/service"
+	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
+	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
+	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
+	"github.com/liangzai006/ani-inference-service/internal/biz/work"
+	"github.com/liangzai006/ani-inference-service/internal/server"
+	"github.com/liangzai006/ani-inference-service/internal/service"
 )
 
 func buildAppWithAllDependenciesAndBackground(bc *inferencev1.Bootstrap, logger *slog.Logger, create service.CreateUseCase, read inferencebiz.ReadUseCase, command inferencebiz.CommandUseCase, update inferencebiz.UpdateUseCase, background ...kratosTransport.Server) (*kratos.App, error) {
@@ -56,7 +56,11 @@ func buildAppWithAllDependenciesAndManagedGPU(bc *inferencev1.Bootstrap, logger 
 	}
 	owner := service.NewInferenceServerWithAll(create, read, command, update)
 	owner.SetManagedGPURefundReporter(refund)
-	grpcServer := server.NewGRPCServer(bc.Server.Grpc, middlewares...)
+	grpcServer, err := configuredInferenceGRPCServer(bc.Server.Grpc, middlewares...)
+	if err != nil {
+		_ = observability.Shutdown(context.Background())
+		return nil, err
+	}
 	inferencev1.RegisterInferenceServiceManagerServer(grpcServer, owner)
 	managedServer, err := configuredGovernanceGRPCServer(bc.Server.Grpc, bc.GetManagedGpu(), owner, middlewares...)
 	if err != nil {

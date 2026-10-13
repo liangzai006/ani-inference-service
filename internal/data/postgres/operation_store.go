@@ -16,14 +16,14 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/audit"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/gpu"
-	inferencebiz "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/inference"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/publication"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/quota"
-	bizreconcile "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/reconcile"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/resources"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/work"
+	"github.com/liangzai006/ani-inference-service/internal/biz/audit"
+	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
+	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
+	"github.com/liangzai006/ani-inference-service/internal/biz/publication"
+	"github.com/liangzai006/ani-inference-service/internal/biz/quota"
+	bizreconcile "github.com/liangzai006/ani-inference-service/internal/biz/reconcile"
+	"github.com/liangzai006/ani-inference-service/internal/biz/resources"
+	"github.com/liangzai006/ani-inference-service/internal/biz/work"
 )
 
 type OperationStore struct{ pool *pgxpool.Pool }

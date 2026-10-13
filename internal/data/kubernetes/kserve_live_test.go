@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	inferencebiz "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/inference"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/publication"
+	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
+	"github.com/liangzai006/ani-inference-service/internal/biz/publication"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -32,6 +32,10 @@ func TestKServeLiveLifecycle(t *testing.T) {
 	contextName, expectedServer := os.Getenv("ANI_KSERVE_LIVE_CONTEXT"), os.Getenv("ANI_KSERVE_LIVE_SERVER")
 	if contextName == "" || expectedServer == "" || os.Getenv("ANI_KSERVE_LIVE_GATEWAY_URL") == "" {
 		t.Fatal("live test requires context, expected API server and gateway URL")
+	}
+	apiKey := os.Getenv("ANI_HIGRESS_API_KEY")
+	if apiKey == "" {
+		t.Fatal("live test requires ANI_HIGRESS_API_KEY for the authenticated inference gateway")
 	}
 	gatewayURL, err := url.Parse(os.Getenv("ANI_KSERVE_LIVE_GATEWAY_URL"))
 	if err != nil || gatewayURL.Host == "" || (gatewayURL.Path != "" && gatewayURL.Path != "/") {
@@ -152,9 +156,9 @@ func TestKServeLiveLifecycle(t *testing.T) {
 			t.Fatal(err)
 		}
 		req.Header.Set("Content-Type", "application/json")
-		// The current Gateway API publication contract uses an exact model header.
-		// The JSON model remains the vLLM request identity as well.
-		req.Header.Set("x-higress-llm-model", spec.ServedModelName)
+		// Only the JSON body selects the model, exactly as a public client does.
+		// Sending the internal routing header would hide a broken model-router.
+		req.Header.Set("x-api-key", apiKey)
 		response, err := (&http.Client{Timeout: time.Minute}).Do(req)
 		if err != nil {
 			t.Fatal(err)
@@ -184,7 +188,7 @@ func TestKServeLiveLifecycle(t *testing.T) {
 	if completion.Model != spec.ServedModelName || len(completion.Choices) == 0 || completion.Choices[0].Text == "" {
 		t.Fatalf("unexpected completion: %+v", completion)
 	}
-	t.Logf("Higress model-header routing and completion passed: model=%s", completion.Model)
+	t.Logf("Higress body-model routing and completion passed: model=%s", completion.Model)
 	if err := publisher.Withdraw(ctx, pub); err != nil {
 		t.Fatal(err)
 	}

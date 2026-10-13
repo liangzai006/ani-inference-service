@@ -9,7 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	inferencebiz "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/inference"
+	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
 )
 
 func TestOperationStepCASIntegration(t *testing.T) {

@@ -3,9 +3,9 @@ package inference
 import (
 	"context"
 
-	inferencev1 "github.com/zhangzhe-ctrl/ani-inference-service/api/inference/v1"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/gpu"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/resources"
+	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
+	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
+	"github.com/liangzai006/ani-inference-service/internal/biz/resources"
 )
 
 type UpdateInput struct {

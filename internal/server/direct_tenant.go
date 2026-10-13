@@ -8,7 +8,7 @@ import (
 	kratosmetadata "github.com/go-kratos/kratos/v3/metadata"
 	"github.com/go-kratos/kratos/v3/middleware"
 	"github.com/go-kratos/kratos/v3/transport"
-	inferenceservice "github.com/zhangzhe-ctrl/ani-inference-service/internal/service"
+	inferenceservice "github.com/liangzai006/ani-inference-service/internal/service"
 	"google.golang.org/grpc/codes"
 	grpcmetadata "google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"

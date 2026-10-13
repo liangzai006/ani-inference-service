@@ -11,11 +11,11 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	inference "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/inference"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/publication"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/quota"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/resources"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/work"
+	inference "github.com/liangzai006/ani-inference-service/internal/biz/inference"
+	"github.com/liangzai006/ani-inference-service/internal/biz/publication"
+	"github.com/liangzai006/ani-inference-service/internal/biz/quota"
+	"github.com/liangzai006/ani-inference-service/internal/biz/resources"
+	"github.com/liangzai006/ani-inference-service/internal/biz/work"
 )
 
 // PostgreSQL and the application/worker/store are real here. Only external

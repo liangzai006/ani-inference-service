@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	modelv1 "github.com/zhangzhe-ctrl/ani-inference-service/api/model/v1"
-	inference "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/inference"
-	kube "github.com/zhangzhe-ctrl/ani-inference-service/internal/data/kubernetes"
+	modelv1 "github.com/liangzai006/ani-inference-service/api/model/v1"
+	inference "github.com/liangzai006/ani-inference-service/internal/biz/inference"
+	kube "github.com/liangzai006/ani-inference-service/internal/data/kubernetes"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -68,6 +68,9 @@ func TestMaterializerRequiresVerifiedJobBeforeReady(t *testing.T) {
 	if err = kc.Get(ctx, client.ObjectKey{Namespace: spec.Namespace, Name: kube.ModelClaimName(spec)}, claim); err != nil {
 		t.Fatal(err)
 	}
+	if len(claim.Spec.AccessModes) != 1 || claim.Spec.AccessModes[0] != corev1.ReadWriteMany {
+		t.Fatalf("shared storage access modes = %v, want ReadWriteMany", claim.Spec.AccessModes)
+	}
 	claim.Status.Phase = corev1.ClaimBound
 	if err = kc.Status().Update(ctx, claim); err != nil {
 		t.Fatal(err)
@@ -106,6 +109,30 @@ func TestMaterializerRequiresVerifiedJobBeforeReady(t *testing.T) {
 		t.Fatal("cross tenant accepted")
 	}
 	_ = client.ObjectKey{}
+}
+
+func TestMaterializerUsesReadWriteOnceForLocalPath(t *testing.T) {
+	ctx := context.Background()
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	_ = batchv1.AddToScheme(scheme)
+	kc := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&batchv1.Job{}).Build()
+	v := readyVersion()
+	v.StoragePath = "tenant/model.tar"
+	api := &modelAPIFake{version: v, download: &modelv1.GetModelDownloadURLResponse{DownloadUrl: "http://storage/private", StoragePath: v.StoragePath, ExpiresAt: timestamppb.New(time.Now().Add(time.Hour))}}
+	spec := kube.RuntimeSpec{TenantID: "tenant", ServiceID: "local-path-service", Namespace: "ani-model-inference-test", Generation: 1, ModelVersionID: v.Id, ArtifactProvider: "model", ArtifactRef: v.StoragePath, ArtifactSHA256: v.ChecksumSha256, RuntimeMode: "deployment"}
+	m := &Materializer{Catalog: NewClient(api), Source: materializerSource{kube.DesiredRuntime{RuntimeSpec: spec}}, Client: kc, Reader: kc, Namespace: spec.Namespace, StorageClass: "local-path", Image: "image@sha256:fixed"}
+	op := inference.OperationContext{TenantID: spec.TenantID, ServiceID: spec.ServiceID, TargetGeneration: 1, ID: "local-path-operation", LeaseToken: "lease"}
+	if _, err := m.EnsureModel(ctx, op); err != nil {
+		t.Fatal(err)
+	}
+	claim := &corev1.PersistentVolumeClaim{}
+	if err := kc.Get(ctx, client.ObjectKey{Namespace: spec.Namespace, Name: kube.ModelClaimName(spec)}, claim); err != nil {
+		t.Fatal(err)
+	}
+	if len(claim.Spec.AccessModes) != 1 || claim.Spec.AccessModes[0] != corev1.ReadWriteOnce {
+		t.Fatalf("local-path access modes = %v, want ReadWriteOnce", claim.Spec.AccessModes)
+	}
 }
 
 func TestMaterializerRejectsUnknownArtifactSize(t *testing.T) {

@@ -24,17 +24,17 @@ import (
 	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	ctrlmanager "sigs.k8s.io/controller-runtime/pkg/manager"
 
-	inferencev1 "github.com/zhangzhe-ctrl/ani-inference-service/api/inference/v1"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/gpu"
-	inferencebiz "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/inference"
-	bizreconcile "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/reconcile"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/work"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/data/accelerator"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/data/kubernetes"
-	modeldata "github.com/zhangzhe-ctrl/ani-inference-service/internal/data/model"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/data/postgres"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/server"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/service"
+	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
+	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
+	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
+	bizreconcile "github.com/liangzai006/ani-inference-service/internal/biz/reconcile"
+	"github.com/liangzai006/ani-inference-service/internal/biz/work"
+	"github.com/liangzai006/ani-inference-service/internal/data/accelerator"
+	"github.com/liangzai006/ani-inference-service/internal/data/kubernetes"
+	modeldata "github.com/liangzai006/ani-inference-service/internal/data/model"
+	"github.com/liangzai006/ani-inference-service/internal/data/postgres"
+	"github.com/liangzai006/ani-inference-service/internal/server"
+	"github.com/liangzai006/ani-inference-service/internal/service"
 )
 
 // Name and Version can be overridden with -ldflags at build time.

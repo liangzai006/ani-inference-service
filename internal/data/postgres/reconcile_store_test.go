@@ -9,8 +9,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	inferencebiz "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/inference"
-	bizreconcile "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/reconcile"
+	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
+	bizreconcile "github.com/liangzai006/ani-inference-service/internal/biz/reconcile"
 )
 
 func TestReconcileStoreObservationRequiresCurrentLease(t *testing.T) {

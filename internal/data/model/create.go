@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	inferencev1 "github.com/zhangzhe-ctrl/ani-inference-service/api/inference/v1"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/inference"
+	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
+	"github.com/liangzai006/ani-inference-service/internal/biz/inference"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )

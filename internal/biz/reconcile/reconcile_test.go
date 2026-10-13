@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/work"
+	"github.com/liangzai006/ani-inference-service/internal/biz/work"
 )
 
 type fakeRepository struct {

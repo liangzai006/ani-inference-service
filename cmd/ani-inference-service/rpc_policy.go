@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 
 	"github.com/go-kratos/kratos/v3/middleware"
@@ -12,8 +13,9 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// RPCPolicyMiddleware enforces method-level authorization based on client certificate identity.
-// This implements deny-by-default: only explicitly allowed (client identity, RPC method) pairs are permitted.
+// RPCPolicyMiddleware enforces method-level authorization based on the
+// verified TLS client certificate identity. This implements deny-by-default:
+// only explicitly allowed (client identity, RPC method) pairs are permitted.
 func RPCPolicyMiddleware(policy RPCPolicy) middleware.Middleware {
 	return func(next middleware.Handler) middleware.Handler {
 		return func(ctx context.Context, req interface{}) (interface{}, error) {
@@ -56,6 +58,12 @@ func extractClientIdentity(ctx context.Context) (string, error) {
 	if len(tlsInfo.State.PeerCertificates) == 0 {
 		return "", fmt.Errorf("no client certificate")
 	}
+	if tlsInfo.State.Version < tls.VersionTLS13 {
+		return "", fmt.Errorf("client TLS version must be 1.3 or newer")
+	}
+	if len(tlsInfo.State.VerifiedChains) == 0 {
+		return "", fmt.Errorf("client certificate is not verified")
+	}
 
 	cert := tlsInfo.State.PeerCertificates[0]
 	if len(cert.DNSNames) != 1 {
@@ -92,7 +100,11 @@ func InferenceServicePolicy() RPCPolicy {
 		// Governance Service can create and delete inference services (managed GPU commands)
 		"ani-governance.ani.internal": {
 			"/inference.v1.InferenceServiceManager/CreateInferenceService",
+			"/inference.v1.InferenceServiceManager/GetInferenceService",
+			"/inference.v1.InferenceServiceManager/ListInferenceServices",
 			"/inference.v1.InferenceServiceManager/DeleteInferenceService",
+			"/inference.v1.InferenceServiceManager/GetOperation",
+			"/inference.v1.InferenceServiceManager/ListOperations",
 		},
 		// Model Service can check if model versions are still in use
 		"ani-model.ani.internal": {

@@ -8,9 +8,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/gpu"
-	inferencebiz "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/inference"
-	bizreconcile "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/reconcile"
+	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
+	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
+	bizreconcile "github.com/liangzai006/ani-inference-service/internal/biz/reconcile"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"

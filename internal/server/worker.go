@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/work"
+	"github.com/liangzai006/ani-inference-service/internal/biz/work"
 )
 
 // LoopServer adapts the durable PostgreSQL-backed work loop to the Kratos
