@@ -8,8 +8,8 @@ import (
 	"os"
 	"strings"
 
-	modelv1 "github.com/zhangzhe-ctrl/ani-inference-service/api/model/v1"
-	modeldata "github.com/zhangzhe-ctrl/ani-inference-service/internal/data/model"
+	modelv1 "github.com/liangzai006/ani-inference-service/api/model/v1"
+	modeldata "github.com/liangzai006/ani-inference-service/internal/data/model"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )

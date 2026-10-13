@@ -8,8 +8,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	crdv1 "github.com/zhangzhe-ctrl/ani-inference-service/api/inference/crd/v1"
-	kube "github.com/zhangzhe-ctrl/ani-inference-service/internal/data/kubernetes"
+	crdv1 "github.com/liangzai006/ani-inference-service/api/inference/crd/v1"
+	kube "github.com/liangzai006/ani-inference-service/internal/data/kubernetes"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"

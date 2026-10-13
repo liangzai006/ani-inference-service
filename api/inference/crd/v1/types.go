@@ -47,10 +47,9 @@ type ModelReference struct {
 }
 
 type EngineSpec struct {
-	Type    string   `json:"type,omitempty"`
-	Image   string   `json:"image,omitempty"`
-	Command []string `json:"command,omitempty"`
-	Args    []string `json:"args,omitempty"`
+	Type    string `json:"type,omitempty"`
+	Image   string `json:"image,omitempty"`
+	Command string `json:"command,omitempty"`
 }
 
 type InferenceServiceStatus struct {

@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/resources"
+	"github.com/liangzai006/ani-inference-service/internal/biz/resources"
 )
 
 // ErrReservationNotFound is the only lookup error that permits a new

@@ -1,0 +1,6 @@
+apiVersion: v2
+name: ani-inference-config
+description: Empty KServe LLMI configuration slots owned by ANI
+type: application
+version: 0.1.0
+appVersion: "1"

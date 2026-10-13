@@ -10,8 +10,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
-	bizreconcile "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/reconcile"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/work"
+	bizreconcile "github.com/liangzai006/ani-inference-service/internal/biz/reconcile"
+	"github.com/liangzai006/ani-inference-service/internal/biz/work"
 )
 
 // ReconcileStore is the PostgreSQL side of the infrastructure-neutral

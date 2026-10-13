@@ -1,0 +1,158 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ani-inference.fullname" . }}-service
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ani-inference.labels" . | nindent 4 }}
+    app.kubernetes.io/component: runtime
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "ani-inference.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ani-inference.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: runtime
+    spec:
+      serviceAccountName: {{ include "ani-inference.fullname" . }}
+      automountServiceAccountToken: true
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: inference
+          image: {{ include "ani-inference.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: ANI_SERVER_GRPC_ADDR
+              value: {{ printf "0.0.0.0:%d" (int .Values.service.grpcPort) | quote }}
+            - name: ANI_SERVER_ADMIN_ADDR
+              value: {{ printf "0.0.0.0:%d" (int .Values.service.adminPort) | quote }}
+            - name: ANI_SERVER_TLS_CA_FILE
+              value: {{ printf "%s/%s" (trim .Values.serverTLS.mountPath) (trim .Values.serverTLS.caKey) | quote }}
+            - name: ANI_SERVER_TLS_CERT_FILE
+              value: {{ printf "%s/%s" (trim .Values.serverTLS.mountPath) (trim .Values.serverTLS.certKey) | quote }}
+            - name: ANI_SERVER_TLS_KEY_FILE
+              value: {{ printf "%s/%s" (trim .Values.serverTLS.mountPath) (trim .Values.serverTLS.keyKey) | quote }}
+            - name: ANI_DATABASE_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "database.existingSecret is required" .Values.database.existingSecret }}
+                  key: {{ required "database.secretKey is required" .Values.database.secretKey }}
+            - name: ANI_INFERENCE_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: ANI_HIGRESS_GATEWAY_NAMESPACE
+              value: {{ .Values.higress.gatewayNamespace | quote }}
+            - name: ANI_HIGRESS_GATEWAY_NAME
+              value: {{ .Values.higress.gatewayName | quote }}
+            - name: ANI_HIGRESS_ROUTE_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: ANI_HIGRESS_PUBLIC_BASE_URL
+              value: {{ required "higress.publicBaseURL is required" (trim .Values.higress.publicBaseURL) | quote }}
+            - name: ANI_HIGRESS_PATH_PREFIX
+              value: {{ .Values.higress.pathPrefix | quote }}
+            - name: ANI_HIGRESS_RATE_LIMIT_NAMESPACE
+              value: {{ .Values.higress.rateLimitNamespace | quote }}
+            - name: ANI_HIGRESS_RATE_LIMIT_PLUGIN
+              value: {{ .Values.higress.rateLimitPlugin | quote }}
+            - name: ANI_MODEL_GRPC_ADDR
+              value: {{ required "model.grpcAddress is required" (trim .Values.model.grpcAddress) | quote }}
+            - name: ANI_MODEL_CA_FILE
+              value: {{ printf "%s/%s" (trim .Values.model.tls.mountPath) (trim .Values.model.tls.caKey) | quote }}
+            - name: ANI_MODEL_CERT_FILE
+              value: {{ printf "%s/%s" (trim .Values.model.tls.mountPath) (trim .Values.model.tls.certKey) | quote }}
+            - name: ANI_MODEL_KEY_FILE
+              value: {{ printf "%s/%s" (trim .Values.model.tls.mountPath) (trim .Values.model.tls.keyKey) | quote }}
+            - name: ANI_MODEL_SERVER_NAME
+              value: {{ required "model.tls.serverName is required" (trim .Values.model.tls.serverName) | quote }}
+            - name: ANI_MODEL_MATERIALIZER_IMAGE
+              value: {{ required "model.materializerImage is required" .Values.model.materializerImage | quote }}
+            - name: ANI_MODEL_STORAGE_CLASS
+              value: {{ .Values.model.storageClass | quote }}
+            {{- if .Values.accelerator.enabled }}
+            - name: ANI_ACCELERATOR_GRPC_ADDR
+              value: {{ required "accelerator.grpcAddress is required when accelerator.enabled is true" .Values.accelerator.grpcAddress | quote }}
+            - name: ANI_ACCELERATOR_CLUSTER_ID
+              value: {{ .Values.accelerator.clusterID | quote }}
+            - name: ANI_ACCELERATOR_CA_FILE
+              value: {{ .Values.accelerator.tls.caFile | quote }}
+            - name: ANI_ACCELERATOR_CERT_FILE
+              value: {{ .Values.accelerator.tls.certFile | quote }}
+            - name: ANI_ACCELERATOR_KEY_FILE
+              value: {{ .Values.accelerator.tls.keyFile | quote }}
+            - name: ANI_ACCELERATOR_SERVER_NAME
+              value: {{ required "accelerator.serverName is required when accelerator.enabled is true" .Values.accelerator.serverName | quote }}
+            {{- end }}
+          ports:
+            - name: grpc
+              containerPort: {{ .Values.service.grpcPort }}
+            - name: admin
+              containerPort: {{ .Values.service.adminPort }}
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: admin
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: admin
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: server-tls
+              mountPath: {{ .Values.serverTLS.mountPath | quote }}
+              readOnly: true
+            - name: model-tls
+              mountPath: {{ .Values.model.tls.mountPath | quote }}
+              readOnly: true
+            {{- if .Values.accelerator.enabled }}
+            - name: accelerator-tls
+              mountPath: /var/run/secrets/accelerator
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: server-tls
+          secret:
+            secretName: {{ required "serverTLS.existingSecret is required" (trim .Values.serverTLS.existingSecret) }}
+        - name: model-tls
+          secret:
+            secretName: {{ required "model.tls.existingSecret is required" (trim .Values.model.tls.existingSecret) }}
+        {{- if .Values.accelerator.enabled }}
+        - name: accelerator-tls
+          secret:
+            secretName: {{ required "accelerator.tls.secretName is required when accelerator.enabled is true" .Values.accelerator.tls.secretName }}
+        {{- end }}

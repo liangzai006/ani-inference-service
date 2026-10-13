@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	modelv1 "github.com/zhangzhe-ctrl/ani-inference-service/api/model/v1"
+	modelv1 "github.com/liangzai006/ani-inference-service/api/model/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -30,7 +30,7 @@ func (f *modelAPIFake) GetModelDownloadURL(context.Context, *modelv1.GetModelDow
 	return f.download, f.err
 }
 func readyVersion() *modelv1.ModelVersion {
-	return &modelv1.ModelVersion{Id: "version-id", ModelId: "external-model", Status: "ready", StoragePath: "tenant/model", ChecksumSha256: strings.Repeat("a", 64), SizeBytes: 3 << 30, EngineType: "vllm", StartupCommand: "vllm", StartupArgs: []string{"serve"}}
+	return &modelv1.ModelVersion{Id: "version-id", ModelId: "external-model", Status: "ready", StoragePath: "tenant/model", ChecksumSha256: strings.Repeat("a", 64), SizeBytes: 3 << 30, EngineType: "vllm", EngineImage: "engine:v1", StartupCommand: "vllm serve"}
 }
 func TestGetReadyVersionMapsArtifactSnapshotOnly(t *testing.T) {
 	api := &modelAPIFake{version: readyVersion()}

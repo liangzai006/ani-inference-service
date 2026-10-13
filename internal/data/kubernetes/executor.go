@@ -10,9 +10,9 @@ import (
 	"fmt"
 	"strconv"
 
-	crdv1 "github.com/zhangzhe-ctrl/ani-inference-service/api/inference/crd/v1"
-	bizinference "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/inference"
-	bizreconcile "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/reconcile"
+	crdv1 "github.com/liangzai006/ani-inference-service/api/inference/crd/v1"
+	bizinference "github.com/liangzai006/ani-inference-service/internal/biz/inference"
+	bizreconcile "github.com/liangzai006/ani-inference-service/internal/biz/reconcile"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -440,7 +440,7 @@ func (e *RuntimeExecutor) applyCR(ctx context.Context, spec RuntimeSpec, desired
 			ModelRef:        &crdv1.ModelReference{VersionID: spec.ModelVersionID, ArtifactDigest: spec.ArtifactSHA256},
 			ServedModelName: spec.ServedModelName, Resource: corev1.ResourceRequirements{Requests: requests, Limits: limits},
 			Replicas: spec.Replicas, RuntimeMode: spec.RuntimeMode, WorkerReplicas: spec.WorkerReplicas,
-			Engine: &crdv1.EngineSpec{Type: spec.EngineRuntime, Image: spec.Image, Command: append([]string(nil), spec.CommandArgv...)},
+			Engine: &crdv1.EngineSpec{Type: spec.EngineRuntime, Image: spec.Image, Command: spec.EngineCommand},
 		},
 	}
 	if endpoint := endpointForCR(spec); endpoint != nil {

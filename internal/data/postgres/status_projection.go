@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	kube "github.com/zhangzhe-ctrl/ani-inference-service/internal/data/kubernetes"
+	kube "github.com/liangzai006/ani-inference-service/internal/data/kubernetes"
 )
 
 // StatusProjectionSource is the read-only PostgreSQL adapter used by the CRD

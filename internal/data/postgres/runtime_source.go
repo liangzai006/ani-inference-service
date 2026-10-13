@@ -12,9 +12,9 @@ import (
 	"strconv"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/gpu"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/resources"
-	kube "github.com/zhangzhe-ctrl/ani-inference-service/internal/data/kubernetes"
+	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
+	"github.com/liangzai006/ani-inference-service/internal/biz/resources"
+	kube "github.com/liangzai006/ani-inference-service/internal/data/kubernetes"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 )
@@ -79,11 +79,9 @@ func (s *RuntimeSource) CurrentRuntime(ctx context.Context, tenantID, serviceID 
 	if err != nil {
 		return kube.DesiredRuntime{}, err
 	}
-	var command []string
-	if len(row.CommandArgv) != 0 {
-		if err := json.Unmarshal(row.CommandArgv, &command); err != nil {
-			return kube.DesiredRuntime{}, fmt.Errorf("decode command argv: %w", err)
-		}
+	command, err := unmarshalEngineSpec(row.CommandArgv)
+	if err != nil {
+		return kube.DesiredRuntime{}, err
 	}
 	var resourceSpec resources.Spec
 	if len(row.Resources) != 0 {
@@ -190,7 +188,7 @@ func (s *RuntimeSource) CurrentRuntime(ctx context.Context, tenantID, serviceID 
 		RuntimeSpec: kube.RuntimeSpec{
 			TenantID: tenantID, ServiceID: serviceID, Name: aggregate.Name, RuntimeProvider: provider,
 			Namespace: s.Namespace, Image: row.ImageRef, ModelVersionID: row.ModelVersionID.String(), ArtifactProvider: row.ArtifactProvider, ArtifactRef: row.ArtifactRef, ArtifactSHA256: row.ArtifactSha256, ServedModelName: row.ServedModelName, EngineRuntime: row.EngineRuntime, Generation: generation,
-			CommandArgv: command, Resources: normalized, Replicas: row.Replicas,
+			EngineCommand: command, Resources: normalized, Replicas: row.Replicas,
 			WorkerReplicas: workers, RuntimeMode: mode,
 			GPUPlan: gpuPlan, ManagedGPU: managed.Managed,
 			Endpoint: endpoint,

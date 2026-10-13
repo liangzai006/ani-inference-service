@@ -3,3 +3,9 @@
 /tmp/
 *.local
 .DS_Store
+
+# Local service binary
+.build/
+
+# Pinned local security and API generation tools
+.tools/

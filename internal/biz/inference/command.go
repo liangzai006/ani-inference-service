@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	inferencev1 "github.com/zhangzhe-ctrl/ani-inference-service/api/inference/v1"
+	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
 )
 
 var (

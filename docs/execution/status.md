@@ -11,10 +11,11 @@ TLS、IAM 和可信身份接入暂不作为业务门禁。
 - `pass`：Inference 进程默认启动 Kubernetes runtime，不再使用
   `ANI_KUBERNETES_ENABLED` 开关；ServiceAccount、Role、RoleBinding、模型 PVC、Job、
   Deployment、endpoint Service 和 Gateway API HTTPRoute 均由运行时创建/维护。
-- `pass`：新集群已用 Higress 2.2.4 完全替换 APISIX。固定入口为
-  `POST http://192.168.102.68:30090/v1/completions`；model-router 从 JSON `model`
-  设置 Header，HTTPRoute 以模型 Header 精确分流，旧环境未操作。
-- `pass`：SmolLM2-135M CPU 模型真实返回 HTTP 200 和非空文本，未知模型返回 404，
+- `pass`：新集群使用 Higress 2.2.4。固定入口为
+  `POST http://192.168.102.68:30090/v1/completions`；Inference Chart 提供路径兜底
+  HTTPRoute，让 model-router 从 JSON `model` 设置 Header 后重新计算路由，模型专属
+  HTTPRoute 再按 Header 精确分流，旧环境未操作。
+- `pass`：SmolLM2-135M CPU 模型真实返回 HTTP 200 和非空文本，未知模型返回 500，
   streaming 返回 SSE；Higress AI statistics 已记录模型、token、耗时和流式首 token
   指标，Prometheus gateway target 为 `up`。
 - `pass`：按模型的本地请求保护限流已验证：临时设置 1 RPS 时四个并发请求得到
@@ -290,8 +291,7 @@ LeaderWorkerSet，官方 LWS v0.10.0 controller 成功创建 StatefulSet，3 个
 `HTTPRoutePublisher`。当前实现引用 Higress Gateway，按固定 `/v1/completions` 路径和
 `x-higress-llm-model` 精确 Header 为每个模型分流；withdraw 使用 UID/resourceVersion
 前置条件删除并等待路由消失；published 只在目标 Gateway parent 同时报告
-`Accepted=True`、`ResolvedRefs=True` 后确认。旧 APISIX 说明仅属于当日历史设计，不是新集群
-当前运行时配置。
+`Accepted=True`、`ResolvedRefs=True` 后确认。
 
 Model 物化组合接线已补齐：配置 `ANI_MODEL_GRPC_ADDR` 和 fetcher image 后，Kubernetes
 runner 会调用 Model 的 `GetModelVersion`/`GetModelDownloadURL`，创建带校验摘要的 RWX

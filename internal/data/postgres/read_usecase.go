@@ -13,9 +13,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	inferencev1 "github.com/zhangzhe-ctrl/ani-inference-service/api/inference/v1"
-	gpubiz "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/gpu"
-	inferencebiz "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/inference"
+	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
+	gpubiz "github.com/liangzai006/ani-inference-service/internal/biz/gpu"
+	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -274,11 +274,9 @@ func applySpecProjection(result *inferencev1.InferenceService, modelVersionID, p
 	result.ModelVersionId = modelVersionID
 	result.ServedModelName = servedModel
 	result.ModelArtifact = &inferencev1.ModelArtifact{Provider: provider, Reference: reference, Sha256: sha256}
-	command := []string{}
-	if len(commandJSON) != 0 {
-		if err := json.Unmarshal(commandJSON, &command); err != nil {
-			return fmt.Errorf("decode command argv: %w", err)
-		}
+	command, err := unmarshalEngineSpec(commandJSON)
+	if err != nil {
+		return err
 	}
 	result.Engine = &inferencev1.EngineSpec{Type: engine, Image: image, Command: command}
 	return nil

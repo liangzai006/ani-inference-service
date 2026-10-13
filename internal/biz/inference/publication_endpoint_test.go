@@ -2,7 +2,7 @@ package inference
 
 import (
 	"context"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/publication"
+	"github.com/liangzai006/ani-inference-service/internal/biz/publication"
 	"testing"
 )
 

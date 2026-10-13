@@ -433,11 +433,12 @@ func (x *ModelArtifact) GetSha256() string {
 }
 
 type EngineSpec struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Type          string                 `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"`
-	Image         string                 `protobuf:"bytes,2,opt,name=image,proto3" json:"image,omitempty"`
-	Command       []string               `protobuf:"bytes,3,rep,name=command,proto3" json:"command,omitempty"`
-	Args          []string               `protobuf:"bytes,4,rep,name=args,proto3" json:"args,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Type  string                 `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"`
+	Image string                 `protobuf:"bytes,2,opt,name=image,proto3" json:"image,omitempty"`
+	// command is the complete shell command, preserved byte-for-byte until
+	// the Kubernetes adapter wraps it as ["/bin/sh", "-c"] plus one arg.
+	Command       string `protobuf:"bytes,5,opt,name=command,proto3" json:"command,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -486,18 +487,11 @@ func (x *EngineSpec) GetImage() string {
 	return ""
 }
 
-func (x *EngineSpec) GetCommand() []string {
+func (x *EngineSpec) GetCommand() string {
 	if x != nil {
 		return x.Command
 	}
-	return nil
-}
-
-func (x *EngineSpec) GetArgs() []string {
-	if x != nil {
-		return x.Args
-	}
-	return nil
+	return ""
 }
 
 type InferenceService struct {
@@ -1635,13 +1629,12 @@ const file_inference_v1_inference_proto_rawDesc = "" +
 	"\rModelArtifact\x12\x1a\n" +
 	"\bprovider\x18\x01 \x01(\tR\bprovider\x12\x1c\n" +
 	"\treference\x18\x02 \x01(\tR\treference\x12\x16\n" +
-	"\x06sha256\x18\x03 \x01(\tR\x06sha256\"d\n" +
+	"\x06sha256\x18\x03 \x01(\tR\x06sha256\"b\n" +
 	"\n" +
 	"EngineSpec\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12\x14\n" +
 	"\x05image\x18\x02 \x01(\tR\x05image\x12\x18\n" +
-	"\acommand\x18\x03 \x03(\tR\acommand\x12\x12\n" +
-	"\x04args\x18\x04 \x03(\tR\x04args\"\xbb\x05\n" +
+	"\acommand\x18\x05 \x01(\tR\acommandJ\x04\b\x03\x10\x04J\x04\b\x04\x10\x05R\x04args\"\xbb\x05\n" +
 	"\x10InferenceService\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12#\n" +
@@ -1768,7 +1761,7 @@ const file_inference_v1_inference_proto_rawDesc = "" +
 	"\x17RestartInferenceService\x12#.inference.v1.ServiceCommandRequest\x1a\x1f.inference.v1.OperationResponse\x12f\n" +
 	"\x16DeleteInferenceService\x12+.inference.v1.DeleteInferenceServiceRequest\x1a\x1f.inference.v1.OperationResponse\x12J\n" +
 	"\fGetOperation\x12!.inference.v1.GetOperationRequest\x1a\x17.inference.v1.Operation\x12[\n" +
-	"\x0eListOperations\x12#.inference.v1.ListOperationsRequest\x1a$.inference.v1.ListOperationsResponseBMZKgithub.com/zhangzhe-ctrl/ani-inference-service/api/inference/v1;inferencev1b\x06proto3"
+	"\x0eListOperations\x12#.inference.v1.ListOperationsRequest\x1a$.inference.v1.ListOperationsResponseBKZIgithub.com/liangzai006/ani-inference-service/api/inference/v1;inferencev1b\x06proto3"
 
 var (
 	file_inference_v1_inference_proto_rawDescOnce sync.Once

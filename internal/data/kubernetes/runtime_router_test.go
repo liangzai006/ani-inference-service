@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	inferencebiz "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/inference"
-	bizreconcile "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/reconcile"
+	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
+	bizreconcile "github.com/liangzai006/ani-inference-service/internal/biz/reconcile"
 )
 
 type routerRuntimeFake struct {

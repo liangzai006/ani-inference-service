@@ -1,0 +1,26 @@
+{{- if .Values.serverTLS.certificate.create }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ required "serverTLS.existingSecret is required" (trim .Values.serverTLS.existingSecret) }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ani-inference.labels" . | nindent 4 }}
+    app.kubernetes.io/component: zero-trust-server
+spec:
+  secretName: {{ required "serverTLS.existingSecret is required" (trim .Values.serverTLS.existingSecret) }}
+  dnsNames:
+    - {{ required "serverTLS.certificate.dnsName is required" (trim .Values.serverTLS.certificate.dnsName) | quote }}
+  usages:
+    - digital signature
+    - key encipherment
+    - server auth
+  issuerRef:
+    name: {{ required "serverTLS.issuer.name is required" (trim .Values.serverTLS.certificate.issuer.name) }}
+    kind: {{ required "serverTLS.issuer.kind is required" .Values.serverTLS.certificate.issuer.kind }}
+    group: {{ .Values.serverTLS.certificate.issuer.group }}
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+{{- end }}

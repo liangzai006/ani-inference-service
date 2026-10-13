@@ -8,9 +8,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/audit"
-	inferencebiz "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/inference"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/publication"
+	"github.com/liangzai006/ani-inference-service/internal/biz/audit"
+	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
+	"github.com/liangzai006/ani-inference-service/internal/biz/publication"
 )
 
 func TestOperationStoreLoadsLeaseFencedOperation(t *testing.T) {

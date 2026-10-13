@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	acceleratorv1 "github.com/zhangzhe-ctrl/ani-accelerator-service/api/gen/go/accelerator/v1"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/gpu"
+	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
 )
 
 func toProtoRequest(r *gpu.Request) *acceleratorv1.GpuRequest {

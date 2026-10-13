@@ -4,7 +4,7 @@ import (
 	"github.com/go-kratos/kratos/v3/middleware"
 	kratosgrpc "github.com/go-kratos/kratos/v3/transport/grpc"
 
-	conf "github.com/zhangzhe-ctrl/ani-inference-service/api/inference/v1"
+	conf "github.com/liangzai006/ani-inference-service/api/inference/v1"
 )
 
 func NewGRPCServer(c *conf.Server_GRPC, middlewares ...middleware.Middleware) *kratosgrpc.Server {

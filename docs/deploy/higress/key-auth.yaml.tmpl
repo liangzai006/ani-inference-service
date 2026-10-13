@@ -1,0 +1,24 @@
+apiVersion: extensions.higress.io/v1alpha1
+kind: WasmPlugin
+metadata:
+  name: ani-inference-key-auth
+  namespace: higress-system
+  labels:
+    ani.liangzai006.io/environment: new-cluster
+    ani.liangzai006.io/purpose: inference-authentication
+spec:
+  url: oci://docker.changqingyun.cn/mirror/plugins/key-auth:2.0.0
+  phase: AUTHN
+  priority: 310
+  failStrategy: FAIL_CLOSE
+  imagePullPolicy: IfNotPresent
+  defaultConfig:
+    # Require x-api-key for requests entering the Higress gateway.
+    global_auth: true
+    consumers:
+      - name: ani-inference-client
+        credential: "${ANI_HIGRESS_API_KEY}"
+    keys:
+      - x-api-key
+    in_query: false
+    in_header: true

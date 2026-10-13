@@ -7,16 +7,17 @@ import (
 	"time"
 
 	kratos "github.com/go-kratos/kratos/v3"
+	"github.com/go-kratos/kratos/v3/middleware"
 	kratosTransport "github.com/go-kratos/kratos/v3/transport"
 	kratosgrpc "github.com/go-kratos/kratos/v3/transport/grpc"
 	kratoshttp "github.com/go-kratos/kratos/v3/transport/http"
 
-	inferencev1 "github.com/zhangzhe-ctrl/ani-inference-service/api/inference/v1"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/gpu"
-	inferencebiz "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/inference"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/work"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/server"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/service"
+	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
+	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
+	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
+	"github.com/liangzai006/ani-inference-service/internal/biz/work"
+	"github.com/liangzai006/ani-inference-service/internal/server"
+	"github.com/liangzai006/ani-inference-service/internal/service"
 )
 
 func buildAppWithAllDependenciesAndBackground(bc *inferencev1.Bootstrap, logger *slog.Logger, create service.CreateUseCase, read inferencebiz.ReadUseCase, command inferencebiz.CommandUseCase, update inferencebiz.UpdateUseCase, background ...kratosTransport.Server) (*kratos.App, error) {
@@ -37,7 +38,12 @@ func buildAppWithAllDependenciesAndManagedGPU(bc *inferencev1.Bootstrap, logger 
 	if err != nil {
 		return nil, err
 	}
-	middlewares := observability.ServerMiddleware(logger)
+	// Keep the base middleware set for the admin HTTP server. Health, readiness,
+	// and metrics are intentionally probeable without a client certificate.
+	// The RPC identity policy below applies only to the gRPC business surface;
+	// putting it on the HTTP server makes Kubernetes probes return 401.
+	adminMiddlewares := observability.ServerMiddleware(logger)
+	middlewares := append([]middleware.Middleware(nil), adminMiddlewares...)
 
 	// Add RPC method authorization policy when mTLS is configured
 	// This enforces that only authorized services can call specific methods
@@ -50,7 +56,11 @@ func buildAppWithAllDependenciesAndManagedGPU(bc *inferencev1.Bootstrap, logger 
 	}
 	owner := service.NewInferenceServerWithAll(create, read, command, update)
 	owner.SetManagedGPURefundReporter(refund)
-	grpcServer := server.NewGRPCServer(bc.Server.Grpc, middlewares...)
+	grpcServer, err := configuredInferenceGRPCServer(bc.Server.Grpc, middlewares...)
+	if err != nil {
+		_ = observability.Shutdown(context.Background())
+		return nil, err
+	}
 	inferencev1.RegisterInferenceServiceManagerServer(grpcServer, owner)
 	managedServer, err := configuredGovernanceGRPCServer(bc.Server.Grpc, bc.GetManagedGpu(), owner, middlewares...)
 	if err != nil {
@@ -63,7 +73,7 @@ func buildAppWithAllDependenciesAndManagedGPU(bc *inferencev1.Bootstrap, logger 
 	}
 	referenceReader, _ := read.(inferencebiz.ModelReferenceReader)
 	inferencev1.RegisterModelReferenceServiceServer(grpcServer, service.NewModelReferenceServer(referenceReader))
-	adminServer := server.NewAdminServer(bc.Server.Admin, readiness, observability.Gatherer(), middlewares...)
+	adminServer := server.NewAdminServer(bc.Server.Admin, readiness, observability.Gatherer(), adminMiddlewares...)
 	return newApp(logger, grpcServer, adminServer, readiness, observability, bc.Server.ShutdownTimeout.AsDuration(), readyOnStart, background...), nil
 }
 

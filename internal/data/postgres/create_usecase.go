@@ -7,9 +7,9 @@ import (
 
 	"github.com/google/uuid"
 	integrationv1 "github.com/zhangzhe-ctrl/ani-accelerator-service/api/gen/go/accelerator/integration/v1"
-	inferencev1 "github.com/zhangzhe-ctrl/ani-inference-service/api/inference/v1"
-	gpubiz "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/gpu"
-	inferencebiz "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/inference"
+	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
+	gpubiz "github.com/liangzai006/ani-inference-service/internal/biz/gpu"
+	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
@@ -54,7 +54,7 @@ func (u *CreateUseCase) Create(ctx context.Context, in inferencebiz.CreateInput)
 	if gpuPlanDigest == "" && in.GPUPlan != nil {
 		gpuPlanDigest = in.GPUPlan.ResolutionDigest
 	}
-	commandJSON, err := json.Marshal(in.CommandArgv)
+	engineJSON, err := marshalEngineSpec(in.EngineCommand)
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +80,7 @@ func (u *CreateUseCase) Create(ctx context.Context, in inferencebiz.CreateInput)
 		TenantID: in.TenantID, Actor: in.Actor, ServiceID: serviceID.String(), SpecID: uuid.NewString(), OperationID: operationID.String(),
 		Name: in.Name, ModelVersionID: in.ModelVersionID, Resources: resourcesJSON,
 		ArtifactProvider: in.ArtifactProvider, ArtifactRef: in.ArtifactRef, ArtifactSHA256: in.ArtifactSHA256,
-		ImageRef: in.ImageRef, ServedModelName: in.ServedModelName, EngineRuntime: in.EngineRuntime, CommandArgv: commandJSON,
+		ImageRef: in.ImageRef, ServedModelName: in.ServedModelName, EngineRuntime: in.EngineRuntime, EngineJSON: engineJSON,
 		Replicas: in.Replicas, RequestHash: in.RequestHash, Method: "CreateInferenceService",
 		RuntimeMode: in.RuntimeMode, WorkerReplicas: in.WorkerReplicas, RuntimeProvider: in.RuntimeProvider,
 		GPURequest: gpuRequestJSON,
@@ -101,7 +101,7 @@ func (u *CreateUseCase) Create(ctx context.Context, in inferencebiz.CreateInput)
 }
 
 func createResponse(in inferencebiz.CreateInput, result CreateAggregateResult) *inferencev1.OperationResponse {
-	engine := &inferencev1.EngineSpec{Type: in.EngineRuntime, Image: in.ImageRef, Command: append([]string(nil), in.CommandArgv...)}
+	engine := &inferencev1.EngineSpec{Type: in.EngineRuntime, Image: in.ImageRef, Command: in.EngineCommand}
 	artifact := &inferencev1.ModelArtifact{Provider: in.ArtifactProvider, Reference: in.ArtifactRef, Sha256: in.ArtifactSHA256}
 	runtime := &inferencev1.RuntimeSpec{Mode: runtimeModeEnum(in.RuntimeMode), WorkerReplicas: in.WorkerReplicas, Provider: runtimeProviderEnum(in.RuntimeProvider)}
 	if in.Endpoint != nil {

@@ -162,7 +162,7 @@ SELECT s.tenant_id, sqlc.arg(id), s.service_id, sqlc.arg(target_generation), s.m
        CASE WHEN sqlc.arg(image_ref)::text <> '' THEN sqlc.arg(image_ref) ELSE s.image_ref END,
        CASE WHEN sqlc.arg(served_model_name)::text <> '' THEN sqlc.arg(served_model_name) ELSE s.served_model_name END,
        CASE WHEN sqlc.arg(engine_runtime)::text <> '' THEN sqlc.arg(engine_runtime) ELSE s.engine_runtime END,
-       CASE WHEN CASE WHEN jsonb_typeof(sqlc.arg(command_argv)::jsonb) = 'array' THEN jsonb_array_length(sqlc.arg(command_argv)::jsonb) ELSE 0 END > 0 THEN sqlc.arg(command_argv) ELSE s.command_argv END,
+       CASE WHEN sqlc.arg(command_argv)::jsonb IS NOT NULL THEN sqlc.arg(command_argv) ELSE s.command_argv END,
        sqlc.arg(resources), sqlc.arg(replicas),
        sqlc.arg(runtime_mode), sqlc.arg(worker_replicas),
        CASE WHEN sqlc.arg(runtime_provider)::text <> '' THEN sqlc.arg(runtime_provider) ELSE s.runtime_provider END,

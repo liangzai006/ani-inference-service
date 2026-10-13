@@ -1,0 +1,14 @@
+# Use the release image, not an upstream staging/main image.
+image:
+  manager:
+    repository: docker.changqingyun.cn/mirror/lws/lws
+    tag: v0.6.2
+    pullPolicy: IfNotPresent
+enableCertManager: true
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi

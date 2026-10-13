@@ -1,0 +1,26 @@
+{{- if .Values.model.tls.certificate.create }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ .Values.model.tls.existingSecret }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ani-inference.labels" . | nindent 4 }}
+    app.kubernetes.io/component: zero-trust-identity
+spec:
+  secretName: {{ required "model.tls.existingSecret is required" (trim .Values.model.tls.existingSecret) }}
+  # Exactly one DNS SAN. The process rejects any other client identity shape.
+  dnsNames:
+    - {{ required "model.tls.certificate.dnsName is required" (trim .Values.model.tls.certificate.dnsName) | quote }}
+  usages:
+    - digital signature
+    - client auth
+  issuerRef:
+    name: {{ required "model.tls.issuer.name is required" (trim .Values.model.tls.issuer.name) }}
+    kind: {{ required "model.tls.issuer.kind is required" .Values.model.tls.issuer.kind }}
+    group: {{ .Values.model.tls.issuer.group }}
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+{{- end }}

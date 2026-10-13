@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -13,10 +14,10 @@ import (
 	"github.com/jackc/pgx/v5"
 	integrationv1 "github.com/zhangzhe-ctrl/ani-accelerator-service/api/gen/go/accelerator/integration/v1"
 	acceleratorv1 "github.com/zhangzhe-ctrl/ani-accelerator-service/api/gen/go/accelerator/v1"
-	inferencev1 "github.com/zhangzhe-ctrl/ani-inference-service/api/inference/v1"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/gpu"
-	kube "github.com/zhangzhe-ctrl/ani-inference-service/internal/data/kubernetes"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/service"
+	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
+	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
+	kube "github.com/liangzai006/ani-inference-service/internal/data/kubernetes"
+	"github.com/liangzai006/ani-inference-service/internal/service"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -50,7 +51,7 @@ func managedCreateFixture(t *testing.T, tenant, resource uuid.UUID) *inferencev1
 		t.Fatal(err)
 	}
 	originalCharge := &integrationv1.GpuChargeRef{ChargeId: uuid.NewString(), QuotaCode: "gpu.shared_memory_mib", OriginalUnits: 6144}
-	req := &inferencev1.CreateInferenceServiceRequest{RequestId: uuid.NewString(), Name: "managed-" + resource.String(), ModelVersionId: uuid.NewString(), Replicas: 1, Runtime: &inferencev1.RuntimeSpec{Mode: inferencev1.RuntimeMode_RUNTIME_MODE_DEPLOYMENT, Provider: "kserve"}, Engine: &inferencev1.EngineSpec{Type: "vllm", Image: "engine:v1", Command: []string{"engine"}, Args: []string{"serve", "/models"}}, Resource: &inferencev1.ResourceSpec{Gpu: gpuProto(request), Requests: map[string]string{"cpu": "1", "memory": "8Gi"}}, GpuOwnerAttachment: &integrationv1.GpuOwnerCreateAttachment{Ref: &acceleratorv1.GpuUsageRef{TenantId: tenant.String(), OwnerService: "ani-inference", ResourceId: resource.String(), CreateOperationId: uuid.NewString()}, Actor: &acceleratorv1.Actor{Type: "user", Id: "42"}, GpuPlan: &protoPlan, GpuCharges: []*integrationv1.GpuChargeRef{originalCharge}, MeteringVersion: "gpu-metering-v1"}, OriginalCharges: []*inferencev1.OriginalQuotaCharge{{ChargeId: uuid.NewString(), QuotaCode: "cpu.milli", OriginalUnits: 1000}, {ChargeId: originalCharge.ChargeId, QuotaCode: originalCharge.QuotaCode, OriginalUnits: originalCharge.OriginalUnits}}}
+	req := &inferencev1.CreateInferenceServiceRequest{RequestId: uuid.NewString(), Name: "managed-" + resource.String(), ModelVersionId: uuid.NewString(), Replicas: 1, Runtime: &inferencev1.RuntimeSpec{Mode: inferencev1.RuntimeMode_RUNTIME_MODE_DEPLOYMENT, Provider: "kserve"}, Engine: &inferencev1.EngineSpec{Type: "vllm", Image: "engine:v1", Command: "engine serve /models"}, Resource: &inferencev1.ResourceSpec{Gpu: gpuProto(request), Requests: map[string]string{"cpu": "1", "memory": "8Gi"}}, GpuOwnerAttachment: &integrationv1.GpuOwnerCreateAttachment{Ref: &acceleratorv1.GpuUsageRef{TenantId: tenant.String(), OwnerService: "ani-inference", ResourceId: resource.String(), CreateOperationId: uuid.NewString()}, Actor: &acceleratorv1.Actor{Type: "user", Id: "42"}, GpuPlan: &protoPlan, GpuCharges: []*integrationv1.GpuChargeRef{originalCharge}, MeteringVersion: "gpu-metering-v1"}, OriginalCharges: []*inferencev1.OriginalQuotaCharge{{ChargeId: uuid.NewString(), QuotaCode: "cpu.milli", OriginalUnits: 1000}, {ChargeId: originalCharge.ChargeId, QuotaCode: originalCharge.QuotaCode, OriginalUnits: originalCharge.OriginalUnits}}}
 	refreshManagedFixtureDigests(t, req)
 	return req
 }
@@ -241,9 +242,10 @@ func TestPostgresManagedGPUFrozenSnapshotProjectsSharedAndWholeReplicas(t *testi
 					t.Fatalf("runtime limits lost: %v", limits)
 				}
 			}
-			argv, _, _ := unstructured.NestedStringSlice(container, "command")
-			if strings.Join(argv, " ") != "engine serve /models" {
-				t.Fatalf("caller engine argv changed: %v", argv)
+			command, _, _ := unstructured.NestedStringSlice(container, "command")
+			args, _, _ := unstructured.NestedStringSlice(container, "args")
+			if !reflect.DeepEqual(command, []string{"/bin/sh", "-c"}) || !reflect.DeepEqual(args, []string{"engine serve /models"}) {
+				t.Fatalf("caller engine command/args changed: command=%v args=%v", command, args)
 			}
 		})
 	}
@@ -299,7 +301,7 @@ func TestPostgresManagedGPURejectsForgedIdentityDigestAndCharge(t *testing.T) {
 		{"untrusted caller", service.WithTenantID(ctx, tenant.String()), func(*inferencev1.CreateInferenceServiceRequest) {}},
 		{"cross tenant", service.WithTenantID(gpu.WithGovernanceIdentity(ctx), uuid.NewString()), func(*inferencev1.CreateInferenceServiceRequest) {}},
 		{"wrong owner", scoped, func(r *inferencev1.CreateInferenceServiceRequest) { r.GpuOwnerAttachment.Ref.OwnerService = "other" }},
-		{"business digest", scoped, func(r *inferencev1.CreateInferenceServiceRequest) { r.Engine.Args = []string{"tampered"} }},
+		{"business digest", scoped, func(r *inferencev1.CreateInferenceServiceRequest) { r.Engine.Command = "tampered" }},
 		{"request digest", scoped, func(r *inferencev1.CreateInferenceServiceRequest) {
 			r.GpuOwnerAttachment.RequestHash = strings.Repeat("0", 64)
 		}},

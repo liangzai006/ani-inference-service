@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/go-logr/stdr"
-	crdv1 "github.com/zhangzhe-ctrl/ani-inference-service/api/inference/crd/v1"
+	crdv1 "github.com/liangzai006/ani-inference-service/api/inference/crd/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	inferencebiz "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/inference"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/resources"
-	kube "github.com/zhangzhe-ctrl/ani-inference-service/internal/data/kubernetes"
+	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
+	"github.com/liangzai006/ani-inference-service/internal/biz/resources"
+	kube "github.com/liangzai006/ani-inference-service/internal/data/kubernetes"
 )
 
 type admissionRuntimeSource struct{ runtime kube.DesiredRuntime }

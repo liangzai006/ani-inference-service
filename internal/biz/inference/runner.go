@@ -9,12 +9,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/audit"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/gpu"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/publication"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/quota"
-	bizreconcile "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/reconcile"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/work"
+	"github.com/liangzai006/ani-inference-service/internal/biz/audit"
+	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
+	"github.com/liangzai006/ani-inference-service/internal/biz/publication"
+	"github.com/liangzai006/ani-inference-service/internal/biz/quota"
+	bizreconcile "github.com/liangzai006/ani-inference-service/internal/biz/reconcile"
+	"github.com/liangzai006/ani-inference-service/internal/biz/work"
 )
 
 var (

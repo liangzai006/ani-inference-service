@@ -1,0 +1,10 @@
+configs:
+  - kserve-config-llm-template
+  - kserve-config-llm-decode-template
+  - kserve-config-llm-prefill-template
+  - kserve-config-llm-worker-data-parallel
+  - kserve-config-llm-decode-worker-data-parallel
+  - kserve-config-llm-prefill-worker-data-parallel
+  - kserve-config-llm-scheduler
+  - kserve-config-llm-router-route
+  - kserve-config-llm-worker-pipeline-parallel

@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	inferencev1 "github.com/zhangzhe-ctrl/ani-inference-service/api/inference/v1"
-	inferencebiz "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/inference"
+	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
+	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
@@ -17,7 +17,7 @@ type fakeCreate struct{ in CreateInput }
 type fakeUpdate struct{ in inferencebiz.UpdateInput }
 
 func validEngine() *inferencev1.EngineSpec {
-	return &inferencev1.EngineSpec{Type: "vllm", Image: "engine:v1", Command: []string{"vllm", "serve", "/models"}}
+	return &inferencev1.EngineSpec{Type: "vllm", Image: "engine:v1", Command: "vllm serve /models"}
 }
 
 func TestRequireTenantRejectsAbsentTrustedContext(t *testing.T) {

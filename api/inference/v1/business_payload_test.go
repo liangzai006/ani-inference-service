@@ -10,8 +10,8 @@ import (
 )
 
 func TestBusinessCanonicalFixedVectorAndRoundtrip(t *testing.T) {
-	req := &CreateInferenceServiceRequest{RequestId: "dynamic", Name: "<&中文>", ModelVersionId: "11111111-1111-4111-8111-111111111111", Replicas: 1, Resource: &ResourceSpec{Limits: map[string]string{"memory": "8Gi", "cpu": "2"}}, Engine: &EngineSpec{Type: "vllm", Image: "engine:v1", Command: []string{"serve"}}, Runtime: &RuntimeSpec{Mode: RuntimeMode_RUNTIME_MODE_LEADER_WORKER_SET, WorkerReplicas: 1}}
-	const expected = `{"engine":{"args":[],"command":["serve"],"image":"engine:v1","type":"vllm"},"model_artifact":null,"model_version_id":"11111111-1111-4111-8111-111111111111","name":"<&中文>","replicas":"1","resource":{"gpu":null,"limits":{"cpu":"2","memory":"8Gi"},"requests":{}},"runtime":{"endpoint":null,"mode":"2","provider":"","worker_replicas":"1"},"served_model_name":""}`
+	req := &CreateInferenceServiceRequest{RequestId: "dynamic", Name: "<&中文>", ModelVersionId: "11111111-1111-4111-8111-111111111111", Replicas: 1, Resource: &ResourceSpec{Limits: map[string]string{"memory": "8Gi", "cpu": "2"}}, Engine: &EngineSpec{Type: "vllm", Image: "engine:v1", Command: "serve"}, Runtime: &RuntimeSpec{Mode: RuntimeMode_RUNTIME_MODE_LEADER_WORKER_SET, WorkerReplicas: 1}}
+	const expected = `{"engine":{"command":"serve","image":"engine:v1","type":"vllm"},"model_artifact":null,"model_version_id":"11111111-1111-4111-8111-111111111111","name":"<&中文>","replicas":"1","resource":{"gpu":null,"limits":{"cpu":"2","memory":"8Gi"},"requests":{}},"runtime":{"endpoint":null,"mode":"2","provider":"","worker_replicas":"1"},"served_model_name":""}`
 	raw, err := CanonicalBusinessPayload(req)
 	if err != nil || string(raw) != expected {
 		t.Fatalf("canonical=%s error=%v", raw, err)
@@ -56,7 +56,7 @@ func TestBusinessRejectsUnknownAndNoncanonicalPayload(t *testing.T) {
 }
 
 func TestBusinessValidationRejectsResourcesBeforeQuota(t *testing.T) {
-	req := &CreateInferenceServiceRequest{Name: "valid", ModelVersionId: "11111111-1111-4111-8111-111111111111", Replicas: 1, Engine: &EngineSpec{Type: "vllm", Image: "engine:v1", Command: []string{"serve"}}, Resource: &ResourceSpec{Requests: map[string]string{"cpu": "3"}, Limits: map[string]string{"cpu": "2"}}}
+	req := &CreateInferenceServiceRequest{Name: "valid", ModelVersionId: "11111111-1111-4111-8111-111111111111", Replicas: 1, Engine: &EngineSpec{Type: "vllm", Image: "engine:v1", Command: "serve"}, Resource: &ResourceSpec{Requests: map[string]string{"cpu": "3"}, Limits: map[string]string{"cpu": "2"}}}
 	if err := ValidateBusinessPayload(req); err == nil {
 		t.Fatal("request above limit accepted")
 	}
@@ -71,7 +71,7 @@ func TestBusinessValidationRejectsResourcesBeforeQuota(t *testing.T) {
 }
 
 func TestBusinessValidationFailsClosedForManagedLWSOnly(t *testing.T) {
-	req := &CreateInferenceServiceRequest{Name: "distributed", ModelVersionId: "11111111-1111-4111-8111-111111111111", Replicas: 1, Engine: &EngineSpec{Type: "vllm", Image: "engine:v1", Command: []string{"serve"}}, Runtime: &RuntimeSpec{Mode: RuntimeMode_RUNTIME_MODE_LEADER_WORKER_SET, WorkerReplicas: 1}, Resource: &ResourceSpec{}}
+	req := &CreateInferenceServiceRequest{Name: "distributed", ModelVersionId: "11111111-1111-4111-8111-111111111111", Replicas: 1, Engine: &EngineSpec{Type: "vllm", Image: "engine:v1", Command: "serve"}, Runtime: &RuntimeSpec{Mode: RuntimeMode_RUNTIME_MODE_LEADER_WORKER_SET, WorkerReplicas: 1}, Resource: &ResourceSpec{}}
 	if err := ValidateBusinessPayload(req); err != nil {
 		t.Fatalf("CPU LWS changed: %v", err)
 	}

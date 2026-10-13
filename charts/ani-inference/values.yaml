@@ -1,0 +1,132 @@
+replicaCount: 1
+
+fullnameOverride: ""
+
+# Database migration runs as a Helm pre-install/pre-upgrade hook. Set enabled
+# to false after first install if schema changes are managed externally.
+migration:
+  enabled: true
+  image: docker.changqingyun.cn/library/postgres:16-alpine
+  imagePullPolicy: IfNotPresent
+  imagePullSecrets: []
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 3600
+  hookDeletePolicy: before-hook-creation
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+image:
+  repository: docker.changqingyun.cn/ani/inference-service
+  tag: ani-inference-new-20260930-cleanup-limit-r2
+  digest: sha256:4639122b2269c86e50402f898090714555818dc587a015e69c76ba9f87700022
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+database:
+  existingSecret: inference-database
+  secretKey: dsn
+
+model:
+  grpcAddress: ani-model-grpc.ani-system.svc.cluster.local:19090
+  materializerImage: docker.changqingyun.cn/ani/model-import-worker:ani-model-new-20260928-r2@sha256:e8cbf686d3fa4f3661cb396f2d8d67e5767ae4d790b8331b0df5831bd0f5e8f0
+  storageClass: cephfs
+  # Zero-trust client identity for the Model call. The install script installs
+  # or adopts cert-manager; this chart only requests the Certificate and does
+  # not create the issuer.
+  tls:
+    existingSecret: inference-model-mtls
+    mountPath: /var/run/secrets/model
+    caKey: ca.crt
+    certKey: tls.crt
+    keyKey: tls.key
+    # Model service identity checked by the client. Not a cluster Service DNS name.
+    serverName: ani-model.ani.internal
+    certificate:
+      create: true
+      dnsName: ani-inference.ani.internal
+    issuer:
+      name: ani-internal
+      kind: ClusterIssuer
+      group: cert-manager.io
+
+higress:
+  # Required by the inference service for publishing model routes.
+  # Leave empty here. A fresh environment passes the gateway address at install.
+  publicBaseURL: ""
+  gatewayNamespace: higress-system
+  gatewayName: ani-higress
+  pathPrefix: /v1/completions
+  # A path-only route gives the body model-router plugin an initial route. The
+  # plugin extracts `model`, adds x-higress-llm-model, and Higress recalculates
+  # the route to the model-specific HTTPRoute published by Inference. With no
+  # backendRefs, unknown models are rejected by the gateway instead of falling
+  # through to an arbitrary model.
+  modelRouterBootstrapRoute:
+    enabled: true
+  rateLimitNamespace: higress-system
+  rateLimitPlugin: ani-request-rate-limit
+  rbac:
+    create: false
+    # Empty follows rateLimitNamespace; set this only when the plugin role
+    # intentionally lives in a different namespace.
+    namespace: ""
+
+# GPU resolution is opt-in. The accelerator client always uses TLS/mTLS.
+accelerator:
+  enabled: false
+  grpcAddress: ""
+  clusterID: ""
+  serverName: ""
+  tls:
+    secretName: ""
+    caFile: /var/run/secrets/accelerator/ca.crt
+    certFile: /var/run/secrets/accelerator/tls.crt
+    keyFile: /var/run/secrets/accelerator/tls.key
+
+service:
+  type: ClusterIP
+  grpcPort: 19090
+  adminPort: 19091
+
+# Ordinary Inference gRPC is always TLS 1.3 with a verified client
+# certificate. This is the listener used by Governance for non-GPU lifecycle
+# commands and by Model for reference checks. The managed GPU receiver, when
+# enabled, has its own separate certificate contract.
+serverTLS:
+  existingSecret: ani-inference-server-tls
+  mountPath: /var/run/secrets/inference-server
+  caKey: ca.crt
+  certKey: tls.crt
+  keyKey: tls.key
+  certificate:
+    create: true
+    dnsName: ani-inference.ani.internal
+    issuer:
+      name: ani-internal
+      kind: ClusterIssuer
+      group: cert-manager.io
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: "1"
+    memory: 512Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+podSecurityContext:
+  runAsUser: 65532
+  runAsGroup: 65532
+  runAsNonRoot: true
+
+securityContext: {}

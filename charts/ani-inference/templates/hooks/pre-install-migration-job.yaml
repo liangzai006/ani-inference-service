@@ -1,0 +1,177 @@
+{{- if .Values.migration.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "ani-inference.fullname" . }}-migration-{{ .Release.Revision }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ani-inference.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migration
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": {{ .Values.migration.hookDeletePolicy }}
+spec:
+  backoffLimit: {{ .Values.migration.backoffLimit }}
+  ttlSecondsAfterFinished: {{ .Values.migration.ttlSecondsAfterFinished }}
+  template:
+    metadata:
+      labels:
+        {{- include "ani-inference.labels" . | nindent 8 }}
+        app.kubernetes.io/component: migration
+    spec:
+      restartPolicy: Never
+      {{- with .Values.migration.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: migrate
+          image: {{ .Values.migration.image }}
+          imagePullPolicy: {{ .Values.migration.imagePullPolicy }}
+          env:
+            - name: DATABASE_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.existingSecret }}
+                  key: {{ .Values.database.secretKey }}
+          command: [sh, -ec]
+          args:
+            - |
+              echo "=== ANI Inference Database Migration ==="
+              echo "Starting migration at $(date -Iseconds)"
+
+              # Find all unique migration files by basename and sort
+              cd /migrations
+              migration_files=$(ls -1 *.sql 2>/dev/null | sort)
+
+              if [ -z "$migration_files" ]; then
+                echo "ERROR: No migration files found"
+                exit 1
+              fi
+
+              migration_count=$(echo "$migration_files" | wc -l)
+              echo "Found $migration_count migration file(s)"
+
+              # Keep a service-specific ledger in the same database as the
+              # inference schema. The name is intentionally distinct from
+              # Model's schema_migrations table if operators share a database.
+              # Each migration is executed once and the ledger row is written
+              # in the same transaction as the migration. This makes a retry
+              # safe when a Helm hook pod is restarted after a DDL failure.
+              psql -v ON_ERROR_STOP=1 "$DATABASE_DSN" -c '
+                CREATE TABLE IF NOT EXISTS public.inference_schema_migrations (
+                  filename TEXT PRIMARY KEY,
+                  applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                )'
+
+              # Releases before the ledger existed executed the complete
+              # migration directory directly. If that legacy schema is fully
+              # present, baseline it once; a partial legacy schema fails
+              # explicitly instead of replaying 000001 over existing tables.
+              ledger_count=$(psql -v ON_ERROR_STOP=1 "$DATABASE_DSN" -Atqc \
+                "SELECT COUNT(*) FROM public.inference_schema_migrations")
+              legacy_service=$(psql -v ON_ERROR_STOP=1 "$DATABASE_DSN" -Atqc \
+                "SELECT CASE WHEN to_regclass('public.inference_services') IS NULL THEN 0 ELSE 1 END")
+              if [ "$ledger_count" -eq 0 ] && [ "$legacy_service" -eq 1 ]; then
+                legacy_complete=$(psql -v ON_ERROR_STOP=1 "$DATABASE_DSN" -Atqc \
+                  "SELECT CASE WHEN
+                    (SELECT COUNT(*) FROM information_schema.tables
+                     WHERE table_schema='public' AND table_name IN
+                     ('inference_services','inference_specs','inference_operations',
+                      'inference_idempotency_requests','inference_runtime',
+                      'inference_resource_work','inference_quota_reservations',
+                      'inference_audit_events','inference_runtime_bindings',
+                      'inference_publications','inference_observation_events',
+                      'inference_managed_gpu_resources','inference_managed_gpu_commands')) = 13
+                    AND (SELECT COUNT(*) FROM information_schema.columns
+                     WHERE table_schema='public' AND
+                       ((table_name='inference_specs' AND column_name IN
+                         ('runtime_mode','worker_replicas','endpoint_container_port',
+                          'endpoint_service_port','endpoint_target_port','endpoint_protocol',
+                          'runtime_provider','gpu_request','gpu_plan','gpu_plan_digest'))
+                        OR (table_name='inference_runtime' AND column_name IN
+                          ('runtime_mode','ready_groups','ready_workers','lws_uid','model_ready_known'))
+                        OR (table_name='inference_services' AND column_name='applied_generation'))) = 16
+                    THEN 1 ELSE 0 END")
+                if [ "$legacy_complete" -eq 1 ]; then
+                  echo "Fully migrated legacy schema detected; creating migration baseline"
+                  for filename in $migration_files; do
+                    psql -v ON_ERROR_STOP=1 "$DATABASE_DSN" \
+                      -c "INSERT INTO public.inference_schema_migrations(filename) VALUES ('$filename') ON CONFLICT DO NOTHING"
+                  done
+                else
+                  echo "ERROR: partial legacy inference schema found without migration ledger"
+                  echo "Refusing to replay migrations; complete the legacy schema and create an explicit baseline"
+                  exit 1
+                fi
+              fi
+
+              for filename in $migration_files; do
+                echo ""
+                echo "--- Applying: $filename ---"
+                # Filenames come from this chart's ConfigMap and are restricted
+                # to the generated migration naming convention. The psql
+                # variable is expanded inside this temporary script (rather
+                # than passed through -c, where psql variables are not valid).
+                case "$filename" in
+                  [0-9][0-9][0-9][0-9][0-9][0-9]_*.sql) ;;
+                  *) echo "ERROR: invalid migration filename: $filename"; exit 1 ;;
+                esac
+                script=$(mktemp)
+                trap 'rm -f "$script"' EXIT
+                cat >"$script" <<'PSQL'
+              SELECT pg_advisory_xact_lock(hashtextextended('ani-inference-migrations', 0));
+              SELECT EXISTS (
+                SELECT 1 FROM public.inference_schema_migrations WHERE filename = :'filename'
+              ) AS already_applied \gset
+              \if :already_applied
+                \echo 'migration already applied; skipping'
+              \else
+              PSQL
+                cat "/migrations/$filename" >>"$script"
+                cat >>"$script" <<'PSQL'
+
+              INSERT INTO public.inference_schema_migrations(filename) VALUES (:'filename');
+              \endif
+              PSQL
+                if psql --single-transaction -v ON_ERROR_STOP=1 \
+                  -v filename="$filename" "$DATABASE_DSN" -f "$script"; then
+                  echo "✓ $filename checked/applied successfully"
+                else
+                  echo "✗ $filename failed"
+                  exit 1
+                fi
+                rm -f "$script"
+                trap - EXIT
+              done
+
+              echo ""
+              echo "=== Verifying Migration Result ==="
+
+              table_count=$(psql -v ON_ERROR_STOP=1 "$DATABASE_DSN" -Atqc \
+                "SELECT COUNT(*) FROM information_schema.tables
+                 WHERE table_schema='public' AND table_name IN
+                 ('inference_services', 'inference_deployments', 'inference_routes')")
+
+              echo "Inference tables found: $table_count"
+
+              if [ "$table_count" -eq 0 ]; then
+                echo "WARNING: No expected tables found, this might be the first migration"
+              fi
+
+              echo ""
+              echo "✓ Migration completed successfully at $(date -Iseconds)"
+          volumeMounts:
+            - name: migrations
+              mountPath: /migrations
+              readOnly: true
+          {{- with .Values.migration.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: migrations
+          configMap:
+            name: {{ include "ani-inference.fullname" . }}-migrations
+{{- end }}

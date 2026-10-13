@@ -3,7 +3,7 @@ package admission
 import (
 	"fmt"
 
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/resources"
+	"github.com/liangzai006/ani-inference-service/internal/biz/resources"
 )
 
 type ResourceInput struct{ Requests, Limits map[string]string }

@@ -3,15 +3,15 @@ package model
 import (
 	"context"
 
-	inferencev1 "github.com/zhangzhe-ctrl/ani-inference-service/api/inference/v1"
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/inference"
+	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
+	"github.com/liangzai006/ani-inference-service/internal/biz/inference"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 // UpdateUseCase refreshes the authoritative Model artifact snapshot when a
 // caller selects another version. Model supplies artifact metadata only; it
-// never fills or changes the request-owned engine type or startup argv.
+// never fills or changes the request-owned engine type or complete command.
 type UpdateUseCase struct {
 	client *Client
 	next   inference.UpdateUseCase

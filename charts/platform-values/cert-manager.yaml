@@ -1,0 +1,21 @@
+# Images for the new environment's internal mirror. Override this file with
+# CERT_MANAGER_VALUES when the mirror uses a different repository layout.
+image:
+  repository: docker.changqingyun.cn/mirror/jetstack/cert-manager-controller
+  tag: v1.18.2
+webhook:
+  image:
+    repository: docker.changqingyun.cn/mirror/jetstack/cert-manager-webhook
+    tag: v1.18.2
+cainjector:
+  image:
+    repository: docker.changqingyun.cn/mirror/jetstack/cert-manager-cainjector
+    tag: v1.18.2
+acmesolver:
+  image:
+    repository: docker.changqingyun.cn/mirror/jetstack/cert-manager-acmesolver
+    tag: v1.18.2
+startupapicheck:
+  image:
+    repository: docker.changqingyun.cn/mirror/jetstack/cert-manager-startupapicheck
+    tag: v1.18.2

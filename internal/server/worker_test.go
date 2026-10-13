@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/work"
+	"github.com/liangzai006/ani-inference-service/internal/biz/work"
 )
 
 func TestLoopServerStartBlocksAndReturnsLoopResult(t *testing.T) {

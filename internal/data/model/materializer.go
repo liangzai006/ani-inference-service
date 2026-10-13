@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"strings"
 
-	inference "github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/inference"
-	kube "github.com/zhangzhe-ctrl/ani-inference-service/internal/data/kubernetes"
+	inference "github.com/liangzai006/ani-inference-service/internal/biz/inference"
+	kube "github.com/liangzai006/ani-inference-service/internal/data/kubernetes"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -126,7 +126,7 @@ func (m *Materializer) EnsureModel(ctx context.Context, op inference.OperationCo
 	claim := &corev1.PersistentVolumeClaim{}
 	err = reader.Get(ctx, client.ObjectKey{Namespace: m.Namespace, Name: name}, claim)
 	if apierrors.IsNotFound(err) {
-		claim = &corev1.PersistentVolumeClaim{ObjectMeta: meta(name), Spec: corev1.PersistentVolumeClaimSpec{StorageClassName: ptr.To(m.StorageClass), AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteMany}, Resources: corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse(pvcSize(snapshot.ArtifactSizeBytes))}}}}
+		claim = &corev1.PersistentVolumeClaim{ObjectMeta: meta(name), Spec: corev1.PersistentVolumeClaimSpec{StorageClassName: ptr.To(m.StorageClass), AccessModes: []corev1.PersistentVolumeAccessMode{materializationAccessMode(m.StorageClass)}, Resources: corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse(pvcSize(snapshot.ArtifactSizeBytes))}}}}
 		if err = m.Client.Create(ctx, claim); err != nil {
 			return unknown, err
 		}
@@ -168,6 +168,16 @@ func (m *Materializer) EnsureModel(ctx context.Context, op inference.OperationCo
 		}
 	}
 	return inference.ModelObservation{Reason: "model download Job is pending"}, nil
+}
+
+// local-path provisions node-local volumes and only supports a single writer.
+// Shared storage classes keep the existing RWX contract so a later multi-
+// replica deployment can mount one verified model bundle from all replicas.
+func materializationAccessMode(storageClass string) corev1.PersistentVolumeAccessMode {
+	if strings.EqualFold(strings.TrimSpace(storageClass), "local-path") {
+		return corev1.ReadWriteOnce
+	}
+	return corev1.ReadWriteMany
 }
 
 func (m *Materializer) resetFailedMaterialization(ctx context.Context, name string, job *batchv1.Job) error {
