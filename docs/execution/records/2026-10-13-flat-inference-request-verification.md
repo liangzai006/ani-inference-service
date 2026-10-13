@@ -13,15 +13,17 @@ Inference → KServe 的新接口契约。命令字段在业务接口中是一�
   CPU/内存、实例数、served model、LWS worker shape 和 GPU 管理字段。
 - Gov：仓库中的布局检查、入口检查、代码测试和生成检查已执行；扁平创建请求以及
   Model Ready 门禁的定向测试通过。
+- Inference API：`bash scripts/generate-api.sh lint` 和
+  `bash scripts/generate-api.sh` 通过。脚本从 `go.mod` 锁定的 Accelerator 模块构造
+  临时 Buf workspace，执行 lint/生成，并校验生成结果。
 - 新集群只读预检：当前 kube context 是 `kubernetes-admin@kubekey`，三个节点均为
   `Ready`，KServe `InferenceService` CRD 和 LWS CRD 存在，`ani-system` 中 Model、
   Inference、Governance Deployment 均为 `Ready`。
 
 ## 未通过或未验证
 
-- Inference 的 `buf lint` / `buf generate`：当前工作区缺少外部导入
-  `accelerator/integration/v1/owner_gpu_attachment.proto`，因此返回失败；这不是业务
-  测试失败，需在完整 proto 依赖目录或发布模块可用后重跑。
+- Inference 根目录的直接 `buf lint` / `buf generate` 仍不会自动加载外部导入
+  `accelerator/integration/v1/owner_gpu_attachment.proto`；请使用上面的仓库脚本。
 - Gov `make verify-ci`：业务测试执行到最后，但安全审计门禁不可用：本机
   `govulncheck` 是 v1.6.0（门禁要求 v1.7.0），且未安装要求的 `gitleaks` 版本。需要
   安装仓库固定版本后重跑。
@@ -42,10 +44,10 @@ make verify
 cd /root/kubercon/ani-governance
 make verify-ci
 
-# Inference
+# Inference（自动带入锁定版本的 Accelerator proto）
 cd /root/kubercon/ani-inference-service
-buf lint
-buf generate
+bash scripts/generate-api.sh lint
+bash scripts/generate-api.sh
 sqlc generate
 go test ./...
 go vet ./...
