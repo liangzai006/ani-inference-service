@@ -244,7 +244,7 @@ func TestPostgresManagedGPUFrozenSnapshotProjectsSharedAndWholeReplicas(t *testi
 			}
 			command, _, _ := unstructured.NestedStringSlice(container, "command")
 			args, _, _ := unstructured.NestedStringSlice(container, "args")
-			if !reflect.DeepEqual(command, []string{"engine"}) || !reflect.DeepEqual(args, []string{"serve", "/models"}) {
+			if !reflect.DeepEqual(command, []string{"/bin/sh", "-c"}) || !reflect.DeepEqual(args, []string{"engine serve /models"}) {
 				t.Fatalf("caller engine command/args changed: command=%v args=%v", command, args)
 			}
 		})
