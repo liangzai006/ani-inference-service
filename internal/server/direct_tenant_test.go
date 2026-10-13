@@ -175,7 +175,7 @@ func TestDirectTenantMiddlewareWorksThroughGRPC(t *testing.T) {
 	}
 	defer conn.Close()
 	callCtx := grpcmetadata.NewOutgoingContext(ctx, grpcmetadata.Pairs("tenant-id", "tenant-a"))
-	_, err = inferencev1.NewInferenceServiceManagerClient(conn).CreateInferenceService(callCtx, &inferencev1.CreateInferenceServiceRequest{RequestId: "request-1", Name: "service", ModelVersionId: "version", Replicas: 1, Engine: &inferencev1.EngineSpec{Type: "vllm", Image: "engine:v1", Command: []string{"serve", "/models"}}})
+	_, err = inferencev1.NewInferenceServiceManagerClient(conn).CreateInferenceService(callCtx, &inferencev1.CreateInferenceServiceRequest{RequestId: "request-1", Name: "service", ModelVersionId: "version", Replicas: 1, Engine: &inferencev1.EngineSpec{Type: "vllm", Image: "engine:v1", Command: "serve /models"}})
 	// Expect authentication error because there's no trusted context (IAM/mTLS would set this)
 	if status.Code(err) != codes.Unauthenticated {
 		t.Fatalf("error code = %v, want Unauthenticated; err=%v", status.Code(err), err)

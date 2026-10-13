@@ -41,13 +41,13 @@ func testGPUPlan(t *testing.T, container string) (*gpu.Request, *gpu.Plan) {
 	return request, plan
 }
 
-func TestRenderKServePreservesEngineArgvAndModelMount(t *testing.T) {
+func TestRenderKServeWrapsRawEngineCommandAndModelMount(t *testing.T) {
 	obj, err := renderKServeInferenceService(RuntimeSpec{
 		TenantID: "tenant", ServiceID: "service", Name: "model", Namespace: "models", Image: "registry/vllm:1",
 		ArtifactProvider: "model", ModelClaim: "ani-model-claim", Generation: 4, Replicas: 1,
-		CommandArgv: []string{"/usr/bin/env", "VLLM_USE_V1=1", "vllm", "serve", "/models", "--max-model-len", "8192", "--served-model-name", "custom-qwen"},
-		Resources:   resources.Normalized{Requests: map[string]string{"cpu": "2", "memory": "8Gi"}, Limits: map[string]string{"memory": "12Gi"}},
-		Endpoint:    &EndpointSpec{ContainerPort: 8080, ServicePort: 80, Protocol: "TCP"},
+		EngineCommand: `/usr/bin/env VLLM_USE_V1=1 vllm serve '/models' --max-model-len 8192 --served-model-name custom-qwen`,
+		Resources:     resources.Normalized{Requests: map[string]string{"cpu": "2", "memory": "8Gi"}, Limits: map[string]string{"memory": "12Gi"}},
+		Endpoint:      &EndpointSpec{ContainerPort: 8080, ServicePort: 80, Protocol: "TCP"},
 	})
 	if err != nil {
 		t.Fatalf("renderKServeInferenceService() error = %v", err)
@@ -73,17 +73,30 @@ func TestRenderKServePreservesEngineArgvAndModelMount(t *testing.T) {
 	if container["name"] != "kserve-container" {
 		t.Fatalf("container name = %v; want KServe's canonical name", container["name"])
 	}
-	argv, found, err := unstructured.NestedStringSlice(container, "command")
+	command, found, err := unstructured.NestedStringSlice(container, "command")
 	if err != nil || !found {
-		t.Fatalf("command = %#v, found=%v, err=%v", argv, found, err)
+		t.Fatalf("command = %#v, found=%v, err=%v", command, found, err)
 	}
-	want := []string{"/usr/bin/env", "VLLM_USE_V1=1", "vllm", "serve", "/models", "--max-model-len", "8192", "--served-model-name", "custom-qwen"}
-	if len(argv) != len(want) {
-		t.Fatalf("command = %#v, want %#v", argv, want)
+	wantCommand := []string{"/bin/sh", "-c"}
+	if len(command) != len(wantCommand) {
+		t.Fatalf("command = %#v, want %#v", command, wantCommand)
 	}
-	for i := range want {
-		if argv[i] != want[i] {
-			t.Fatalf("command = %#v, want %#v", argv, want)
+	for i := range wantCommand {
+		if command[i] != wantCommand[i] {
+			t.Fatalf("command = %#v, want %#v", command, wantCommand)
+		}
+	}
+	args, found, err := unstructured.NestedStringSlice(container, "args")
+	if err != nil || !found {
+		t.Fatalf("args = %#v, found=%v, err=%v", args, found, err)
+	}
+	wantArgs := []string{`/usr/bin/env VLLM_USE_V1=1 vllm serve '/models' --max-model-len 8192 --served-model-name custom-qwen`}
+	if len(args) != len(wantArgs) {
+		t.Fatalf("args = %#v, want %#v", args, wantArgs)
+	}
+	for i := range wantArgs {
+		if args[i] != wantArgs[i] {
+			t.Fatalf("args = %#v, want %#v", args, wantArgs)
 		}
 	}
 	mounts, found, err := unstructured.NestedSlice(container, "volumeMounts")
@@ -191,7 +204,7 @@ func TestRenderKServeLeaderWorkerSetUsesLLMInferenceService(t *testing.T) {
 		TenantID: "tenant", ServiceID: "service", Name: "distributed", Namespace: "models", Image: "registry/vllm:1",
 		ArtifactProvider: "model", ModelClaim: "ani-model-claim", Generation: 1, Replicas: 1, WorkerReplicas: 1,
 		RuntimeMode: "leader_worker_set", ServedModelName: "qwen",
-		CommandArgv: []string{"vllm", "serve", "/models", "--served-model-name", "qwen"},
+		EngineCommand: "vllm serve /models --served-model-name qwen",
 	})
 	if err != nil {
 		t.Fatalf("renderKServeRuntime() error = %v", err)
@@ -208,13 +221,13 @@ func TestRenderKServeLeaderWorkerSetUsesLLMInferenceService(t *testing.T) {
 		if !ok {
 			t.Fatalf("container at %v has type %T", path, containers[0])
 		}
-		argv, found, err := unstructured.NestedStringSlice(container, "command")
-		if err != nil || !found || len(argv) != 5 || argv[0] != "vllm" || argv[4] != "qwen" {
-			t.Fatalf("command at %v = %#v, found=%v, err=%v", path, argv, found, err)
+		command, found, err := unstructured.NestedStringSlice(container, "command")
+		if err != nil || !found || len(command) != 2 || command[0] != "/bin/sh" || command[1] != "-c" {
+			t.Fatalf("command at %v = %#v, found=%v, err=%v", path, command, found, err)
 		}
 		args, found, err := unstructured.NestedStringSlice(container, "args")
-		if err != nil || !found || len(args) != 0 {
-			t.Fatalf("args at %v = %#v, found=%v, err=%v; want explicit empty args", path, args, found, err)
+		if err != nil || !found || len(args) != 1 || args[0] != "vllm serve /models --served-model-name qwen" {
+			t.Fatalf("args at %v = %#v, found=%v, err=%v", path, args, found, err)
 		}
 	}
 	parallelism, found, err := unstructured.NestedMap(obj.Object, "spec", "parallelism")
@@ -366,6 +379,27 @@ func TestKServeDeleteUsesForegroundAndAbsenceIsStopped(t *testing.T) {
 	}
 }
 
+func TestKServeDeleteRemovesRawDeploymentAnnotationBeforeDelete(t *testing.T) {
+	spec := DesiredRuntime{RuntimeSpec: RuntimeSpec{TenantID: "tenant", ServiceID: "service", Name: "model", Namespace: "models", RuntimeMode: "deployment", Generation: 1}, Bindings: []RuntimeBinding{{Kind: KServeInferenceServiceKind, Namespace: "models", Name: "model", UID: "isvc-uid", ResourceVersion: "7", Role: "runtime"}}}
+	obj := newKServeInferenceService("models", "model")
+	obj.SetUID(types.UID("isvc-uid"))
+	obj.SetResourceVersion("7")
+	obj.SetAnnotations(map[string]string{"serving.kserve.io/deploymentMode": kserveDeploymentMode})
+	base := fake.NewClientBuilder().WithScheme(executorScheme(t)).WithObjects(obj).Build()
+	cl := &captureDeleteClient{Client: base}
+	e := &KServeRuntimeExecutor{RuntimeExecutor: &RuntimeExecutor{Client: cl}}
+	if err := e.deleteKServe(context.Background(), spec.Bindings[0]); err != nil {
+		t.Fatal(err)
+	}
+	current := newKServeInferenceService("models", "model")
+	if err := base.Get(context.Background(), client.ObjectKeyFromObject(current), current); err != nil {
+		t.Fatal(err)
+	}
+	if _, found := current.GetAnnotations()["serving.kserve.io/deploymentMode"]; found {
+		t.Fatal("RawDeployment annotation must be removed before KServe deletion")
+	}
+}
+
 func TestKServeLLMRuntimeWaitsForCurrentLeaderWorkerSet(t *testing.T) {
 	for _, tc := range []struct {
 		name                    string
@@ -422,7 +456,7 @@ func TestKServeLLMRuntimeWaitsForCurrentLeaderWorkerSet(t *testing.T) {
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			spec := RuntimeSpec{TenantID: "tenant", ServiceID: "service", Name: "model", Namespace: "models", Image: "engine:v2", Generation: 2, Replicas: 2, WorkerReplicas: 1, RuntimeMode: "leader_worker_set", ArtifactProvider: "model", ModelClaim: "model-pvc", CommandArgv: []string{"/requested-command", "caller-arg"}}
+			spec := RuntimeSpec{TenantID: "tenant", ServiceID: "service", Name: "model", Namespace: "models", Image: "engine:v2", Generation: 2, Replicas: 2, WorkerReplicas: 1, RuntimeMode: "leader_worker_set", ArtifactProvider: "model", ModelClaim: "model-pvc", EngineCommand: "/requested-command caller-arg"}
 			obj, err := RenderKServeRuntime(spec)
 			if err != nil {
 				t.Fatal(err)
@@ -483,8 +517,8 @@ func TestKServeContainerMatchAllowsControllerInjectedFields(t *testing.T) {
 	expected := corev1.Container{
 		Name:    "main",
 		Image:   "engine:v1",
-		Command: []string{"vllm", "serve", "/models"},
-		Args:    []string{},
+		Command: []string{"/bin/sh", "-c"},
+		Args:    []string{"vllm serve /models"},
 		Resources: corev1.ResourceRequirements{
 			Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
 		},

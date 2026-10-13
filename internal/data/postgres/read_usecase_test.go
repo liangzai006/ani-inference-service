@@ -101,7 +101,7 @@ func TestReadUseCaseProjectsArtifactAndEngineFields(t *testing.T) {
 		ArtifactProvider: "s3", ArtifactRef: "bucket/model", ArtifactSHA256: "abc123",
 		ImageRef: "engine:v2", ServedModelName: "resnet", EngineRuntime: "vllm",
 		RuntimeProvider: "kserve",
-		CommandArgv:     []byte(`["--port","8080"]`), RequestHash: RequestHash([]byte(opID.String())),
+		EngineJSON:      []byte(`{"command":["/bin/sh","-c"],"args":["--port 8080"]}`), RequestHash: RequestHash([]byte(opID.String())),
 		IdempotencyKey: "projection-" + opID.String(),
 	}); err != nil {
 		t.Fatal(err)
@@ -126,7 +126,7 @@ func TestReadUseCaseProjectsArtifactAndEngineFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.GetAppliedGeneration() != 0 || got.GetServedModelName() != "resnet" || got.GetRuntime().GetProvider() != "kserve" || got.GetModelArtifact().GetProvider() != "s3" || got.GetModelArtifact().GetReference() != "bucket/model" || got.GetEngine().GetImage() != "engine:v2" || got.GetEngine().GetType() != "vllm" || len(got.GetEngine().GetCommand()) != 2 {
+	if got.GetAppliedGeneration() != 0 || got.GetServedModelName() != "resnet" || got.GetRuntime().GetProvider() != "kserve" || got.GetModelArtifact().GetProvider() != "s3" || got.GetModelArtifact().GetReference() != "bucket/model" || got.GetEngine().GetImage() != "engine:v2" || got.GetEngine().GetType() != "vllm" || got.GetEngine().GetCommand() != "--port 8080" {
 		t.Fatalf("projection lost artifact/engine fields: %+v", got)
 	}
 }

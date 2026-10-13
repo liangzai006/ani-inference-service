@@ -11,7 +11,7 @@ import (
 
 // UpdateUseCase refreshes the authoritative Model artifact snapshot when a
 // caller selects another version. Model supplies artifact metadata only; it
-// never fills or changes the request-owned engine type or startup argv.
+// never fills or changes the request-owned engine type or complete command.
 type UpdateUseCase struct {
 	client *Client
 	next   inference.UpdateUseCase

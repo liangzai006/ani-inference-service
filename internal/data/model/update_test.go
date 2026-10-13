@@ -2,7 +2,6 @@ package model
 
 import (
 	"context"
-	"slices"
 	"testing"
 
 	inferencev1 "github.com/zhangzhe-ctrl/ani-inference-service/api/inference/v1"
@@ -27,7 +26,7 @@ func TestUpdateResolvesModelVersionBeforePersistingSpec(t *testing.T) {
 	if _, err := NewUpdateUseCase(NewClient(api), next).Update(context.Background(), in); err != nil {
 		t.Fatal(err)
 	}
-	if !next.called || next.in.ModelVersionID != in.ModelVersionID || next.in.ArtifactRef != api.version.StoragePath || next.in.ArtifactSHA256 != api.version.ChecksumSha256 || next.in.EngineRuntime != "" || len(next.in.CommandArgv) != 0 {
+	if !next.called || next.in.ModelVersionID != in.ModelVersionID || next.in.ArtifactRef != api.version.StoragePath || next.in.ArtifactSHA256 != api.version.ChecksumSha256 || next.in.EngineRuntime != "" || next.in.EngineCommand != "" {
 		t.Fatalf("persisted input=%+v", next.in)
 	}
 }
@@ -48,12 +47,12 @@ func TestUpdatePreservesCallerEngineConfiguration(t *testing.T) {
 		TenantID:       "tenant",
 		ModelVersionID: "version-id",
 		EngineRuntime:  "custom-runtime",
-		CommandArgv:    []string{"custom-server", "--model", "/models", "--max-model-len", "8192", "--served-model-name", "custom-qwen"},
+		EngineCommand:  "custom-server --model /models --max-model-len 8192 --served-model-name custom-qwen",
 	}
 	if _, err := NewUpdateUseCase(NewClient(&modelAPIFake{version: readyVersion()}), next).Update(context.Background(), in); err != nil {
 		t.Fatal(err)
 	}
-	if !next.called || next.in.EngineRuntime != in.EngineRuntime || !slices.Equal(next.in.CommandArgv, in.CommandArgv) {
+	if !next.called || next.in.EngineRuntime != in.EngineRuntime || next.in.EngineCommand != in.EngineCommand {
 		t.Fatalf("caller engine configuration was changed: %+v", next.in)
 	}
 }

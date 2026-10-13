@@ -1,6 +1,7 @@
 package kubernetes
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -45,7 +46,33 @@ func TestDeploymentRendersNativeResourceMaps(t *testing.T) {
 		t.Fatal("generation must not be part of the immutable Deployment selector")
 	}
 	if got := deployment.Spec.Template.Spec.Containers[0].Command; len(got) != 0 {
-		t.Fatalf("command = %v, want omitted for empty argv", got)
+		t.Fatalf("command = %v, want omitted for empty command", got)
+	}
+}
+
+func TestDeploymentAndLWSWrapRawCommandExactly(t *testing.T) {
+	raw := `/usr/bin/env VLLM_USE_V1=1 vllm serve '/models with spaces' --max-model-len 8192`
+	deployment, err := Deployment(RuntimeSpec{TenantID: "tenant", ServiceID: "service", Name: "svc", Namespace: "ns", Image: "engine:v1", Generation: 1, Replicas: 1, EngineCommand: raw})
+	if err != nil {
+		t.Fatal(err)
+	}
+	container := deployment.Spec.Template.Spec.Containers[0]
+	if got, want := container.Command, []string{"/bin/sh", "-c"}; !slices.Equal(got, want) {
+		t.Fatalf("deployment command = %#v, want %#v", got, want)
+	}
+	if got, want := container.Args, []string{raw}; !slices.Equal(got, want) {
+		t.Fatalf("deployment args = %#v, want %#v", got, want)
+	}
+	lws, err := LeaderWorkerSet(RuntimeSpec{TenantID: "tenant", ServiceID: "service", Name: "svc", Namespace: "ns", Image: "engine:v1", Generation: 1, Replicas: 1, WorkerReplicas: 1, EngineCommand: raw})
+	if err != nil {
+		t.Fatal(err)
+	}
+	container = lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers[0]
+	if got, want := container.Command, []string{"/bin/sh", "-c"}; !slices.Equal(got, want) {
+		t.Fatalf("LWS command = %#v, want %#v", got, want)
+	}
+	if got, want := container.Args, []string{raw}; !slices.Equal(got, want) {
+		t.Fatalf("LWS args = %#v, want %#v", got, want)
 	}
 }
 

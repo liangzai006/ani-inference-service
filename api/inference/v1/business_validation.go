@@ -19,7 +19,7 @@ func ValidateBusinessPayload(req *CreateInferenceServiceRequest) error {
 		return fmt.Errorf("model_version_id must be a UUID")
 	}
 	engine := req.GetEngine()
-	if engine == nil || strings.TrimSpace(engine.GetType()) == "" || strings.TrimSpace(engine.GetImage()) == "" || len(engine.GetCommand()) == 0 {
+	if engine == nil || strings.TrimSpace(engine.GetType()) == "" || strings.TrimSpace(engine.GetImage()) == "" || strings.TrimSpace(engine.GetCommand()) == "" {
 		return fmt.Errorf("engine type, image and command are required")
 	}
 	if req.GetReplicas() < 1 {

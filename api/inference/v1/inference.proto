@@ -64,8 +64,11 @@ message ModelArtifact {
 message EngineSpec {
   string type = 1;
   string image = 2;
-  repeated string command = 3;
-  repeated string args = 4;
+  // command is the complete shell command, preserved byte-for-byte until
+  // the Kubernetes adapter wraps it as ["/bin/sh", "-c"] plus one arg.
+  string command = 5;
+  reserved 3, 4;
+  reserved "args";
 }
 
 message InferenceService {

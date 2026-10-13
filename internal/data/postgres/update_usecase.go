@@ -45,9 +45,12 @@ func (u *UpdateUseCase) Update(ctx context.Context, in inferencebiz.UpdateInput)
 	if gpuPlanDigest == "" && in.GPUPlan != nil {
 		gpuPlanDigest = in.GPUPlan.ResolutionDigest
 	}
-	commandJSON, err := json.Marshal(in.CommandArgv)
-	if err != nil {
-		return nil, err
+	var engineJSON []byte
+	if in.EngineCommand != "" {
+		engineJSON, err = marshalEngineSpec(in.EngineCommand)
+		if err != nil {
+			return nil, err
+		}
 	}
 	serviceID, err := parseUUID("service_id", in.ServiceID, false)
 	if err != nil {
@@ -170,7 +173,7 @@ func (u *UpdateUseCase) Update(ctx context.Context, in inferencebiz.UpdateInput)
 	}
 	provider := in.RuntimeProvider
 	ec, es, et, ep := endpointValues(in.Endpoint)
-	rows, err := q.CloneSpecWithRuntimeUpdate(ctx, CloneSpecWithRuntimeUpdateParams{ID: pgUUID(uuid.New()), TargetGeneration: target, ModelVersionID: modelVersionID, Resources: resourcesJSON, Replicas: in.Replicas, RuntimeMode: mode, WorkerReplicas: workers, RuntimeProvider: provider, ArtifactProvider: in.ArtifactProvider, ArtifactRef: in.ArtifactRef, ArtifactSha256: in.ArtifactSHA256, ImageRef: in.ImageRef, ServedModelName: in.ServedModelName, EngineRuntime: in.EngineRuntime, CommandArgv: commandJSON, EndpointContainerPort: ec, EndpointServicePort: es, EndpointTargetPort: et, EndpointProtocol: ep, GpuRequest: gpuRequestJSON, GpuPlan: gpuPlanJSON, GpuPlanDigest: pgtype.Text{String: gpuPlanDigest, Valid: gpuPlanDigest != ""}, TenantID: tenant, ServiceID: serviceID, SourceGeneration: current.DesiredGeneration})
+	rows, err := q.CloneSpecWithRuntimeUpdate(ctx, CloneSpecWithRuntimeUpdateParams{ID: pgUUID(uuid.New()), TargetGeneration: target, ModelVersionID: modelVersionID, Resources: resourcesJSON, Replicas: in.Replicas, RuntimeMode: mode, WorkerReplicas: workers, RuntimeProvider: provider, ArtifactProvider: in.ArtifactProvider, ArtifactRef: in.ArtifactRef, ArtifactSha256: in.ArtifactSHA256, ImageRef: in.ImageRef, ServedModelName: in.ServedModelName, EngineRuntime: in.EngineRuntime, CommandArgv: engineJSON, EndpointContainerPort: ec, EndpointServicePort: es, EndpointTargetPort: et, EndpointProtocol: ep, GpuRequest: gpuRequestJSON, GpuPlan: gpuPlanJSON, GpuPlanDigest: pgtype.Text{String: gpuPlanDigest, Valid: gpuPlanDigest != ""}, TenantID: tenant, ServiceID: serviceID, SourceGeneration: current.DesiredGeneration})
 	if err != nil {
 		return nil, err
 	}

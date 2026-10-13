@@ -79,11 +79,9 @@ func (s *RuntimeSource) CurrentRuntime(ctx context.Context, tenantID, serviceID 
 	if err != nil {
 		return kube.DesiredRuntime{}, err
 	}
-	var command []string
-	if len(row.CommandArgv) != 0 {
-		if err := json.Unmarshal(row.CommandArgv, &command); err != nil {
-			return kube.DesiredRuntime{}, fmt.Errorf("decode command argv: %w", err)
-		}
+	command, err := unmarshalEngineSpec(row.CommandArgv)
+	if err != nil {
+		return kube.DesiredRuntime{}, err
 	}
 	var resourceSpec resources.Spec
 	if len(row.Resources) != 0 {
@@ -190,7 +188,7 @@ func (s *RuntimeSource) CurrentRuntime(ctx context.Context, tenantID, serviceID 
 		RuntimeSpec: kube.RuntimeSpec{
 			TenantID: tenantID, ServiceID: serviceID, Name: aggregate.Name, RuntimeProvider: provider,
 			Namespace: s.Namespace, Image: row.ImageRef, ModelVersionID: row.ModelVersionID.String(), ArtifactProvider: row.ArtifactProvider, ArtifactRef: row.ArtifactRef, ArtifactSHA256: row.ArtifactSha256, ServedModelName: row.ServedModelName, EngineRuntime: row.EngineRuntime, Generation: generation,
-			CommandArgv: command, Resources: normalized, Replicas: row.Replicas,
+			EngineCommand: command, Resources: normalized, Replicas: row.Replicas,
 			WorkerReplicas: workers, RuntimeMode: mode,
 			GPUPlan: gpuPlan, ManagedGPU: managed.Managed,
 			Endpoint: endpoint,

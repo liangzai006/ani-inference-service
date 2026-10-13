@@ -486,7 +486,8 @@ func renderKServeInferenceService(spec RuntimeSpec) (*unstructured.Unstructured,
 	if err != nil {
 		return nil, err
 	}
-	container := corev1.Container{Name: "kserve-container", Image: spec.Image, Command: append([]string(nil), spec.CommandArgv...), Resources: requirements}
+	command, args := shellCommand(spec.EngineCommand)
+	container := corev1.Container{Name: "kserve-container", Image: spec.Image, Command: command, Args: args, Resources: requirements}
 	if spec.ContainerPort > 0 {
 		if !validPort(spec.ContainerPort) || !validProtocol(spec.ServiceProtocol) {
 			return nil, errors.New("container port requires a valid port and explicit protocol")
@@ -576,7 +577,8 @@ func renderKServeLLMInferenceService(spec RuntimeSpec) (*unstructured.Unstructur
 	if err != nil {
 		return nil, err
 	}
-	container := corev1.Container{Name: "main", Image: spec.Image, Command: append([]string(nil), spec.CommandArgv...), Args: []string{}, Resources: requirements}
+	command, args := shellCommand(spec.EngineCommand)
+	container := corev1.Container{Name: "main", Image: spec.Image, Command: command, Args: args, Resources: requirements}
 	if spec.ContainerPort > 0 {
 		if !validPort(spec.ContainerPort) || !validProtocol(spec.ServiceProtocol) {
 			return nil, errors.New("container port requires a valid port and explicit protocol")
@@ -605,10 +607,6 @@ func renderKServeLLMInferenceService(spec RuntimeSpec) (*unstructured.Unstructur
 	if err != nil {
 		return nil, fmt.Errorf("convert LLMInferenceService container: %w", err)
 	}
-	// The built-in KServe config is merged into this container. An explicit
-	// empty args list prevents that base config from silently appending engine
-	// flags to the caller-provided command.
-	containerMap["args"] = []interface{}{}
 	workerContainer := map[string]interface{}{}
 	for key, value := range containerMap {
 		workerContainer[key] = value
@@ -756,6 +754,32 @@ func (e *KServeRuntimeExecutor) deleteKServe(ctx context.Context, binding Runtim
 	}
 	if obj.GetDeletionTimestamp() != nil {
 		return nil
+	}
+	// KServe's validating webhook can reject the finalizer/status update made
+	// during deletion when the object still carries the RawDeployment mode
+	// annotation. The webhook treats that update as a mode transition from its
+	// Standard default. Remove the mode marker in a metadata-only patch before
+	// issuing the foreground delete; the runtime is already withdrawn at this
+	// point, so no serving spec is changed.
+	if annotations := obj.GetAnnotations(); annotations != nil {
+		if _, found := annotations["serving.kserve.io/deploymentMode"]; found {
+			before := obj.DeepCopy()
+			delete(annotations, "serving.kserve.io/deploymentMode")
+			if len(annotations) == 0 {
+				obj.SetAnnotations(nil)
+			} else {
+				obj.SetAnnotations(annotations)
+			}
+			if err := e.Client.Patch(ctx, obj, client.MergeFrom(before)); err != nil {
+				return err
+			}
+			if err := reader.Get(ctx, client.ObjectKeyFromObject(obj), obj); err != nil {
+				if apierrors.IsNotFound(err) {
+					return nil
+				}
+				return err
+			}
+		}
 	}
 	uid, rv := types.UID(obj.GetUID()), obj.GetResourceVersion()
 	if err := e.Client.Delete(ctx, obj, client.Preconditions{UID: &uid, ResourceVersion: &rv}, client.PropagationPolicy(metav1.DeletePropagationForeground)); err != nil && !apierrors.IsNotFound(err) {

@@ -18,8 +18,6 @@ func (in *ModelReference) DeepCopy() *ModelReference {
 }
 func (in *EngineSpec) DeepCopyInto(out *EngineSpec) {
 	*out = *in
-	out.Command = append([]string(nil), in.Command...)
-	out.Args = append([]string(nil), in.Args...)
 }
 func (in *EngineSpec) DeepCopy() *EngineSpec {
 	if in == nil {

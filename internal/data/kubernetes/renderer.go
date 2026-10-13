@@ -5,6 +5,7 @@ package kubernetes
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/gpu"
 	"github.com/zhangzhe-ctrl/ani-inference-service/internal/biz/resources"
@@ -30,7 +31,7 @@ type RuntimeSpec struct {
 	ServedModelName, EngineRuntime                                string
 	RuntimeProvider                                               string
 	Generation                                                    int64
-	CommandArgv                                                   []string
+	EngineCommand                                                 string
 	Resources                                                     resources.Normalized
 	Replicas, WorkerReplicas                                      int32
 	RuntimeMode                                                   string
@@ -96,9 +97,7 @@ func Deployment(spec RuntimeSpec) (*appsv1.Deployment, error) {
 		}
 		container.Ports = []corev1.ContainerPort{{Name: "http", ContainerPort: spec.ContainerPort, Protocol: spec.ServiceProtocol}}
 	}
-	if len(spec.CommandArgv) > 0 {
-		container.Command = append([]string(nil), spec.CommandArgv...)
-	}
+	container.Command, container.Args = shellCommand(spec.EngineCommand)
 	obj := &appsv1.Deployment{
 		TypeMeta: metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"},
 		ObjectMeta: metav1.ObjectMeta{
@@ -141,9 +140,7 @@ func LeaderWorkerSet(spec RuntimeSpec) (*lwsv1.LeaderWorkerSet, error) {
 		}
 		container.Ports = []corev1.ContainerPort{{Name: "http", ContainerPort: spec.ContainerPort, Protocol: spec.ServiceProtocol}}
 	}
-	if len(spec.CommandArgv) > 0 {
-		container.Command = append([]string(nil), spec.CommandArgv...)
-	}
+	container.Command, container.Args = shellCommand(spec.EngineCommand)
 	groups, size := spec.Replicas, spec.WorkerReplicas+1
 	template := corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: labels}, Spec: corev1.PodSpec{Containers: []corev1.Container{container}}}
 	if err := mountModel(&template.Spec, spec); err != nil {
@@ -228,6 +225,13 @@ func normalizeEndpoint(spec RuntimeSpec) RuntimeSpec {
 		spec.TargetPort, spec.ServiceProtocol = spec.Endpoint.TargetPort, spec.Endpoint.Protocol
 	}
 	return spec
+}
+
+func shellCommand(raw string) ([]string, []string) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	return []string{"/bin/sh", "-c"}, []string{raw}
 }
 
 func validPort(port int32) bool { return port >= 1 && port <= 65535 }

@@ -15,7 +15,7 @@ type UpdateInput struct {
 	ArtifactProvider, ArtifactRef, ArtifactSHA256      string
 	ImageRef, ServedModelName, EngineRuntime           string
 	RuntimeProvider                                    string
-	CommandArgv                                        []string
+	EngineCommand                                      string
 	Resources                                          resources.Normalized
 	GPUPlan                                            *gpu.Plan
 	GPUPlanDigest                                      string

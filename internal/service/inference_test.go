@@ -17,7 +17,7 @@ type fakeCreate struct{ in CreateInput }
 type fakeUpdate struct{ in inferencebiz.UpdateInput }
 
 func validEngine() *inferencev1.EngineSpec {
-	return &inferencev1.EngineSpec{Type: "vllm", Image: "engine:v1", Command: []string{"vllm", "serve", "/models"}}
+	return &inferencev1.EngineSpec{Type: "vllm", Image: "engine:v1", Command: "vllm serve /models"}
 }
 
 func TestRequireTenantRejectsAbsentTrustedContext(t *testing.T) {

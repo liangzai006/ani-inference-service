@@ -2,7 +2,6 @@ package model
 
 import (
 	"context"
-	"slices"
 	"testing"
 
 	inferencev1 "github.com/zhangzhe-ctrl/ani-inference-service/api/inference/v1"
@@ -22,12 +21,12 @@ func (c *createCapture) Create(_ context.Context, in inference.CreateInput) (*in
 func TestCreateResolvesVersionBeforePersistingSpec(t *testing.T) {
 	api := &modelAPIFake{version: readyVersion()}
 	next := &createCapture{}
-	in := inference.CreateInput{TenantID: "tenant", ModelVersionID: "version-id", RequestID: "distinct-operation-request", EngineRuntime: "custom", CommandArgv: []string{"custom-server", "serve"}}
+	in := inference.CreateInput{TenantID: "tenant", ModelVersionID: "version-id", RequestID: "distinct-operation-request", EngineRuntime: "custom", EngineCommand: "custom-server serve"}
 	_, err := NewCreateUseCase(NewClient(api), next).Create(context.Background(), in)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !next.called || api.request.GetModelVersionId() != in.ModelVersionID || next.in.ArtifactRef != api.version.StoragePath || next.in.ArtifactSHA256 != api.version.ChecksumSha256 || next.in.EngineRuntime != in.EngineRuntime || !slices.Equal(next.in.CommandArgv, in.CommandArgv) || next.in.RequestID != in.RequestID {
+	if !next.called || api.request.GetModelVersionId() != in.ModelVersionID || next.in.ArtifactRef != api.version.StoragePath || next.in.ArtifactSHA256 != api.version.ChecksumSha256 || next.in.EngineRuntime != in.EngineRuntime || next.in.EngineCommand != in.EngineCommand || next.in.RequestID != in.RequestID {
 		t.Fatalf("persisted input=%+v", next.in)
 	}
 }
@@ -64,12 +63,12 @@ func TestCreatePreservesCallerEngineConfiguration(t *testing.T) {
 		TenantID:       "tenant",
 		ModelVersionID: "version-id",
 		EngineRuntime:  "custom-runtime",
-		CommandArgv:    []string{"custom-server", "--model", "/models", "--max-model-len", "8192", "--served-model-name", "custom-qwen"},
+		EngineCommand:  "custom-server --model /models --max-model-len 8192 --served-model-name custom-qwen",
 	}
 	if _, err := NewCreateUseCase(NewClient(&modelAPIFake{version: readyVersion()}), next).Create(context.Background(), in); err != nil {
 		t.Fatal(err)
 	}
-	if !next.called || next.in.EngineRuntime != in.EngineRuntime || !slices.Equal(next.in.CommandArgv, in.CommandArgv) {
+	if !next.called || next.in.EngineRuntime != in.EngineRuntime || next.in.EngineCommand != in.EngineCommand {
 		t.Fatalf("caller engine configuration was changed: %+v", next.in)
 	}
 }

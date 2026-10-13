@@ -440,7 +440,7 @@ func (e *RuntimeExecutor) applyCR(ctx context.Context, spec RuntimeSpec, desired
 			ModelRef:        &crdv1.ModelReference{VersionID: spec.ModelVersionID, ArtifactDigest: spec.ArtifactSHA256},
 			ServedModelName: spec.ServedModelName, Resource: corev1.ResourceRequirements{Requests: requests, Limits: limits},
 			Replicas: spec.Replicas, RuntimeMode: spec.RuntimeMode, WorkerReplicas: spec.WorkerReplicas,
-			Engine: &crdv1.EngineSpec{Type: spec.EngineRuntime, Image: spec.Image, Command: append([]string(nil), spec.CommandArgv...)},
+			Engine: &crdv1.EngineSpec{Type: spec.EngineRuntime, Image: spec.Image, Command: spec.EngineCommand},
 		},
 	}
 	if endpoint := endpointForCR(spec); endpoint != nil {
