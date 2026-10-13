@@ -1,0 +1,65 @@
+# 扁平推理请求验证记录（2026-10-13）
+
+本记录对应 `2026-10-13-flat-inference-request` 计划，验证范围是 Model → Gov →
+Inference → KServe 的新接口契约。命令字段在业务接口中是一个完整字符串；Kubernetes
+适配层固定使用 `/bin/sh -c` 包装，不解析、拼接或追加引擎参数。
+
+## 已通过
+
+- Model：`make verify` 通过。Model 版本的镜像和完整启动命令可以保存、读取并参与
+  幂等指纹计算。
+- Inference：`go test ./...`、`go vet ./...`、`go build ./...`、`sqlc generate`、
+  `git diff --check` 和 `./charts/verify.sh` 通过。渲染测试覆盖 KServe shell wrapper、
+  CPU/内存、实例数、served model、LWS worker shape 和 GPU 管理字段。
+- Gov：仓库中的布局检查、入口检查、代码测试和生成检查已执行；扁平创建请求以及
+  Model Ready 门禁的定向测试通过。
+- 新集群只读预检：当前 kube context 是 `kubernetes-admin@kubekey`，三个节点均为
+  `Ready`，KServe `InferenceService` CRD 和 LWS CRD 存在，`ani-system` 中 Model、
+  Inference、Governance Deployment 均为 `Ready`。
+
+## 未通过或未验证
+
+- Inference 的 `buf lint` / `buf generate`：当前工作区缺少外部导入
+  `accelerator/integration/v1/owner_gpu_attachment.proto`，因此返回失败；这不是业务
+  测试失败，需在完整 proto 依赖目录或发布模块可用后重跑。
+- Gov `make verify-ci`：业务测试执行到最后，但安全审计门禁不可用：本机
+  `govulncheck` 是 v1.6.0（门禁要求 v1.7.0），且未安装要求的 `gitleaks` 版本。需要
+  安装仓库固定版本后重跑。
+- 集群没有任何节点上报 `nvidia.com/gpu`，因此 GPU、Accelerator 和多机多卡为
+  `not_verified`。
+- 本次只做了集群预检，没有在集群创建新的推理实例。Model 导入端点、Gov 认证凭据、
+  Higress 公网入口和实际 KServe CPU 推理调用未在本次门禁中执行，因此不能据此声称
+  Gov → Model → Inference → Higress 的完整数据面链路已经通过。
+
+## 重跑命令
+
+```bash
+# Model
+cd /root/kubercon/ani-model-service
+make verify
+
+# Governance（需要同级 ani-model-service、ani-inference-service）
+cd /root/kubercon/ani-governance
+make verify-ci
+
+# Inference
+cd /root/kubercon/ani-inference-service
+buf lint
+buf generate
+sqlc generate
+go test ./...
+go vet ./...
+go build ./...
+git diff --check
+./charts/verify.sh
+
+# 只读集群预检
+kubectl config current-context
+kubectl get nodes -o wide
+kubectl get crd inferenceservices.serving.kserve.io leaderworkersets.leaderworkerset.x-k8s.io
+kubectl get deploy,pod -n ani-system
+```
+
+真实 CPU 冒烟需要在确认 Model 版本为 `ready`、Gov 认证和 Higress 入口可用后，使用
+Helm 或 `kubectl` 创建一条测试推理服务；验证 KServe 对象、Pod 的 `/bin/sh -c` 与完整
+命令字符串后，再通过 Gov 删除该服务。不要使用测试安装脚本。
