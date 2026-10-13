@@ -12,7 +12,7 @@ import (
 
 // CreateUseCase resolves authoritative Model artifact metadata before
 // Inference's own aggregate transaction. Model supplies artifact metadata only;
-// the request must supply the engine type and caller-owned startup command/args. The signed
+// the request must supply the engine type and caller-owned complete command. The signed
 // URL is acquired at download time, never stored in the durable spec. This does
 // not mark a runtime model ready.
 type CreateUseCase struct {
