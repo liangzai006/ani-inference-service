@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 )
 
 // engineSpecJSON is stored in the existing command_argv JSONB column. The
@@ -29,8 +30,17 @@ func unmarshalEngineSpec(raw []byte) (string, error) {
 		Command json.RawMessage `json:"command"`
 		Args    json.RawMessage `json:"args"`
 	}
-	if err := json.Unmarshal(trimmed, &current); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(trimmed))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&current); err != nil {
 		return "", fmt.Errorf("decode engine command: %w", err)
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return "", fmt.Errorf("decode engine command: multiple JSON values")
+		}
+		return "", fmt.Errorf("decode engine command: trailing data: %w", err)
 	}
 	if len(current.Command) == 0 {
 		return "", fmt.Errorf("engine command is missing")

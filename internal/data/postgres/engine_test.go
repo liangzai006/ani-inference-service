@@ -40,3 +40,14 @@ func TestEngineSpecJSONRejectsNonShellLegacyWrapper(t *testing.T) {
 		t.Fatal("non-shell legacy wrapper accepted")
 	}
 }
+
+func TestEngineSpecJSONRejectsUnknownFields(t *testing.T) {
+	for _, raw := range []string{
+		`{"command":"vllm serve /models","extra":"reject"}`,
+		`{"command":["/bin/sh","-c"],"args":["vllm serve /models"],"extra":"reject"}`,
+	} {
+		if _, err := unmarshalEngineSpec([]byte(raw)); err == nil {
+			t.Fatalf("engine JSON with unknown field accepted: %s", raw)
+		}
+	}
+}
