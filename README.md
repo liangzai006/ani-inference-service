@@ -4,6 +4,20 @@
 
 完整文档入口：[docs/START-HERE.md](docs/START-HERE.md)。当前状态：[docs/execution/status.md](docs/execution/status.md)。
 
+## 安全检查
+
+安全扫描工具安装在仓库本地 `.tools/bin`，不会成为运行时依赖：
+
+```bash
+bash scripts/security-audit.sh secrets
+bash scripts/security-audit.sh vuln
+# 两项一起执行
+bash scripts/security-audit.sh audit
+```
+
+脚本固定使用 `govulncheck v1.7.0` 和 `gitleaks v8.30.1`。漏洞扫描返回非零时表示发现
+需要处理的依赖或 Go 工具链漏洞；密钥扫描返回非零时表示发现敏感信息。
+
 ## 文档
 
 设计导航、规格、ADR、计划和执行记录均位于 `docs/`；领域词汇位于仓库根目录 `CONTEXT.md`。
