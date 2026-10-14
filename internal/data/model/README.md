@@ -8,9 +8,10 @@ not an Inference materialization or runtime readiness observation.
 With `ANI_MODEL_GRPC_ADDR` configured, the composition root wraps the PostgreSQL
 create use case with the Model lookup. It persists the authoritative artifact
 reference/SHA256 in Inference's own spec. The request must provide the engine
-type, image, and startup command; Model engine/command fields are
-compatibility metadata and are never used as defaults. The request's engine
-values are persisted and passed to the Kubernetes runtime unchanged.
+type, image, and startup command; Model engine fields are returned to callers
+as model-version defaults, but this adapter does not overwrite the caller's
+final values. The request's engine values are persisted and passed to the
+Kubernetes runtime unchanged.
 `artifact_provider=model` identifies Model
 as the authority for obtaining a download URL; it does not infer a storage
 backend from an object key. Signed download URLs are acquired on demand and
@@ -36,3 +37,18 @@ only `go_package` adjusted. Regenerate from the Inference repository with Buf
 buf generate --template buf.model.gen.yaml --path api/model/v1/model.proto
 go test ./internal/data/model -count=1
 ```
+
+## 中文字段约定
+
+前端选择模型版本后，调用 Model/Governance 的 `GetModelVersion` 或
+`ListModelVersions`，用返回值填充推理创建表单：
+
+| ModelVersion 字段 | 推理创建字段 |
+| --- | --- |
+| `engine_type` | `engine.type` |
+| `engine_image` | `engine.image` |
+| `startup_command` | `engine.command` |
+
+创建时仍提交完整的 `engine` 对象，因此用户可以临时修改镜像、引擎类型或命令。
+Inference 要求三项最终值都非空，并按原字符串保存；不会拆分命令、追加参数或从
+模型名称生成 `--served-model-name`。
