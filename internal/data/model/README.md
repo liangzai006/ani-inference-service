@@ -23,9 +23,10 @@ Client errors retain their gRPC status, and failed Model queries do not create
 	artifact size as its download/extraction limit, so the old fixed 512 MiB
 	ceiling is not used.
 
-The new-cluster deployment uses plaintext Model gRPC inside the cluster. Model
-RPCs take the tenant ID from the request and do not require a trusted Principal,
-TLS certificate, or `ANI_MODEL_GRPC_SERVER_NAME`.
+The new-cluster deployment uses mTLS for Model gRPC inside the cluster. Model
+RPCs require the verified caller identity, tenant metadata, client certificate,
+and the configured `ANI_MODEL_GRPC_SERVER_NAME`; the request tenant cannot
+replace the trusted principal.
 
 The wire contract is a service-owned snapshot of Model's `model.v1` API, with
 only `go_package` adjusted. Regenerate from the Inference repository with Buf

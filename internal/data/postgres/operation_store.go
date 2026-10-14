@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -32,6 +33,95 @@ func NewOperationStore(pool *pgxpool.Pool) *OperationStore { return &OperationSt
 
 var _ inferencebiz.OperationStore = (*OperationStore)(nil)
 var _ inferencebiz.AtomicStepStore = (*OperationStore)(nil)
+
+// SaveManagedGPUReleasePods persists the complete Pod identity scope needed
+// by AcceleratorUsageService.ObserveRelease. The scope is keyed by the
+// tenant, service and durable delete operation so retries and process
+// restarts reuse the same UIDs rather than rediscovering replacement Pods.
+func (s *OperationStore) SaveManagedGPUReleasePods(ctx context.Context, op inferencebiz.OperationContext, pods []gpu.PodRef) error {
+	if s == nil || s.pool == nil {
+		return errors.New("nil postgres operation store")
+	}
+	if err := validateManagedGPUReleasePods(pods); err != nil {
+		return err
+	}
+	tenant, err := tenantUUID(op.TenantID)
+	if err != nil {
+		return err
+	}
+	service, err := workUUID("service_id", op.ServiceID)
+	if err != nil {
+		return err
+	}
+	operation, err := workUUID("operation_id", op.ID)
+	if err != nil {
+		return err
+	}
+	payload, err := json.Marshal(pods)
+	if err != nil {
+		return fmt.Errorf("encode managed GPU release scope: %w", err)
+	}
+	return New(s.pool).UpsertManagedGPUReleaseScope(ctx, UpsertManagedGPUReleaseScopeParams{
+		TenantID: tenant, ServiceID: service, OperationID: operation, Pods: payload,
+	})
+}
+
+// LoadManagedGPUReleasePods returns the exact persisted Pod scope for a
+// managed delete operation. A missing row is an error: an empty scope cannot
+// be submitted to Accelerator as release evidence.
+func (s *OperationStore) LoadManagedGPUReleasePods(ctx context.Context, op inferencebiz.OperationContext) ([]gpu.PodRef, error) {
+	if s == nil || s.pool == nil {
+		return nil, errors.New("nil postgres operation store")
+	}
+	tenant, err := tenantUUID(op.TenantID)
+	if err != nil {
+		return nil, err
+	}
+	service, err := workUUID("service_id", op.ServiceID)
+	if err != nil {
+		return nil, err
+	}
+	operation, err := workUUID("operation_id", op.ID)
+	if err != nil {
+		return nil, err
+	}
+	payload, err := New(s.pool).GetManagedGPUReleaseScope(ctx, GetManagedGPUReleaseScopeParams{
+		TenantID: tenant, ServiceID: service, OperationID: operation,
+	})
+	if err != nil {
+		return nil, err
+	}
+	var pods []gpu.PodRef
+	if err := json.Unmarshal(payload, &pods); err != nil {
+		return nil, fmt.Errorf("decode managed GPU release scope: %w", err)
+	}
+	if err := validateManagedGPUReleasePods(pods); err != nil {
+		return nil, fmt.Errorf("invalid persisted managed GPU release scope: %w", err)
+	}
+	return pods, nil
+}
+
+func validateManagedGPUReleasePods(pods []gpu.PodRef) error {
+	if len(pods) == 0 {
+		return errors.New("managed GPU release scope requires at least one Pod")
+	}
+	seen := make(map[string]struct{}, len(pods))
+	for _, pod := range pods {
+		for name, value := range map[string]string{
+			"pod.cluster_id": pod.ClusterID, "pod.namespace": pod.Namespace,
+			"pod.name": pod.Name, "pod.uid": pod.UID, "pod.container_name": pod.ContainerName,
+		} {
+			if strings.TrimSpace(value) == "" {
+				return fmt.Errorf("%s is required", name)
+			}
+		}
+		if _, ok := seen[pod.UID]; ok {
+			return fmt.Errorf("duplicate pod UID %q", pod.UID)
+		}
+		seen[pod.UID] = struct{}{}
+	}
+	return nil
+}
 
 // SaveGPUPlan persists one validated accelerator result while the worker still
 // owns the resolve_gpu operation lease. The SQL predicate also permits an
@@ -118,11 +208,45 @@ func (s *OperationStore) CurrentOperation(ctx context.Context, item work.Item) (
 		return inferencebiz.OperationContext{}, err
 	}
 	op.ManagedGPU = managed.Managed
+	if managed.Managed {
+		managedRow, managedErr := New(s.pool).GetManagedGPUResource(ctx, GetManagedGPUResourceParams{TenantID: row.TenantID, ResourceID: row.ServiceID})
+		if managedErr != nil {
+			return inferencebiz.OperationContext{}, managedErr
+		}
+		var original gpu.RefundContext
+		if err := json.Unmarshal(managedRow.OriginalContext, &original); err != nil {
+			return inferencebiz.OperationContext{}, fmt.Errorf("decode managed GPU context: %w", err)
+		}
+		op.ManagedGPUCreateOperationID = original.OriginalCreateOperationID
+		// A create observation stores the complete Pod UID scope under the
+		// immutable create operation. Copy it into the delete operation context
+		// so the release step survives worker/process boundaries.
+		createOperation, parseErr := workUUID("managed GPU create operation", original.OriginalCreateOperationID)
+		if parseErr != nil {
+			return inferencebiz.OperationContext{}, parseErr
+		}
+		if raw, scopeErr := New(s.pool).GetManagedGPUReleaseScope(ctx, GetManagedGPUReleaseScopeParams{TenantID: row.TenantID, ServiceID: row.ServiceID, OperationID: createOperation}); scopeErr == nil {
+			if err := json.Unmarshal(raw, &op.ManagedGPUReleasePods); err != nil {
+				return inferencebiz.OperationContext{}, fmt.Errorf("decode managed GPU release scope: %w", err)
+			}
+			if err := validateManagedGPUReleasePods(op.ManagedGPUReleasePods); err != nil {
+				return inferencebiz.OperationContext{}, fmt.Errorf("invalid managed GPU release scope: %w", err)
+			}
+		} else if !errors.Is(scopeErr, pgx.ErrNoRows) {
+			return inferencebiz.OperationContext{}, scopeErr
+		}
+	}
 	// Load accelerator state from the immutable target generation. This is
 	// intentionally best-effort for delete/legacy rows that have no spec; a
 	// malformed persisted GPU snapshot remains an error so a worker cannot
 	// project an unverified plan.
-	if spec, specErr := New(s.pool).GetSpec(ctx, GetSpecParams{TenantID: tenant, ServiceID: row.ServiceID, Generation: row.TargetGeneration}); specErr == nil {
+	spec, specErr := New(s.pool).GetSpec(ctx, GetSpecParams{TenantID: tenant, ServiceID: row.ServiceID, Generation: row.TargetGeneration})
+	if errors.Is(specErr, pgx.ErrNoRows) && op.Kind == "delete" {
+		// Delete advances the desired generation without cloning a new spec;
+		// use the last immutable generation for the runtime/GPU identity.
+		spec, specErr = New(s.pool).GetLatestSpec(ctx, GetLatestSpecParams{TenantID: tenant, ServiceID: row.ServiceID, Generation: row.TargetGeneration})
+	}
+	if specErr == nil {
 		op.Replicas, op.WorkerReplicas, op.RuntimeMode = spec.Replicas, spec.WorkerReplicas, spec.RuntimeMode
 		if op.WorkerReplicas == 0 {
 			op.WorkerReplicas = 1

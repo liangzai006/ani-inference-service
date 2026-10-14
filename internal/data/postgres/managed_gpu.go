@@ -7,11 +7,14 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	integrationv1 "github.com/zhangzhe-ctrl/ani-accelerator-service/api/gen/go/accelerator/integration/v1"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
 	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
 	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
+	integrationv1 "github.com/zhangzhe-ctrl/ani-accelerator-service/api/gen/go/accelerator/integration/v1"
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
@@ -173,7 +176,56 @@ func (u *CommandUseCase) acceptManagedGPUDelete(ctx context.Context, in inferenc
 	if len(accepted.replay) != 0 {
 		return decodeManagedResponse(accepted.replay)
 	}
-	response := managedIntentResponse(original, original.DeleteOperationID, "delete", "closing_intent")
+	q := New(tx)
+	service, serviceErr := q.GetServiceForUpdate(ctx, GetServiceForUpdateParams{TenantID: pgUUIDMust(original.TenantID), ID: pgUUIDMust(original.ResourceID)})
+	if serviceErr != nil && !errors.Is(serviceErr, pgx.ErrNoRows) {
+		return nil, serviceErr
+	}
+	if errors.Is(serviceErr, pgx.ErrNoRows) {
+		// Governance DELETE may arrive before CREATE. Keep only the durable
+		// closing intent; the later CREATE path will be rejected and no local
+		// workload can be adopted by this command.
+		response := managedIntentResponse(original, original.DeleteOperationID, "delete", "closing_intent")
+		snapshot, err := protojson.Marshal(response)
+		if err != nil {
+			return nil, err
+		}
+		if err := persistManagedGPUCommand(ctx, tx, in.ManagedGPU, "delete", original.DeleteOperationID, "closing_intent", snapshot); err != nil {
+			return nil, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return nil, err
+		}
+		return response, nil
+	}
+	if service.DeletedAt.Valid || service.DesiredState == "deleted" {
+		return nil, fmt.Errorf("%w: managed GPU resource is already deleted", inferencebiz.ErrInvalidState)
+	}
+	targetGeneration := service.DesiredGeneration + 1
+	if rows, err := q.TransitionService(ctx, TransitionServiceParams{
+		DesiredState: "deleted", TargetGeneration: targetGeneration, OperationID: pgUUIDMust(original.DeleteOperationID),
+		TenantID: service.TenantID, ServiceID: service.ID, ExpectedGeneration: service.DesiredGeneration,
+	}); err != nil {
+		return nil, err
+	} else if rows != 1 {
+		return nil, inferencebiz.ErrGenerationConflict
+	}
+	if err := q.InsertOperation(ctx, InsertOperationParams{TenantID: service.TenantID, ID: pgUUIDMust(original.DeleteOperationID), ServiceID: service.ID, Kind: "delete", Phase: "pending", Step: "withdraw_publication", TargetGeneration: targetGeneration, RequestHash: in.RequestHash}); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return nil, inferencebiz.ErrOperationActive
+		}
+		return nil, err
+	}
+	if err := q.UpsertResourceWork(ctx, UpsertResourceWorkParams{TenantID: service.TenantID, ServiceID: service.ID, DirtyVersion: targetGeneration}); err != nil {
+		return nil, err
+	}
+	payload, _ := json.Marshal(map[string]any{"kind": "delete", "desired_state": "deleted"})
+	if err := q.AppendAuditEvent(ctx, AppendAuditEventParams{TenantID: service.TenantID, EventID: pgUUID(uuid.New()), ServiceID: service.ID, OperationID: pgUUIDMust(original.DeleteOperationID), Generation: targetGeneration, EventType: "inference.delete.accepted", Actor: in.Actor, RequestID: in.RequestID, Payload: payload}); err != nil {
+		return nil, err
+	}
+	response := commandResponse(service.ID.String(), original.DeleteOperationID, targetGeneration, "delete", "withdraw_publication")
+	response.DurableOwnerAck = &integrationv1.DurableOwnerAck{OperationId: original.DeleteOperationID, ResourceId: original.ResourceID, Accepted: true}
 	snapshot, err := protojson.Marshal(response)
 	if err != nil {
 		return nil, err
@@ -185,6 +237,14 @@ func (u *CommandUseCase) acceptManagedGPUDelete(ctx context.Context, in inferenc
 		return nil, err
 	}
 	return response, nil
+}
+
+func pgUUIDMust(value string) pgtype.UUID {
+	u, err := uuid.Parse(value)
+	if err != nil {
+		return pgtype.UUID{}
+	}
+	return pgUUID(u)
 }
 
 // LoadRefundContext uses the original CREATE, never the current generation or

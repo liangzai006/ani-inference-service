@@ -48,6 +48,15 @@ type InferenceManagedGpuCommand struct {
 	CreatedAt         pgtype.Timestamptz
 }
 
+type InferenceManagedGpuReleaseScope struct {
+	TenantID    pgtype.UUID
+	ServiceID   pgtype.UUID
+	OperationID pgtype.UUID
+	Pods        []byte
+	CreatedAt   pgtype.Timestamptz
+	UpdatedAt   pgtype.Timestamptz
+}
+
 type InferenceManagedGpuResource struct {
 	TenantID              pgtype.UUID
 	ResourceID            pgtype.UUID
