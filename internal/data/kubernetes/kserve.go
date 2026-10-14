@@ -503,8 +503,19 @@ func renderKServeInferenceService(spec RuntimeSpec) (*unstructured.Unstructured,
 		container.Ports = []corev1.ContainerPort{{Name: "http", ContainerPort: spec.ContainerPort, Protocol: spec.ServiceProtocol}}
 	}
 	pod := corev1.PodSpec{Containers: []corev1.Container{container}}
-	if err := mountModel(&pod, spec); err != nil {
-		return nil, err
+	// KServe owns the predictor Service for an InferenceService, so an
+	// explicit Inference-owned endpoint is optional on this path. Keep the
+	// health probes only when the caller supplied a port; mounting the
+	// verified Model PVC must not fail merely because the public route is
+	// provided by KServe/Higress instead of an explicit endpoint Service.
+	if spec.ContainerPort > 0 {
+		if err := mountModel(&pod, spec); err != nil {
+			return nil, err
+		}
+	} else if spec.ModelClaim != "" {
+		if err := mountModelVolume(&pod, spec, false); err != nil {
+			return nil, err
+		}
 	}
 	gpuAnnotations, err := applyGPUPlanToPod(spec, &pod, "kserve-container")
 	if err != nil {

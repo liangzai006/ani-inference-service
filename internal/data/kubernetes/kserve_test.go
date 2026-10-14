@@ -113,6 +113,38 @@ func TestRenderKServeWrapsRawEngineCommandAndModelMount(t *testing.T) {
 	}
 }
 
+func TestRenderKServeMountsModelWithoutExplicitEndpoint(t *testing.T) {
+	obj, err := renderKServeInferenceService(RuntimeSpec{
+		TenantID: "tenant", ServiceID: "service", Name: "model", Namespace: "models", Image: "registry/vllm:1",
+		ArtifactProvider: "model", ModelClaim: "ani-model-claim", Generation: 1, Replicas: 1,
+		EngineCommand: "exec vllm serve /models --served-model-name qwen",
+	})
+	if err != nil {
+		t.Fatalf("renderKServeInferenceService() without endpoint error = %v", err)
+	}
+	predictor, found, err := unstructured.NestedMap(obj.Object, "spec", "predictor")
+	if err != nil || !found {
+		t.Fatalf("predictor = %#v, found=%v, err=%v", predictor, found, err)
+	}
+	containers, found, err := unstructured.NestedSlice(predictor, "containers")
+	if err != nil || !found || len(containers) != 1 {
+		t.Fatalf("containers = %#v, found=%v, err=%v", containers, found, err)
+	}
+	container, ok := containers[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("container type = %T", containers[0])
+	}
+	if mounts, found, err := unstructured.NestedSlice(container, "volumeMounts"); err != nil || !found || len(mounts) != 2 {
+		t.Fatalf("volumeMounts = %#v, found=%v, err=%v", mounts, found, err)
+	}
+	if _, found, err := unstructured.NestedSlice(predictor, "volumes"); err != nil || !found {
+		t.Fatalf("predictor volumes missing: found=%v, err=%v", found, err)
+	}
+	if _, found, err := unstructured.NestedFieldNoCopy(container, "startupProbe"); err != nil || found {
+		t.Fatalf("startupProbe = found=%v, err=%v; endpoint-less KServe rendering must not invent a probe", found, err)
+	}
+}
+
 func TestRenderKServeAppliesFrozenGPUPlan(t *testing.T) {
 	request, plan := testGPUPlan(t, "kserve-container")
 	obj, err := renderKServeInferenceService(RuntimeSpec{
