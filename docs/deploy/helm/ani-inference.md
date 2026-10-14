@@ -49,7 +49,8 @@ Model Chart 的命令和 S3 参数见 Model 仓库的
 当前 kubeconfig context。
 
 Gov 调用普通 Inference gRPC 时必须使用由 `ani-internal` 签发、DNS SAN 为
-`ani-governance.ani.internal` 的客户端证书，并在每次请求携带唯一的
+`ani-governance` 的客户端证书；客户端证书只能包含这一项 DNS SAN，不接受额外的
+DNS、URI、IP 或 email SAN。每次请求携带唯一的
 `x-ani-tenant-id` 和 `x-ani-actor`（值以 `governance:` 开头）。Inference 会把这些
 元数据绑定到请求上下文，不能用请求体字段替代。Model 调用引用检查时同样必须使用
 已签发的客户端证书和租户元数据。

@@ -24,7 +24,7 @@ func trustedTenantMiddleware() middleware.Middleware {
 			if err != nil {
 				return nil, status.Errorf(codes.Unauthenticated, "trusted service identity unavailable: %v", err)
 			}
-			if identity != "ani-governance.ani.internal" && identity != "ani-model.ani.internal" {
+			if identity != governanceCallerDNS && identity != "ani-model.ani.internal" {
 				return nil, status.Errorf(codes.PermissionDenied, "unregistered trusted service %q", identity)
 			}
 			tenant, err := trustedTenantMetadata(ctx)
@@ -39,7 +39,7 @@ func trustedTenantMiddleware() middleware.Middleware {
 			if actorErr != nil {
 				return nil, status.Error(codes.InvalidArgument, actorErr.Error())
 			}
-			if identity == "ani-governance.ani.internal" {
+			if identity == governanceCallerDNS {
 				if actor == "" {
 					return nil, status.Error(codes.Unauthenticated, "x-ani-actor metadata is required for Governance")
 				}

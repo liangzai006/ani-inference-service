@@ -16,9 +16,9 @@ Governance; local generations and restart/update operation IDs never replace
 the original refund identity.
 
 The managed gRPC listener requires TLS 1.3 and a verified client certificate.
-Its unique URI SAN must exactly equal the registered
-`spiffe://ani.internal/service/ani-governance`. A second URI, a different URI,
-CN, owner metadata or an unverified same-name certificate cannot authorize a
+Its sole SAN must be the registered DNS identity `ani-governance`, also used
+by the ordinary Governance RPC listener. Additional DNS names, URI, IP or
+email SANs, CN, owner metadata or an unverified same-name certificate cannot authorize a
 command. After authentication the receiver binds the attachment's tenant;
 incoming tenant metadata, when present, must match it. The service separately
 requires the trusted marker and the validated plan/business/charge contract.
