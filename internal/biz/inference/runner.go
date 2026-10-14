@@ -41,12 +41,14 @@ type OperationContext struct {
 	Publication         publication.Publication
 	// GPURequest and GPUPlan are loaded from the immutable target generation.
 	// A plan is only present after StepResolveGPU has durably saved it.
-	GPURequest     *gpu.Request
-	GPUPlan        *gpu.Plan
-	ManagedGPU     bool
-	Replicas       int32
-	WorkerReplicas int32
-	RuntimeMode    string
+	GPURequest                  *gpu.Request
+	GPUPlan                     *gpu.Plan
+	ManagedGPU                  bool
+	ManagedGPUCreateOperationID string
+	ManagedGPUReleasePods       []gpu.PodRef
+	Replicas                    int32
+	WorkerReplicas              int32
+	RuntimeMode                 string
 }
 
 // RuntimeObservation contains facts returned by the runtime adapter. Ready
@@ -65,6 +67,10 @@ type RuntimeObservation struct {
 	Absent          bool
 	Reason          string
 	Objects         []bizreconcile.RuntimeObject
+	// ReleasePods is the complete Pod UID scope captured before a managed GPU
+	// runtime is removed. It is persisted separately from the runtime binding
+	// projection because a deployment may contain more than one Pod.
+	ReleasePods []gpu.PodRef
 }
 
 // ModelObservation is the durable fact returned by the model materializer.
@@ -87,6 +93,13 @@ type OperationStore interface {
 	SaveQuotaReservation(context.Context, quota.Reservation) error
 	SavePublication(context.Context, publication.Publication) error
 	SaveRuntimeObservation(context.Context, OperationContext, RuntimeObservation) error
+}
+
+// ManagedGPUReleaseScopeStore persists the full Pod UID range independently
+// of the one-object-per-kind runtime binding projection.
+type ManagedGPUReleaseScopeStore interface {
+	SaveManagedGPUReleasePods(context.Context, OperationContext, []gpu.PodRef) error
+	LoadManagedGPUReleasePods(context.Context, OperationContext) ([]gpu.PodRef, error)
 }
 
 // ModelObservationStore persists model materialization without overwriting
@@ -150,20 +163,41 @@ type RuntimePort interface {
 	DeleteCR(context.Context, OperationContext) error
 }
 
+// ManagedGPUReleasePort is called only after a managed GPU delete has
+// withdrawn publication, removed the runtime and observed its absence. Its
+// implementation must prove release through Accelerator and obtain the
+// Governance receipt before returning nil.
+type ManagedGPUReleasePort interface {
+	ReleaseManagedGPU(context.Context, OperationContext) error
+}
+
 // Runner executes exactly one durable operation step for a claimed work
 // item. It never treats provider absence as success. The surrounding
 // work.Worker owns the resource_work lease and calls Retry when Run returns an
 // error; Runner also retries the operation row so its step remains durable.
 type Runner struct {
-	Store       OperationStore
-	Admission   AdmissionPort
-	Model       ModelPort
-	GPU         GPUResolver
-	Quota       quota.Port
-	Publication publication.Port
-	Runtime     RuntimePort
-	Audit       audit.Sink
-	RetryAfter  time.Duration
+	Store             OperationStore
+	Admission         AdmissionPort
+	Model             ModelPort
+	GPU               GPUResolver
+	Quota             quota.Port
+	Publication       publication.Port
+	Runtime           RuntimePort
+	ManagedGPURelease ManagedGPUReleasePort
+	Audit             audit.Sink
+	RetryAfter        time.Duration
+}
+
+// managedGPUReleaseScopeOperation returns the immutable create operation key
+// for a managed GPU resource. The create observation is the source of truth
+// for the Pod UID scope; a delete observation may rediscover the same Pods,
+// but must update that same row so the release step can load it after a
+// process restart.
+func managedGPUReleaseScopeOperation(op OperationContext) OperationContext {
+	if op.ManagedGPUCreateOperationID != "" {
+		op.ID = op.ManagedGPUCreateOperationID
+	}
+	return op
 }
 
 func (r *Runner) Execute(ctx context.Context, item work.Item) (work.Result, error) {
@@ -436,6 +470,13 @@ func (r *Runner) runStep(ctx context.Context, op OperationContext) (stepResult, 
 		if err := r.Store.SaveRuntimeObservation(ctx, op, observation); err != nil {
 			return stepResult{}, err
 		}
+		if op.ManagedGPU && len(observation.ReleasePods) > 0 {
+			if scopeStore, ok := r.Store.(ManagedGPUReleaseScopeStore); ok {
+				if err := scopeStore.SaveManagedGPUReleasePods(ctx, managedGPUReleaseScopeOperation(op), observation.ReleasePods); err != nil {
+					return stepResult{}, err
+				}
+			}
+		}
 		if !observation.Ready || !observation.ModelReadyKnown || !observation.ModelReady {
 			return stepResult{}, fmt.Errorf("%w: runtime/model: %s", ErrOperationNotReady, observation.Reason)
 		}
@@ -491,6 +532,23 @@ func (r *Runner) runStep(ctx context.Context, op OperationContext) (stepResult, 
 		}
 		if err := r.Store.SaveRuntimeObservation(ctx, op, observation); err != nil {
 			return stepResult{}, err
+		}
+		if op.ManagedGPU && len(observation.ReleasePods) > 0 {
+			if scopeStore, ok := r.Store.(ManagedGPUReleaseScopeStore); ok {
+				if err := scopeStore.SaveManagedGPUReleasePods(ctx, managedGPUReleaseScopeOperation(op), observation.ReleasePods); err != nil {
+					return stepResult{}, err
+				}
+			}
+		}
+		if op.ManagedGPU && len(op.ManagedGPUReleasePods) == 0 {
+			if scopeStore, ok := r.Store.(ManagedGPUReleaseScopeStore); ok {
+				scopeOp := managedGPUReleaseScopeOperation(op)
+				pods, loadErr := scopeStore.LoadManagedGPUReleasePods(ctx, scopeOp)
+				if loadErr != nil {
+					return stepResult{}, loadErr
+				}
+				op.ManagedGPUReleasePods = pods
+			}
 		}
 		if !observation.Absent {
 			return stepResult{}, fmt.Errorf("%w: runtime deletion: %s", ErrOperationNotReady, observation.Reason)
@@ -555,6 +613,25 @@ func (r *Runner) runStep(ctx context.Context, op OperationContext) (stepResult, 
 		return stepResult{phase: OperationSucceeded, step: string(StepComplete), event: "publication.published"}, nil
 
 	case string(StepReleaseQuota):
+		if op.ManagedGPU && op.Kind == "delete" {
+			if r.ManagedGPURelease == nil {
+				return stepResult{}, fmt.Errorf("%w: managed GPU release", ErrOperationProviderMissing)
+			}
+			if len(op.ManagedGPUReleasePods) == 0 {
+				if scopeStore, ok := r.Store.(ManagedGPUReleaseScopeStore); ok {
+					scopeOp := managedGPUReleaseScopeOperation(op)
+					pods, err := scopeStore.LoadManagedGPUReleasePods(ctx, scopeOp)
+					if err != nil {
+						return stepResult{}, err
+					}
+					op.ManagedGPUReleasePods = pods
+				}
+			}
+			if err := r.ManagedGPURelease.ReleaseManagedGPU(ctx, op); err != nil {
+				return stepResult{}, err
+			}
+			return stepResult{phase: OperationSucceeded, step: string(StepComplete), event: "quota.governance_released"}, nil
+		}
 		if op.ManagedGPU {
 			return stepResult{phase: OperationSucceeded, step: string(StepComplete), event: "quota.governance_owned"}, nil
 		}

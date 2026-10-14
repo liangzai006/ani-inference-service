@@ -73,6 +73,10 @@ func TestRenderKServeWrapsRawEngineCommandAndModelMount(t *testing.T) {
 	if container["name"] != "kserve-container" {
 		t.Fatalf("container name = %v; want KServe's canonical name", container["name"])
 	}
+	limits, found, err := unstructured.NestedMap(container, "resources", "limits")
+	if err != nil || !found || limits["cpu"] != "2" || limits["memory"] != "12Gi" {
+		t.Fatalf("KServe resource limits = %#v, want request-only cpu mirrored and explicit memory limit", limits)
+	}
 	command, found, err := unstructured.NestedStringSlice(container, "command")
 	if err != nil || !found {
 		t.Fatalf("command = %#v, found=%v, err=%v", command, found, err)
@@ -106,6 +110,38 @@ func TestRenderKServeWrapsRawEngineCommandAndModelMount(t *testing.T) {
 	volumes, found, err := unstructured.NestedSlice(predictor, "volumes")
 	if err != nil || !found || len(volumes) != 2 {
 		t.Fatalf("volumes = %#v, found=%v, err=%v", volumes, found, err)
+	}
+}
+
+func TestRenderKServeMountsModelWithoutExplicitEndpoint(t *testing.T) {
+	obj, err := renderKServeInferenceService(RuntimeSpec{
+		TenantID: "tenant", ServiceID: "service", Name: "model", Namespace: "models", Image: "registry/vllm:1",
+		ArtifactProvider: "model", ModelClaim: "ani-model-claim", Generation: 1, Replicas: 1,
+		EngineCommand: "exec vllm serve /models --served-model-name qwen",
+	})
+	if err != nil {
+		t.Fatalf("renderKServeInferenceService() without endpoint error = %v", err)
+	}
+	predictor, found, err := unstructured.NestedMap(obj.Object, "spec", "predictor")
+	if err != nil || !found {
+		t.Fatalf("predictor = %#v, found=%v, err=%v", predictor, found, err)
+	}
+	containers, found, err := unstructured.NestedSlice(predictor, "containers")
+	if err != nil || !found || len(containers) != 1 {
+		t.Fatalf("containers = %#v, found=%v, err=%v", containers, found, err)
+	}
+	container, ok := containers[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("container type = %T", containers[0])
+	}
+	if mounts, found, err := unstructured.NestedSlice(container, "volumeMounts"); err != nil || !found || len(mounts) != 2 {
+		t.Fatalf("volumeMounts = %#v, found=%v, err=%v", mounts, found, err)
+	}
+	if _, found, err := unstructured.NestedSlice(predictor, "volumes"); err != nil || !found {
+		t.Fatalf("predictor volumes missing: found=%v, err=%v", found, err)
+	}
+	if _, found, err := unstructured.NestedFieldNoCopy(container, "startupProbe"); err != nil || found {
+		t.Fatalf("startupProbe = found=%v, err=%v; endpoint-less KServe rendering must not invent a probe", found, err)
 	}
 }
 
@@ -376,6 +412,62 @@ func TestKServeDeleteUsesForegroundAndAbsenceIsStopped(t *testing.T) {
 	}
 	if got.RuntimePhase != "stopped" || got.RuntimeMode != "deployment" {
 		t.Fatalf("absence observation = %#v; want stopped deployment", got)
+	}
+}
+
+func TestKServeDeleteWithoutBindingAllowsKnownAbsence(t *testing.T) {
+	spec := DesiredRuntime{RuntimeSpec: RuntimeSpec{
+		TenantID: "tenant", ServiceID: "service", Name: "missing-model", Namespace: "models",
+		RuntimeMode: "deployment", Generation: 1,
+	}, DesiredState: "stopped", PublicationWithdrawn: true}
+	apiReader := fake.NewClientBuilder().WithScheme(executorScheme(t)).Build()
+	// Keep the cached client separate from the uncached reader. A missing
+	// object must be confirmed against the APIReader before deletion proceeds.
+	cachedClient := fake.NewClientBuilder().WithScheme(executorScheme(t)).Build()
+	e := &KServeRuntimeExecutor{RuntimeExecutor: &RuntimeExecutor{
+		Client: cachedClient, APIReader: apiReader, Source: fakeRuntimeSource{desired: spec},
+	}}
+	op := inferencebiz.OperationContext{TenantID: spec.TenantID, ServiceID: spec.ServiceID, TargetGeneration: spec.Generation, LeaseToken: "lease"}
+	if err := e.DeleteRuntime(context.Background(), op); err != nil {
+		t.Fatalf("DeleteRuntime() error = %v; want known absence to be safe", err)
+	}
+	observation, err := e.ObserveAbsence(context.Background(), op)
+	if err != nil {
+		t.Fatalf("ObserveAbsence() error = %v", err)
+	}
+	if !observation.Absent || observation.RuntimePhase != "stopped" {
+		t.Fatalf("absence observation = %+v; want stopped/absent", observation)
+	}
+}
+
+func TestKServeDeleteWithoutBindingUsesAPIReaderAndDoesNotAdopt(t *testing.T) {
+	spec := DesiredRuntime{RuntimeSpec: RuntimeSpec{
+		TenantID: "tenant", ServiceID: "service", Name: "unbound-model", Namespace: "models",
+		RuntimeMode: "deployment", Generation: 1,
+	}, DesiredState: "stopped", PublicationWithdrawn: true}
+	obj := newKServeInferenceService(spec.Namespace, spec.Name)
+	obj.SetUID(types.UID("unbound-uid"))
+	obj.SetResourceVersion("7")
+	// The cache deliberately does not contain the object. The APIReader does,
+	// proving the deletion guard cannot trust a stale cache or adopt by name.
+	cachedClient := fake.NewClientBuilder().WithScheme(executorScheme(t)).Build()
+	apiReader := fake.NewClientBuilder().WithScheme(executorScheme(t)).WithObjects(obj).Build()
+	e := &KServeRuntimeExecutor{RuntimeExecutor: &RuntimeExecutor{
+		Client: cachedClient, APIReader: apiReader, Source: fakeRuntimeSource{desired: spec},
+	}}
+	op := inferencebiz.OperationContext{TenantID: spec.TenantID, ServiceID: spec.ServiceID, TargetGeneration: spec.Generation, LeaseToken: "lease"}
+	if err := e.DeleteRuntime(context.Background(), op); err == nil {
+		t.Fatal("DeleteRuntime() succeeded for an existing unbound KServe object")
+	}
+	current := newKServeInferenceService(spec.Namespace, spec.Name)
+	if err := apiReader.Get(context.Background(), client.ObjectKeyFromObject(obj), current); err != nil {
+		t.Fatalf("APIReader object disappeared: %v", err)
+	}
+	if current.GetDeletionTimestamp() != nil {
+		t.Fatal("unbound KServe object was marked for deletion")
+	}
+	if _, err := e.ObserveAbsence(context.Background(), op); err == nil {
+		t.Fatal("ObserveAbsence() accepted an existing unbound KServe object")
 	}
 }
 

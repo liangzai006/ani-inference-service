@@ -73,6 +73,14 @@ func TestPostgresManagedGPUDeletePreservesAcceptedCreateAndRejectsTopologyMutati
 	if err != nil || !out.GetDurableOwnerAck().GetAccepted() {
 		t.Fatalf("DELETE with active local operation=%v error=%v", out, err)
 	}
+	var deleteStep, deletePhase string
+	var deleteGeneration int64
+	if err := pool.QueryRow(ctx, `SELECT step, phase, target_generation FROM inference_operations WHERE tenant_id=$1 AND id=$2`, tenant, deletion.GpuOwnerAttachment.DeleteOperationId).Scan(&deleteStep, &deletePhase, &deleteGeneration); err != nil {
+		t.Fatal(err)
+	}
+	if deleteStep != "withdraw_publication" || deletePhase != "pending" || deleteGeneration != 5 {
+		t.Fatalf("managed DELETE operation=%s/%s generation=%d, want pending withdraw_publication generation 5", deletePhase, deleteStep, deleteGeneration)
+	}
 	original, err = repo.LoadRefundContext(ctx, tenant.String(), resource.String(), req.GpuOwnerAttachment.Ref.CreateOperationId)
 	if err != nil || original.DeleteOperationID != deletion.GpuOwnerAttachment.DeleteOperationId || original.Plan.ResolutionDigest != req.GpuOwnerAttachment.GpuPlan.ResolutionDigest {
 		t.Fatalf("DELETE altered original context: %+v error=%v", original, err)

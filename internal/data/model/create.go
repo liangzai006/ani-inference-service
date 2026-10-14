@@ -27,8 +27,8 @@ func (u *CreateUseCase) Create(ctx context.Context, in inference.CreateInput) (*
 	if u == nil || u.next == nil {
 		return nil, status.Error(codes.FailedPrecondition, "Inference create use case not configured")
 	}
-	if strings.TrimSpace(in.EngineRuntime) == "" || strings.TrimSpace(in.EngineCommand) == "" {
-		return nil, status.Error(codes.InvalidArgument, "engine type and startup command are required")
+	if strings.TrimSpace(in.EngineRuntime) == "" || strings.TrimSpace(in.ImageRef) == "" || strings.TrimSpace(in.EngineCommand) == "" {
+		return nil, status.Error(codes.InvalidArgument, "engine type, image and startup command are required")
 	}
 	v, err := u.client.GetReadyVersion(ctx, in.TenantID, in.ModelVersionID)
 	if err != nil {

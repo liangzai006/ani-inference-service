@@ -131,7 +131,7 @@ func run(logger *slog.Logger) error {
 		if modelClient != nil {
 			update = modeldata.NewUpdateUseCase(modelClient, update)
 		}
-		servers, err := configureKubernetesRuntime(pool, modelClient)
+		servers, err := configureKubernetesRuntime(pool, modelClient, refund)
 		if err != nil {
 			return err
 		}
@@ -147,11 +147,11 @@ func run(logger *slog.Logger) error {
 	return nil
 }
 
-func configureKubernetesRuntime(pool *pgxpool.Pool, modelClient *modeldata.Client) ([]kratosTransport.Server, error) {
-	return buildKubernetesServers(pool, modelClient)
+func configureKubernetesRuntime(pool *pgxpool.Pool, modelClient *modeldata.Client, reporters ...gpu.RefundReporter) ([]kratosTransport.Server, error) {
+	return buildKubernetesServers(pool, modelClient, reporters...)
 }
 
-func buildKubernetesServers(pool *pgxpool.Pool, modelClient *modeldata.Client) ([]kratosTransport.Server, error) {
+func buildKubernetesServers(pool *pgxpool.Pool, modelClient *modeldata.Client, reporters ...gpu.RefundReporter) ([]kratosTransport.Server, error) {
 	namespace := os.Getenv("ANI_INFERENCE_NAMESPACE")
 	if namespace == "" {
 		return nil, errors.New("ANI_INFERENCE_NAMESPACE is required for Kubernetes runtime")
@@ -223,14 +223,21 @@ func buildKubernetesServers(pool *pgxpool.Pool, modelClient *modeldata.Client) (
 	if err != nil {
 		return nil, err
 	}
+	var managedGPURelease inferencebiz.ManagedGPUReleasePort
+	if len(reporters) > 0 && reporters[0] != nil {
+		if observer, ok := gpuResolver.(gpu.ReleaseObserver); ok {
+			managedGPURelease = &service.ManagedGPUReleaseCoordinator{Observer: observer, Contexts: postgres.NewRepository(pool), Reporter: reporters[0]}
+		}
+	}
 	operationRunner := &inferencebiz.Runner{
-		Store:       operationStore,
-		Admission:   &postgres.Admission{Source: runtimeSource},
-		Model:       modelMaterializer,
-		GPU:         gpuResolver,
-		Publication: publicationPublisher,
-		Runtime:     runtimePort,
-		RetryAfter:  5 * time.Second,
+		Store:             operationStore,
+		Admission:         &postgres.Admission{Source: runtimeSource},
+		Model:             modelMaterializer,
+		GPU:               gpuResolver,
+		Publication:       publicationPublisher,
+		Runtime:           runtimePort,
+		ManagedGPURelease: managedGPURelease,
+		RetryAfter:        5 * time.Second,
 	}
 	loopServer, err := server.NewLoopServer(workStore, workStore, func(ctx context.Context, item work.Item) (work.Result, error) {
 		return (&durableExecutor{Operations: operationRunner, Store: operationStore, Observation: domain}).Execute(ctx, item)

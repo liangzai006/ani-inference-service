@@ -8,8 +8,8 @@ TLS、IAM 和可信身份接入暂不作为业务门禁。
 
 ## 2026-09-23 新集群 Higress 验证
 
-- `pass`：Inference 进程默认启动 Kubernetes runtime，不再使用
-  `ANI_KUBERNETES_ENABLED` 开关；ServiceAccount、Role、RoleBinding、模型 PVC、Job、
+- `pass`：Inference 进程默认启动 Kubernetes runtime，不再提供运行时切换开关；
+  ServiceAccount、Role、RoleBinding、模型 PVC、Job、
   Deployment、endpoint Service 和 Gateway API HTTPRoute 均由运行时创建/维护。
 - `pass`：新集群使用 Higress 2.2.4。固定入口为
   `POST http://192.168.102.68:30090/v1/completions`；Inference Chart 提供路径兜底

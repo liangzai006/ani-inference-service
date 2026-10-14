@@ -259,6 +259,24 @@ func resourceRequirements(spec resources.Normalized) (corev1.ResourceRequirement
 	return result, nil
 }
 
+// kserveResourceRequirements makes request-only resources explicit before
+// handing them to KServe. KServe's admission defaults can add a smaller
+// container limit (for example 1 CPU / 2Gi), which makes a larger caller
+// request invalid. The public resource contract remains unchanged; this only
+// closes the KServe projection so the requested capacity is schedulable.
+func kserveResourceRequirements(spec resources.Normalized) (corev1.ResourceRequirements, error) {
+	result, err := resourceRequirements(spec)
+	if err != nil {
+		return corev1.ResourceRequirements{}, err
+	}
+	for name, request := range result.Requests {
+		if _, exists := result.Limits[name]; !exists {
+			result.Limits[name] = request.DeepCopy()
+		}
+	}
+	return result, nil
+}
+
 func OwnedBy(obj metav1.Object, tenantID, serviceID string) bool {
 	if obj == nil || tenantID == "" || serviceID == "" {
 		return false

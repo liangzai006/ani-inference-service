@@ -11,6 +11,7 @@ import (
 	"strconv"
 
 	crdv1 "github.com/liangzai006/ani-inference-service/api/inference/crd/v1"
+	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
 	bizinference "github.com/liangzai006/ani-inference-service/internal/biz/inference"
 	bizreconcile "github.com/liangzai006/ani-inference-service/internal/biz/reconcile"
 	appsv1 "k8s.io/api/apps/v1"
@@ -204,13 +205,83 @@ func (e *RuntimeExecutor) ObserveRuntime(ctx context.Context, op bizinference.Op
 	if err != nil {
 		return bizinference.RuntimeObservation{}, err
 	}
+	releasePods, err := e.managedGPUReleasePods(ctx, spec.RuntimeSpec)
+	if err != nil {
+		return bizinference.RuntimeObservation{}, err
+	}
 	return bizinference.RuntimeObservation{
 		Ready: observation.RuntimePhase == "ready", RuntimePhase: observation.RuntimePhase,
 		RuntimeMode: observation.RuntimeMode, ReadyReplicas: observation.ReadyReplicas,
 		ReadyGroups: observation.ReadyGroups, ReadyWorkers: observation.ReadyWorkers,
 		LWSUID: observation.LWSUID, Objects: observation.Objects, Reason: observation.Reason,
 		ModelReady: observation.ModelReady, ModelReadyKnown: observation.ModelReadyKnown,
+		ReleasePods: releasePods,
 	}, nil
+}
+
+// managedGPUReleasePods captures every current Pod UID for a managed GPU
+// generation before deletion. Names alone are insufficient because a
+// replacement Pod can reuse the same name while holding a different
+// allocation.
+func (e *RuntimeExecutor) managedGPUReleasePods(ctx context.Context, spec RuntimeSpec) ([]gpu.PodRef, error) {
+	if e == nil || e.Client == nil || !spec.ManagedGPU || spec.Resources.GPU == nil {
+		return nil, nil
+	}
+	var ownedPods corev1.PodList
+	if err := e.Client.List(ctx, &ownedPods,
+		client.InNamespace(spec.Namespace),
+		client.MatchingLabels{tenantIDLabel: spec.TenantID, serviceIDLabel: spec.ServiceID, generationLabel: strconv.FormatInt(spec.Generation, 10)},
+	); err != nil {
+		return nil, err
+	}
+	// KServe propagates its own InferenceService label to generated Pods, but
+	// does not guarantee that arbitrary parent labels are copied to every
+	// revision. Union that owner-scoped list when KServe manages the runtime;
+	// never fall back to a namespace-wide Pod list.
+	pods := append([]corev1.Pod(nil), ownedPods.Items...)
+	if spec.RuntimeProvider == "kserve" {
+		var kservePods corev1.PodList
+		if err := e.Client.List(ctx, &kservePods, client.InNamespace(spec.Namespace), client.MatchingLabels{"serving.kserve.io/inferenceservice": spec.Name}); err != nil {
+			return nil, err
+		}
+		pods = append(pods, kservePods.Items...)
+	}
+	result := make([]gpu.PodRef, 0, len(pods))
+	seen := make(map[string]struct{}, len(pods))
+	for i := range pods {
+		pod := &pods[i]
+		if pod.UID == "" || pod.GetName() == "" || pod.GetNamespace() == "" {
+			continue
+		}
+		labels := pod.GetLabels()
+		if value := labels[tenantIDLabel]; value != "" && value != spec.TenantID {
+			continue
+		}
+		if value := labels[serviceIDLabel]; value != "" && value != spec.ServiceID {
+			continue
+		}
+		if value := labels[generationLabel]; value != "" && value != strconv.FormatInt(spec.Generation, 10) {
+			continue
+		}
+		containerName := spec.Resources.GPU.ContainerName
+		found := false
+		for _, container := range pod.Spec.Containers {
+			if container.Name == containerName {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, fmt.Errorf("managed GPU Pod %s/%s is missing container %q", pod.Namespace, pod.Name, containerName)
+		}
+		uid := string(pod.UID)
+		if _, duplicate := seen[uid]; duplicate {
+			continue
+		}
+		seen[uid] = struct{}{}
+		result = append(result, gpu.PodRef{ClusterID: spec.Resources.GPU.ClusterID, Namespace: pod.Namespace, Name: pod.Name, UID: uid, ContainerName: containerName})
+	}
+	return result, nil
 }
 
 // Both active operations and terminal-operation scans use the same health

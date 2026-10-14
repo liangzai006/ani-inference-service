@@ -21,7 +21,7 @@ func (c *createCapture) Create(_ context.Context, in inference.CreateInput) (*in
 func TestCreateResolvesVersionBeforePersistingSpec(t *testing.T) {
 	api := &modelAPIFake{version: readyVersion()}
 	next := &createCapture{}
-	in := inference.CreateInput{TenantID: "tenant", ModelVersionID: "version-id", RequestID: "distinct-operation-request", EngineRuntime: "custom", EngineCommand: "custom-server serve"}
+	in := inference.CreateInput{TenantID: "tenant", ModelVersionID: "version-id", RequestID: "distinct-operation-request", ImageRef: "custom:v1", EngineRuntime: "custom", EngineCommand: "custom-server serve"}
 	_, err := NewCreateUseCase(NewClient(api), next).Create(context.Background(), in)
 	if err != nil {
 		t.Fatal(err)
@@ -32,10 +32,20 @@ func TestCreateResolvesVersionBeforePersistingSpec(t *testing.T) {
 }
 
 func TestCreateRequiresCallerEngineConfiguration(t *testing.T) {
-	next := &createCapture{}
-	_, err := NewCreateUseCase(NewClient(&modelAPIFake{version: readyVersion()}), next).Create(context.Background(), inference.CreateInput{TenantID: "tenant", ModelVersionID: "version-id"})
-	if err == nil || next.called {
-		t.Fatalf("missing caller engine accepted: err=%v called=%v", err, next.called)
+	for name, in := range map[string]inference.CreateInput{
+		"missing type":    {TenantID: "tenant", ModelVersionID: "version-id", ImageRef: "engine:v1", EngineCommand: "vllm serve /models"},
+		"missing image":   {TenantID: "tenant", ModelVersionID: "version-id", EngineRuntime: "vllm", EngineCommand: "vllm serve /models"},
+		"missing command": {TenantID: "tenant", ModelVersionID: "version-id", EngineRuntime: "vllm", ImageRef: "engine:v1"},
+		"blank image":     {TenantID: "tenant", ModelVersionID: "version-id", EngineRuntime: "vllm", ImageRef: "  ", EngineCommand: "vllm serve /models"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			next := &createCapture{}
+			api := &modelAPIFake{version: readyVersion()}
+			_, err := NewCreateUseCase(NewClient(api), next).Create(context.Background(), in)
+			if err == nil || next.called || api.request != nil {
+				t.Fatalf("missing caller engine accepted: err=%v called=%v model_request=%v", err, next.called, api.request)
+			}
+		})
 	}
 }
 func TestCreateRejectsUnreadyModelBeforeWriting(t *testing.T) {
@@ -62,13 +72,14 @@ func TestCreatePreservesCallerEngineConfiguration(t *testing.T) {
 	in := inference.CreateInput{
 		TenantID:       "tenant",
 		ModelVersionID: "version-id",
+		ImageRef:       "custom-runtime:v2",
 		EngineRuntime:  "custom-runtime",
 		EngineCommand:  "custom-server --model /models --max-model-len 8192 --served-model-name custom-qwen",
 	}
 	if _, err := NewCreateUseCase(NewClient(&modelAPIFake{version: readyVersion()}), next).Create(context.Background(), in); err != nil {
 		t.Fatal(err)
 	}
-	if !next.called || next.in.EngineRuntime != in.EngineRuntime || next.in.EngineCommand != in.EngineCommand {
+	if !next.called || next.in.ImageRef != in.ImageRef || next.in.EngineRuntime != in.EngineRuntime || next.in.EngineCommand != in.EngineCommand {
 		t.Fatalf("caller engine configuration was changed: %+v", next.in)
 	}
 }

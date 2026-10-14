@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	crdv1 "github.com/liangzai006/ani-inference-service/api/inference/crd/v1"
+	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
 	bizinference "github.com/liangzai006/ani-inference-service/internal/biz/inference"
 	"github.com/liangzai006/ani-inference-service/internal/biz/publication"
 	"github.com/liangzai006/ani-inference-service/internal/biz/quota"
@@ -132,6 +133,26 @@ func TestRuntimeExecutorAppliesTypedDeployment(t *testing.T) {
 	}
 	if got.Spec.Template.Spec.Containers[0].Image != "example/inference:v1" || got.Labels[tenantIDLabel] != "tenant-a" {
 		t.Fatalf("unexpected applied deployment: %#v", got)
+	}
+}
+
+func TestManagedGPUReleaseScopeFindsKServeOwnedPods(t *testing.T) {
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+		Name: "model-predictor-0", Namespace: "ns", UID: types.UID("pod-uid"),
+		Labels: map[string]string{"serving.kserve.io/inferenceservice": "model"},
+	}, Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "kserve-container"}}}}
+	fc := fake.NewClientBuilder().WithScheme(executorScheme(t)).WithObjects(pod).Build()
+	executor := &RuntimeExecutor{Client: fc}
+	scope, err := executor.managedGPUReleasePods(context.Background(), RuntimeSpec{
+		TenantID: "tenant", ServiceID: "service", Name: "model", Namespace: "ns", Generation: 3,
+		RuntimeProvider: "kserve", ManagedGPU: true,
+		Resources: resources.Normalized{GPU: &gpu.Request{ContainerName: "kserve-container"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scope) != 1 || scope[0].UID != "pod-uid" || scope[0].Name != pod.Name {
+		t.Fatalf("release scope=%+v, want KServe pod UID", scope)
 	}
 }
 

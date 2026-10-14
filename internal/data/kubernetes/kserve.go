@@ -96,12 +96,16 @@ func (e *KServeRuntimeExecutor) ObserveRuntime(ctx context.Context, op inference
 	if err != nil {
 		return inferencebiz.RuntimeObservation{}, err
 	}
+	releasePods, err := e.managedGPUReleasePods(ctx, spec.RuntimeSpec)
+	if err != nil {
+		return inferencebiz.RuntimeObservation{}, err
+	}
 	return inferencebiz.RuntimeObservation{
 		Ready: observation.RuntimePhase == "ready", RuntimePhase: observation.RuntimePhase,
 		RuntimeMode: runtimeModeForSpec(spec.RuntimeSpec), ReadyReplicas: observation.ReadyReplicas,
 		ReadyGroups: observation.ReadyGroups, ReadyWorkers: observation.ReadyWorkers, LWSUID: observation.LWSUID,
 		ModelReady: spec.ModelReady, ModelReadyKnown: spec.ModelReadyKnown,
-		Objects: observation.Objects, Reason: observation.Reason,
+		Objects: observation.Objects, Reason: observation.Reason, ReleasePods: releasePods,
 	}, nil
 }
 
@@ -130,7 +134,11 @@ func (e *KServeRuntimeExecutor) DeleteRuntime(ctx context.Context, op inferenceb
 		deleted = true
 	}
 	if !deleted {
-		return errors.New("KServe runtime deletion requires a persisted runtime binding")
+		// A create operation can fail before KServe accepts the object, so no
+		// binding is durable in that case. Confirm the deterministic object key
+		// through the uncached API reader: an absent object is already deleted,
+		// while an existing object must never be adopted by name alone.
+		return e.confirmKServeAbsent(ctx, spec)
 	}
 	return nil
 }
@@ -482,7 +490,7 @@ func renderKServeInferenceService(spec RuntimeSpec) (*unstructured.Unstructured,
 	if err := validateGPUPlan(spec); err != nil {
 		return nil, err
 	}
-	requirements, err := resourceRequirements(spec.Resources)
+	requirements, err := kserveResourceRequirements(spec.Resources)
 	if err != nil {
 		return nil, err
 	}
@@ -495,8 +503,19 @@ func renderKServeInferenceService(spec RuntimeSpec) (*unstructured.Unstructured,
 		container.Ports = []corev1.ContainerPort{{Name: "http", ContainerPort: spec.ContainerPort, Protocol: spec.ServiceProtocol}}
 	}
 	pod := corev1.PodSpec{Containers: []corev1.Container{container}}
-	if err := mountModel(&pod, spec); err != nil {
-		return nil, err
+	// KServe owns the predictor Service for an InferenceService, so an
+	// explicit Inference-owned endpoint is optional on this path. Keep the
+	// health probes only when the caller supplied a port; mounting the
+	// verified Model PVC must not fail merely because the public route is
+	// provided by KServe/Higress instead of an explicit endpoint Service.
+	if spec.ContainerPort > 0 {
+		if err := mountModel(&pod, spec); err != nil {
+			return nil, err
+		}
+	} else if spec.ModelClaim != "" {
+		if err := mountModelVolume(&pod, spec, false); err != nil {
+			return nil, err
+		}
 	}
 	gpuAnnotations, err := applyGPUPlanToPod(spec, &pod, "kserve-container")
 	if err != nil {
@@ -573,7 +592,7 @@ func renderKServeLLMInferenceService(spec RuntimeSpec) (*unstructured.Unstructur
 	if spec.ContainerPort > 0 && spec.ServiceProtocol != corev1.ProtocolTCP {
 		return nil, errors.New("LLMInferenceService requires TCP protocol")
 	}
-	requirements, err := resourceRequirements(spec.Resources)
+	requirements, err := kserveResourceRequirements(spec.Resources)
 	if err != nil {
 		return nil, err
 	}
@@ -791,7 +810,10 @@ func (e *KServeRuntimeExecutor) deleteKServe(ctx context.Context, binding Runtim
 func (e *KServeRuntimeExecutor) observeKServeAbsence(ctx context.Context, spec DesiredRuntime) (bizreconcile.Observation, error) {
 	bindings := kserveBindings(spec)
 	if len(bindings) == 0 {
-		return bizreconcile.Observation{}, errors.New("KServe runtime absence requires a persisted runtime binding")
+		if err := e.confirmKServeAbsent(ctx, spec); err != nil {
+			return bizreconcile.Observation{}, err
+		}
+		return bizreconcile.Observation{Generation: spec.Generation, RuntimeMode: runtimeModeForSpec(spec.RuntimeSpec), RuntimePhase: "stopped"}, nil
 	}
 	reader := client.Reader(e.Client)
 	if e.APIReader != nil {
@@ -806,6 +828,24 @@ func (e *KServeRuntimeExecutor) observeKServeAbsence(ctx context.Context, spec D
 		}
 	}
 	return bizreconcile.Observation{Generation: spec.Generation, RuntimeMode: runtimeModeForSpec(spec.RuntimeSpec), RuntimePhase: "stopped"}, nil
+}
+
+// confirmKServeAbsent checks the deterministic KServe object key without
+// adopting or deleting an object that has no persisted UID/resourceVersion
+// binding. APIReader is required here because the manager cache can lag an
+// object that was created by a previous worker.
+func (e *KServeRuntimeExecutor) confirmKServeAbsent(ctx context.Context, spec DesiredRuntime) error {
+	if e == nil || e.RuntimeExecutor == nil || e.APIReader == nil {
+		return errors.New("KServe runtime absence check requires an uncached API reader")
+	}
+	obj := newKServeObject(spec.Namespace, spec.Name, kserveKindForMode(spec.RuntimeMode))
+	if err := e.APIReader.Get(ctx, client.ObjectKeyFromObject(obj), obj); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+	return errors.New("KServe runtime object exists without a persisted runtime binding")
 }
 
 func (e *KServeRuntimeExecutor) kservePredictorReady(ctx context.Context, reader client.Reader, obj *unstructured.Unstructured, replicas int32) (bool, string) {

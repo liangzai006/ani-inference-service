@@ -2,6 +2,7 @@ package inference
 
 import (
 	"context"
+	"errors"
 	"testing"
 )
 
@@ -11,7 +12,7 @@ func TestManagedGPUIsolationFromLegacyQuotaAndResolve(t *testing.T) {
 	for _, tc := range []struct{ kind, step string }{
 		{"create", string(StepReserveQuota)}, {"start", string(StepReserveQuota)},
 		{"restart", string(StepReleasePreviousQuota)}, {"update", string(StepReleasePreviousQuota)},
-		{"stop", string(StepReleaseQuota)}, {"delete", string(StepReleaseQuota)},
+		{"stop", string(StepReleaseQuota)},
 	} {
 		t.Run(tc.kind+"/"+tc.step, func(t *testing.T) {
 			store := &runnerStore{op: operation(tc.step)}
@@ -36,5 +37,18 @@ func TestManagedGPUIsolationFromLegacyQuotaAndResolve(t *testing.T) {
 	store.op.GPURequest = nil
 	if _, err := runner.Execute(context.Background(), item()); err == nil || resolver.calls != 0 {
 		t.Fatalf("missing managed request downgraded/resolved: calls=%d error=%v", resolver.calls, err)
+	}
+}
+
+func TestManagedGPUDeleteDoesNotCompleteWithoutReleaseObserver(t *testing.T) {
+	store := &runnerStore{op: operation(string(StepReleaseQuota))}
+	store.op.Kind, store.op.ManagedGPU = "delete", true
+	runner := &Runner{Store: store, Audit: &runnerAudit{}}
+	_, err := runner.Execute(context.Background(), item())
+	if err == nil || !errors.Is(err, ErrOperationProviderMissing) {
+		t.Fatalf("error=%v, want missing managed GPU release provider", err)
+	}
+	if len(store.advanced) != 0 || len(store.retried) != 1 {
+		t.Fatalf("managed delete advanced=%+v retried=%+v, want retry without success", store.advanced, store.retried)
 	}
 }

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	acceleratorv1 "github.com/zhangzhe-ctrl/ani-accelerator-service/api/gen/go/accelerator/v1"
 	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
+	acceleratorv1 "github.com/zhangzhe-ctrl/ani-accelerator-service/api/gen/go/accelerator/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/test/bufconn"
@@ -104,6 +104,58 @@ func TestClientMapsRequestPlanAndIdentity(t *testing.T) {
 		t.Fatalf("request context=%v", server.got.GetContext())
 	}
 	if gotMD := server.md.Get("x-ani-action"); len(gotMD) != 1 || gotMD[0] != "ResolveGpuRequest" {
+		t.Fatalf("metadata=%v", server.md)
+	}
+}
+
+type usageServer struct {
+	acceleratorv1.UnimplementedAcceleratorUsageServiceServer
+	got *acceleratorv1.ObserveReleaseRequest
+	md  metadata.MD
+}
+
+func (s *usageServer) ObserveRelease(ctx context.Context, req *acceleratorv1.ObserveReleaseRequest) (*acceleratorv1.ReleaseObservation, error) {
+	s.got = req
+	s.md, _ = metadata.FromIncomingContext(ctx)
+	return &acceleratorv1.ReleaseObservation{
+		EvidenceId:     "10000000-0000-4000-8000-000000000010",
+		Ref:            req.GetRef(),
+		Finding:        acceleratorv1.ReleaseFinding_ALLOCATION_RELEASED,
+		EvidenceDigest: "release-digest",
+	}, nil
+}
+
+func TestClientObservesGPUReleaseWithCompleteScopeAndIdentity(t *testing.T) {
+	server := &usageServer{}
+	listener := bufconn.Listen(1 << 20)
+	grpcServer := grpc.NewServer()
+	acceleratorv1.RegisterAcceleratorUsageServiceServer(grpcServer, server)
+	go func() { _ = grpcServer.Serve(listener) }()
+	t.Cleanup(func() { grpcServer.Stop(); _ = listener.Close() })
+	conn, err := grpc.DialContext(context.Background(), "passthrough:///accelerator", grpc.WithInsecure(), grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	client := NewClientForCluster(acceleratorv1.NewAcceleratorCatalogServiceClient(conn), validGPURequest().ClusterID)
+	client.usage = acceleratorv1.NewAcceleratorUsageServiceClient(conn)
+	got, err := client.ObserveRelease(context.Background(), gpu.ReleaseObservationInput{
+		TenantID: "tenant-1", RequestID: "request-1", Actor: "ani-inference:owner",
+		ResourceID: "10000000-0000-4000-8000-000000000011", CreateOperationID: "10000000-0000-4000-8000-000000000012",
+		OwnerService: "ani-inference", DeleteOperationID: "10000000-0000-4000-8000-000000000013",
+		ClusterID: validGPURequest().ClusterID,
+		Pods:      []gpu.PodRef{{ClusterID: validGPURequest().ClusterID, Namespace: "ani-system", Name: "model-0", UID: "10000000-0000-4000-8000-000000000014", ContainerName: "kserve-container"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Finding != gpu.ReleaseFindingReleased || got.EvidenceID == "" || got.EvidenceDigest != "release-digest" {
+		t.Fatalf("observation=%+v", got)
+	}
+	if server.got == nil || server.got.GetRef().GetTenantId() != "tenant-1" || server.got.GetRef().GetOwnerService() != "ani-inference" || len(server.got.GetPods()) != 1 || server.got.GetPods()[0].GetUid() == "" {
+		t.Fatalf("request=%v", server.got)
+	}
+	if gotMD := server.md.Get("x-ani-action"); len(gotMD) != 1 || gotMD[0] != "ObserveRelease" {
 		t.Fatalf("metadata=%v", server.md)
 	}
 }

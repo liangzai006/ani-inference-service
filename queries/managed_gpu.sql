@@ -42,3 +42,15 @@ VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11);
 -- name: GetManagedGPURefundContext :one
 SELECT original_context,delete_operation_id FROM inference_managed_gpu_resources
 WHERE tenant_id=$1 AND resource_id=$2 AND create_operation_id=$3;
+
+-- name: UpsertManagedGPUReleaseScope :exec
+INSERT INTO inference_managed_gpu_release_scopes
+  (tenant_id, service_id, operation_id, pods)
+VALUES ($1, $2, $3, sqlc.arg(pods)::jsonb)
+ON CONFLICT (tenant_id, service_id, operation_id) DO UPDATE
+SET pods = EXCLUDED.pods, updated_at = clock_timestamp();
+
+-- name: GetManagedGPUReleaseScope :one
+SELECT pods
+FROM inference_managed_gpu_release_scopes
+WHERE tenant_id = $1 AND service_id = $2 AND operation_id = $3;

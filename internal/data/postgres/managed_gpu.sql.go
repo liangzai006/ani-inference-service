@@ -64,6 +64,25 @@ func (q *Queries) GetManagedGPURefundContext(ctx context.Context, arg GetManaged
 	return i, err
 }
 
+const getManagedGPUReleaseScope = `-- name: GetManagedGPUReleaseScope :one
+SELECT pods
+FROM inference_managed_gpu_release_scopes
+WHERE tenant_id = $1 AND service_id = $2 AND operation_id = $3
+`
+
+type GetManagedGPUReleaseScopeParams struct {
+	TenantID    pgtype.UUID
+	ServiceID   pgtype.UUID
+	OperationID pgtype.UUID
+}
+
+func (q *Queries) GetManagedGPUReleaseScope(ctx context.Context, arg GetManagedGPUReleaseScopeParams) ([]byte, error) {
+	row := q.db.QueryRow(ctx, getManagedGPUReleaseScope, arg.TenantID, arg.ServiceID, arg.OperationID)
+	var pods []byte
+	err := row.Scan(&pods)
+	return pods, err
+}
+
 const getManagedGPUResource = `-- name: GetManagedGPUResource :one
 SELECT tenant_id, resource_id, create_operation_id, owner_service, metering_version, original_context, business_payload, business_payload_digest, create_request_hash, create_payload, delete_operation_id, closing, created_at, updated_at FROM inference_managed_gpu_resources
 WHERE tenant_id = $1 AND resource_id = $2
@@ -279,5 +298,30 @@ type SetManagedGPUClosingParams struct {
 
 func (q *Queries) SetManagedGPUClosing(ctx context.Context, arg SetManagedGPUClosingParams) error {
 	_, err := q.db.Exec(ctx, setManagedGPUClosing, arg.DeleteOperationID, arg.TenantID, arg.ResourceID)
+	return err
+}
+
+const upsertManagedGPUReleaseScope = `-- name: UpsertManagedGPUReleaseScope :exec
+INSERT INTO inference_managed_gpu_release_scopes
+  (tenant_id, service_id, operation_id, pods)
+VALUES ($1, $2, $3, $4::jsonb)
+ON CONFLICT (tenant_id, service_id, operation_id) DO UPDATE
+SET pods = EXCLUDED.pods, updated_at = clock_timestamp()
+`
+
+type UpsertManagedGPUReleaseScopeParams struct {
+	TenantID    pgtype.UUID
+	ServiceID   pgtype.UUID
+	OperationID pgtype.UUID
+	Pods        []byte
+}
+
+func (q *Queries) UpsertManagedGPUReleaseScope(ctx context.Context, arg UpsertManagedGPUReleaseScopeParams) error {
+	_, err := q.db.Exec(ctx, upsertManagedGPUReleaseScope,
+		arg.TenantID,
+		arg.ServiceID,
+		arg.OperationID,
+		arg.Pods,
+	)
 	return err
 }
