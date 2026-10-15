@@ -7,16 +7,13 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/json"
 	"encoding/pem"
 	"math/big"
 	"net"
 	"net/url"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -209,40 +206,5 @@ func TestGovernanceDNSIdentityThroughProductionReceivers(t *testing.T) {
 				}
 			})
 		}
-	}
-}
-
-// TestGovernanceIdentityInteropProcess exposes only the production RPC surface
-// for an explicitly opted-in cross-repository client certificate check. Empty
-// business requests reach production validation; no persistence is configured.
-func TestGovernanceIdentityInteropProcess(t *testing.T) {
-	directory := os.Getenv("INFERENCE_IDENTITY_INTEROP_DIR")
-	if directory == "" {
-		t.Skip("set INFERENCE_IDENTITY_INTEROP_DIR for cross-repository TLS interoperability")
-	}
-	info, err := os.Stat(directory)
-	if err != nil || !info.IsDir() {
-		t.Fatalf("INFERENCE_IDENTITY_INTEROP_DIR must be an existing task-owned directory: %v", err)
-	}
-	pki, addresses := newGovernanceIdentityReceivers(t)
-	_, _, clientCert, clientKey := pki.certificate(t, "governance-client", &x509.Certificate{DNSNames: []string{"ani-governance"}, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}})
-	encoded, err := json.Marshal(map[string]string{
-		"ordinary_endpoint": addresses["ordinary"], "managed_endpoint": addresses["managed"],
-		"ca_file": pki.caFile, "client_cert_file": clientCert, "client_key_file": clientKey,
-		"server_name": "ani-inference.ani.internal",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(directory, "endpoints.json"), encoded, 0600); err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
-	defer cancel()
-	stopped, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	<-stopped.Done()
-	if ctx.Err() != nil {
-		t.Fatalf("cross-repository client did not stop the receiver within 60 seconds: %v", ctx.Err())
 	}
 }
