@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
 )
 
 func TestReadUseCaseListKeysetIsTenantScoped(t *testing.T) {
@@ -147,5 +148,65 @@ func TestReadUseCaseListsOperationsTenantScoped(t *testing.T) {
 	all, _, err := read.ListOperations(ctx, tenant.String(), "", 10, "")
 	if err != nil || len(all) != 1 || all[0].GetServiceId() != service.String() {
 		t.Fatalf("tenant operation list leaked or missing: %v err=%v", all, err)
+	}
+}
+
+func TestReadUseCasePageQueriesKeepCountAndRowsScoped(t *testing.T) {
+	ctx, pool, tenant, _ := lifecycleDatabase(t)
+	otherTenant := uuid.New()
+	cleanupOther := func() {
+		for _, query := range []string{
+			"UPDATE inference_services SET current_operation_id=NULL WHERE tenant_id=$1",
+			"DELETE FROM inference_resource_work WHERE tenant_id=$1",
+			"DELETE FROM inference_operations WHERE tenant_id=$1",
+			"DELETE FROM inference_services WHERE tenant_id=$1",
+		} {
+			if _, err := pool.Exec(context.Background(), query, otherTenant); err != nil {
+				t.Errorf("cleanup other tenant: %v", err)
+			}
+		}
+	}
+	t.Cleanup(cleanupOther)
+
+	create := func(tid, sid uuid.UUID) {
+		opID := uuid.New()
+		if _, err := NewRepository(pool).CreateService(ctx, CreateAggregateInput{
+			TenantID: tid.String(), ServiceID: sid.String(), OperationID: opID.String(),
+			Name: "page-" + sid.String(), ModelVersionID: uuid.NewString(),
+			RequestHash: RequestHash([]byte(opID.String())), IdempotencyKey: opID.String(),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	services := []uuid.UUID{uuid.New(), uuid.New(), uuid.New()}
+	for _, sid := range services {
+		create(tenant, sid)
+	}
+	create(otherTenant, uuid.New())
+
+	read := NewReadUseCase(pool)
+	first, total, err := read.ListServicesPage(ctx, tenant.String(), inferencebiz.ListOptions{Limit: 2})
+	if err != nil || total != 3 || len(first) != 2 {
+		t.Fatalf("first page=%v total=%d err=%v", first, total, err)
+	}
+	second, secondTotal, err := read.ListServicesPage(ctx, tenant.String(), inferencebiz.ListOptions{Limit: 2, Offset: 2})
+	if err != nil || secondTotal != 3 || len(second) != 1 {
+		t.Fatalf("second page=%v total=%d err=%v", second, secondTotal, err)
+	}
+	seen := map[string]bool{}
+	for _, item := range append(first, second...) {
+		if seen[item.GetId()] {
+			t.Fatalf("duplicate service across pages: %s", item.GetId())
+		}
+		seen[item.GetId()] = true
+	}
+	if len(seen) != 3 {
+		t.Fatalf("got %d tenant services, want 3", len(seen))
+	}
+
+	ops, opsTotal, err := read.ListOperationsPage(ctx, tenant.String(), services[0].String(), inferencebiz.ListOptions{Limit: 10})
+	if err != nil || opsTotal != 1 || len(ops) != 1 || ops[0].GetServiceId() != services[0].String() {
+		t.Fatalf("resource-scoped operations=%v total=%d err=%v", ops, opsTotal, err)
 	}
 }

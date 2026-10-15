@@ -276,6 +276,37 @@ func (q *Queries) CloneSpecWithRuntimeUpdate(ctx context.Context, arg CloneSpecW
 	return result.RowsAffected(), nil
 }
 
+const countOperations = `-- name: CountOperations :one
+SELECT count(*)::bigint
+FROM inference_operations
+WHERE tenant_id = $1 AND ($2::uuid IS NULL OR service_id = $2::uuid)
+`
+
+type CountOperationsParams struct {
+	TenantID pgtype.UUID
+	Column2  pgtype.UUID
+}
+
+func (q *Queries) CountOperations(ctx context.Context, arg CountOperationsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countOperations, arg.TenantID, arg.Column2)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const countServices = `-- name: CountServices :one
+SELECT count(*)::bigint
+FROM inference_services s
+WHERE s.tenant_id = $1 AND s.deleted_at IS NULL
+`
+
+func (q *Queries) CountServices(ctx context.Context, tenantID pgtype.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countServices, tenantID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const deleteRuntimeBindingCAS = `-- name: DeleteRuntimeBindingCAS :execrows
 DELETE FROM inference_runtime_bindings
 WHERE tenant_id = $1
@@ -1407,6 +1438,68 @@ func (q *Queries) ListOperations(ctx context.Context, arg ListOperationsParams) 
 	return items, nil
 }
 
+const listOperationsPage = `-- name: ListOperationsPage :many
+SELECT tenant_id, id, service_id, kind, phase, step, target_generation,
+       request_hash, attempt, retry_at, lease_owner, lease_until, lease_token,
+       error_code, error_message, result_snapshot, created_at, updated_at, completed_at
+FROM inference_operations
+WHERE tenant_id = $1 AND ($2::uuid IS NULL OR service_id = $2::uuid)
+ORDER BY created_at DESC, id DESC
+LIMIT $3 OFFSET $4
+`
+
+type ListOperationsPageParams struct {
+	TenantID pgtype.UUID
+	Column2  pgtype.UUID
+	Limit    int32
+	Offset   int32
+}
+
+func (q *Queries) ListOperationsPage(ctx context.Context, arg ListOperationsPageParams) ([]InferenceOperation, error) {
+	rows, err := q.db.Query(ctx, listOperationsPage,
+		arg.TenantID,
+		arg.Column2,
+		arg.Limit,
+		arg.Offset,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []InferenceOperation
+	for rows.Next() {
+		var i InferenceOperation
+		if err := rows.Scan(
+			&i.TenantID,
+			&i.ID,
+			&i.ServiceID,
+			&i.Kind,
+			&i.Phase,
+			&i.Step,
+			&i.TargetGeneration,
+			&i.RequestHash,
+			&i.Attempt,
+			&i.RetryAt,
+			&i.LeaseOwner,
+			&i.LeaseUntil,
+			&i.LeaseToken,
+			&i.ErrorCode,
+			&i.ErrorMessage,
+			&i.ResultSnapshot,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CompletedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRuntimeBindings = `-- name: ListRuntimeBindings :many
 SELECT tenant_id, service_id, generation, object_kind, object_namespace,
        object_name, object_uid, resource_version, role, observed_at
@@ -1553,6 +1646,134 @@ func (q *Queries) ListServices(ctx context.Context, arg ListServicesParams) ([]L
 	var items []ListServicesRow
 	for rows.Next() {
 		var i ListServicesRow
+		if err := rows.Scan(
+			&i.TenantID,
+			&i.ID,
+			&i.Name,
+			&i.DesiredState,
+			&i.DesiredGeneration,
+			&i.AppliedGeneration,
+			&i.CreatedAt,
+			&i.ModelVersionID,
+			&i.ArtifactProvider,
+			&i.ArtifactRef,
+			&i.ArtifactSha256,
+			&i.ImageRef,
+			&i.ServedModelName,
+			&i.EngineRuntime,
+			&i.CommandArgv,
+			&i.Resources,
+			&i.Replicas,
+			&i.RuntimeMode,
+			&i.WorkerReplicas,
+			&i.RuntimeProvider,
+			&i.EndpointContainerPort,
+			&i.EndpointServicePort,
+			&i.EndpointTargetPort,
+			&i.EndpointProtocol,
+			&i.GpuRequest,
+			&i.GpuPlan,
+			&i.GpuPlanDigest,
+			&i.RuntimePhase,
+			&i.PublicationPhase,
+			&i.InvocationHealth,
+			&i.ObservedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listServicesPage = `-- name: ListServicesPage :many
+SELECT s.tenant_id, s.id, s.name, s.desired_state, s.desired_generation, s.applied_generation,
+       s.created_at,
+       sp.model_version_id AS model_version_id,
+       COALESCE(sp.artifact_provider, '') AS artifact_provider,
+       COALESCE(sp.artifact_ref, '') AS artifact_ref,
+       COALESCE(sp.artifact_sha256, '') AS artifact_sha256,
+       COALESCE(sp.image_ref, '') AS image_ref,
+       COALESCE(sp.served_model_name, '') AS served_model_name,
+       COALESCE(sp.engine_runtime, '') AS engine_runtime,
+       COALESCE(sp.command_argv, '[]'::jsonb) AS command_argv,
+       COALESCE(sp.resources, '{}'::jsonb) AS resources,
+       COALESCE(sp.replicas, 0)::int4 AS replicas,
+       COALESCE(sp.runtime_mode, 'deployment') AS runtime_mode,
+       COALESCE(sp.worker_replicas, 1)::int4 AS worker_replicas,
+       COALESCE(sp.runtime_provider, 'deployment') AS runtime_provider,
+       sp.endpoint_container_port, sp.endpoint_service_port,
+       sp.endpoint_target_port, sp.endpoint_protocol,
+       sp.gpu_request, sp.gpu_plan, sp.gpu_plan_digest,
+       COALESCE(rt.runtime_phase, 'unknown') AS runtime_phase,
+       COALESCE(pub.observed_phase, 'withdrawn') AS publication_phase,
+       COALESCE(rt.invocation_health, 'unknown') AS invocation_health,
+       rt.observed_at
+FROM inference_services s
+LEFT JOIN inference_specs sp ON sp.tenant_id = s.tenant_id AND sp.service_id = s.id AND sp.generation = s.desired_generation
+LEFT JOIN inference_runtime rt ON rt.tenant_id = s.tenant_id AND rt.service_id = s.id
+LEFT JOIN LATERAL (
+  SELECT p.observed_phase FROM inference_publications p
+  WHERE p.tenant_id = s.tenant_id AND p.service_id = s.id AND p.generation <= s.desired_generation
+  ORDER BY p.generation DESC LIMIT 1
+) pub ON TRUE
+WHERE s.tenant_id = $1 AND s.deleted_at IS NULL
+ORDER BY s.created_at DESC, s.id DESC
+LIMIT $2 OFFSET $3
+`
+
+type ListServicesPageParams struct {
+	TenantID pgtype.UUID
+	Limit    int32
+	Offset   int32
+}
+
+type ListServicesPageRow struct {
+	TenantID              pgtype.UUID
+	ID                    pgtype.UUID
+	Name                  string
+	DesiredState          string
+	DesiredGeneration     int64
+	AppliedGeneration     int64
+	CreatedAt             pgtype.Timestamptz
+	ModelVersionID        pgtype.UUID
+	ArtifactProvider      string
+	ArtifactRef           string
+	ArtifactSha256        string
+	ImageRef              string
+	ServedModelName       string
+	EngineRuntime         string
+	CommandArgv           []byte
+	Resources             []byte
+	Replicas              int32
+	RuntimeMode           string
+	WorkerReplicas        int32
+	RuntimeProvider       string
+	EndpointContainerPort pgtype.Int4
+	EndpointServicePort   pgtype.Int4
+	EndpointTargetPort    pgtype.Text
+	EndpointProtocol      pgtype.Text
+	GpuRequest            []byte
+	GpuPlan               []byte
+	GpuPlanDigest         pgtype.Text
+	RuntimePhase          string
+	PublicationPhase      string
+	InvocationHealth      string
+	ObservedAt            pgtype.Timestamptz
+}
+
+func (q *Queries) ListServicesPage(ctx context.Context, arg ListServicesPageParams) ([]ListServicesPageRow, error) {
+	rows, err := q.db.Query(ctx, listServicesPage, arg.TenantID, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListServicesPageRow
+	for rows.Next() {
+		var i ListServicesPageRow
 		if err := rows.Scan(
 			&i.TenantID,
 			&i.ID,

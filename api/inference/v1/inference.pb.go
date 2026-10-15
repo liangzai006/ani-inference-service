@@ -1269,8 +1269,8 @@ func (x *GetInferenceServiceRequest) GetResourceId() string {
 
 type ListInferenceServicesRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	PageSize      int32                  `protobuf:"varint,1,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
-	PageToken     string                 `protobuf:"bytes,2,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	Page          *int32                 `protobuf:"varint,3,opt,name=page,proto3,oneof" json:"page,omitempty"`
+	PageSize      *int32                 `protobuf:"varint,4,opt,name=page_size,json=pageSize,proto3,oneof" json:"page_size,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1305,24 +1305,24 @@ func (*ListInferenceServicesRequest) Descriptor() ([]byte, []int) {
 	return file_inference_v1_inference_proto_rawDescGZIP(), []int{14}
 }
 
-func (x *ListInferenceServicesRequest) GetPageSize() int32 {
-	if x != nil {
-		return x.PageSize
+func (x *ListInferenceServicesRequest) GetPage() int32 {
+	if x != nil && x.Page != nil {
+		return *x.Page
 	}
 	return 0
 }
 
-func (x *ListInferenceServicesRequest) GetPageToken() string {
-	if x != nil {
-		return x.PageToken
+func (x *ListInferenceServicesRequest) GetPageSize() int32 {
+	if x != nil && x.PageSize != nil {
+		return *x.PageSize
 	}
-	return ""
+	return 0
 }
 
 type ListInferenceServicesResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Services      []*InferenceService    `protobuf:"bytes,1,rep,name=services,proto3" json:"services,omitempty"`
-	NextPageToken string                 `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	Items         []*InferenceService    `protobuf:"bytes,3,rep,name=items,proto3" json:"items,omitempty"`
+	Total         int64                  `protobuf:"varint,4,opt,name=total,proto3" json:"total,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1357,18 +1357,18 @@ func (*ListInferenceServicesResponse) Descriptor() ([]byte, []int) {
 	return file_inference_v1_inference_proto_rawDescGZIP(), []int{15}
 }
 
-func (x *ListInferenceServicesResponse) GetServices() []*InferenceService {
+func (x *ListInferenceServicesResponse) GetItems() []*InferenceService {
 	if x != nil {
-		return x.Services
+		return x.Items
 	}
 	return nil
 }
 
-func (x *ListInferenceServicesResponse) GetNextPageToken() string {
+func (x *ListInferenceServicesResponse) GetTotal() int64 {
 	if x != nil {
-		return x.NextPageToken
+		return x.Total
 	}
-	return ""
+	return 0
 }
 
 type OperationResponse struct {
@@ -1479,9 +1479,9 @@ func (x *GetOperationRequest) GetOperationId() string {
 
 type ListOperationsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	PageSize      int32                  `protobuf:"varint,1,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
-	PageToken     string                 `protobuf:"bytes,2,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
 	ResourceId    string                 `protobuf:"bytes,3,opt,name=resource_id,json=resourceId,proto3" json:"resource_id,omitempty"`
+	Page          *int32                 `protobuf:"varint,4,opt,name=page,proto3,oneof" json:"page,omitempty"`
+	PageSize      *int32                 `protobuf:"varint,5,opt,name=page_size,json=pageSize,proto3,oneof" json:"page_size,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1516,20 +1516,6 @@ func (*ListOperationsRequest) Descriptor() ([]byte, []int) {
 	return file_inference_v1_inference_proto_rawDescGZIP(), []int{18}
 }
 
-func (x *ListOperationsRequest) GetPageSize() int32 {
-	if x != nil {
-		return x.PageSize
-	}
-	return 0
-}
-
-func (x *ListOperationsRequest) GetPageToken() string {
-	if x != nil {
-		return x.PageToken
-	}
-	return ""
-}
-
 func (x *ListOperationsRequest) GetResourceId() string {
 	if x != nil {
 		return x.ResourceId
@@ -1537,10 +1523,24 @@ func (x *ListOperationsRequest) GetResourceId() string {
 	return ""
 }
 
+func (x *ListOperationsRequest) GetPage() int32 {
+	if x != nil && x.Page != nil {
+		return *x.Page
+	}
+	return 0
+}
+
+func (x *ListOperationsRequest) GetPageSize() int32 {
+	if x != nil && x.PageSize != nil {
+		return *x.PageSize
+	}
+	return 0
+}
+
 type ListOperationsResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Operations    []*Operation           `protobuf:"bytes,1,rep,name=operations,proto3" json:"operations,omitempty"`
-	NextPageToken string                 `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	Items         []*Operation           `protobuf:"bytes,3,rep,name=items,proto3" json:"items,omitempty"`
+	Total         int64                  `protobuf:"varint,4,opt,name=total,proto3" json:"total,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1575,18 +1575,18 @@ func (*ListOperationsResponse) Descriptor() ([]byte, []int) {
 	return file_inference_v1_inference_proto_rawDescGZIP(), []int{19}
 }
 
-func (x *ListOperationsResponse) GetOperations() []*Operation {
+func (x *ListOperationsResponse) GetItems() []*Operation {
 	if x != nil {
-		return x.Operations
+		return x.Items
 	}
 	return nil
 }
 
-func (x *ListOperationsResponse) GetNextPageToken() string {
+func (x *ListOperationsResponse) GetTotal() int64 {
 	if x != nil {
-		return x.NextPageToken
+		return x.Total
 	}
-	return ""
+	return 0
 }
 
 var File_inference_v1_inference_proto protoreflect.FileDescriptor
@@ -1722,31 +1722,34 @@ const file_inference_v1_inference_proto_rawDesc = "" +
 	"\x10original_charges\x18\x05 \x03(\v2!.inference.v1.OriginalQuotaChargeR\x0foriginalCharges\"=\n" +
 	"\x1aGetInferenceServiceRequest\x12\x1f\n" +
 	"\vresource_id\x18\x01 \x01(\tR\n" +
-	"resourceId\"Z\n" +
-	"\x1cListInferenceServicesRequest\x12\x1b\n" +
-	"\tpage_size\x18\x01 \x01(\x05R\bpageSize\x12\x1d\n" +
+	"resourceId\"|\n" +
+	"\x1cListInferenceServicesRequest\x12\x17\n" +
+	"\x04page\x18\x03 \x01(\x05H\x00R\x04page\x88\x01\x01\x12 \n" +
+	"\tpage_size\x18\x04 \x01(\x05H\x01R\bpageSize\x88\x01\x01B\a\n" +
+	"\x05_pageB\f\n" +
 	"\n" +
-	"page_token\x18\x02 \x01(\tR\tpageToken\"\x83\x01\n" +
-	"\x1dListInferenceServicesResponse\x12:\n" +
-	"\bservices\x18\x01 \x03(\v2\x1e.inference.v1.InferenceServiceR\bservices\x12&\n" +
-	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\xdf\x01\n" +
+	"_page_sizeJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03\"\x92\x01\n" +
+	"\x1dListInferenceServicesResponse\x124\n" +
+	"\x05items\x18\x03 \x03(\v2\x1e.inference.v1.InferenceServiceR\x05items\x12\x14\n" +
+	"\x05total\x18\x04 \x01(\x03R\x05totalJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03R\bservicesR\x0fnext_page_token\"\xdf\x01\n" +
 	"\x11OperationResponse\x12:\n" +
 	"\bresource\x18\x01 \x01(\v2\x1e.inference.v1.InferenceServiceR\bresource\x125\n" +
 	"\toperation\x18\x02 \x01(\v2\x17.inference.v1.OperationR\toperation\x12W\n" +
 	"\x11durable_owner_ack\x18\x03 \x01(\v2+.accelerator.integration.v1.DurableOwnerAckR\x0fdurableOwnerAck\"8\n" +
 	"\x13GetOperationRequest\x12!\n" +
-	"\foperation_id\x18\x01 \x01(\tR\voperationId\"t\n" +
-	"\x15ListOperationsRequest\x12\x1b\n" +
-	"\tpage_size\x18\x01 \x01(\x05R\bpageSize\x12\x1d\n" +
-	"\n" +
-	"page_token\x18\x02 \x01(\tR\tpageToken\x12\x1f\n" +
+	"\foperation_id\x18\x01 \x01(\tR\voperationId\"\x96\x01\n" +
+	"\x15ListOperationsRequest\x12\x1f\n" +
 	"\vresource_id\x18\x03 \x01(\tR\n" +
-	"resourceId\"y\n" +
-	"\x16ListOperationsResponse\x127\n" +
+	"resourceId\x12\x17\n" +
+	"\x04page\x18\x04 \x01(\x05H\x00R\x04page\x88\x01\x01\x12 \n" +
+	"\tpage_size\x18\x05 \x01(\x05H\x01R\bpageSize\x88\x01\x01B\a\n" +
+	"\x05_pageB\f\n" +
 	"\n" +
-	"operations\x18\x01 \x03(\v2\x17.inference.v1.OperationR\n" +
-	"operations\x12&\n" +
-	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken*l\n" +
+	"_page_sizeJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03\"\x86\x01\n" +
+	"\x16ListOperationsResponse\x12-\n" +
+	"\x05items\x18\x03 \x03(\v2\x17.inference.v1.OperationR\x05items\x12\x14\n" +
+	"\x05total\x18\x04 \x01(\x03R\x05totalJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03R\n" +
+	"operationsR\x0fnext_page_token*l\n" +
 	"\vRuntimeMode\x12\x1c\n" +
 	"\x18RUNTIME_MODE_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17RUNTIME_MODE_DEPLOYMENT\x10\x01\x12\"\n" +
@@ -1833,11 +1836,11 @@ var file_inference_v1_inference_proto_depIdxs = []int32{
 	6,  // 22: inference.v1.UpdateInferenceServiceRequest.engine:type_name -> inference.v1.EngineSpec
 	26, // 23: inference.v1.DeleteInferenceServiceRequest.gpu_owner_attachment:type_name -> accelerator.integration.v1.GpuOwnerDeleteAttachment
 	10, // 24: inference.v1.DeleteInferenceServiceRequest.original_charges:type_name -> inference.v1.OriginalQuotaCharge
-	7,  // 25: inference.v1.ListInferenceServicesResponse.services:type_name -> inference.v1.InferenceService
+	7,  // 25: inference.v1.ListInferenceServicesResponse.items:type_name -> inference.v1.InferenceService
 	7,  // 26: inference.v1.OperationResponse.resource:type_name -> inference.v1.InferenceService
 	8,  // 27: inference.v1.OperationResponse.operation:type_name -> inference.v1.Operation
 	27, // 28: inference.v1.OperationResponse.durable_owner_ack:type_name -> accelerator.integration.v1.DurableOwnerAck
-	8,  // 29: inference.v1.ListOperationsResponse.operations:type_name -> inference.v1.Operation
+	8,  // 29: inference.v1.ListOperationsResponse.items:type_name -> inference.v1.Operation
 	9,  // 30: inference.v1.InferenceServiceManager.CreateInferenceService:input_type -> inference.v1.CreateInferenceServiceRequest
 	14, // 31: inference.v1.InferenceServiceManager.GetInferenceService:input_type -> inference.v1.GetInferenceServiceRequest
 	15, // 32: inference.v1.InferenceServiceManager.ListInferenceServices:input_type -> inference.v1.ListInferenceServicesRequest
@@ -1870,6 +1873,8 @@ func file_inference_v1_inference_proto_init() {
 	if File_inference_v1_inference_proto != nil {
 		return
 	}
+	file_inference_v1_inference_proto_msgTypes[14].OneofWrappers = []any{}
+	file_inference_v1_inference_proto_msgTypes[18].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

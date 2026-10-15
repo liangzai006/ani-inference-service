@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
@@ -69,11 +70,11 @@ func (fakeRead) GetService(context.Context, string, string) (*inferencev1.Infere
 func (fakeRead) GetOperation(context.Context, string, string) (*inferencev1.Operation, error) {
 	return &inferencev1.Operation{Id: "op-1"}, nil
 }
-func (fakeRead) ListServices(context.Context, string, int32, string) ([]*inferencev1.InferenceService, string, error) {
-	return []*inferencev1.InferenceService{{Id: "svc-1"}}, "next", nil
+func (fakeRead) ListServicesPage(context.Context, string, inferencebiz.ListOptions) ([]*inferencev1.InferenceService, int64, error) {
+	return []*inferencev1.InferenceService{{Id: "svc-1"}}, 1, nil
 }
-func (fakeRead) ListOperations(context.Context, string, string, int32, string) ([]*inferencev1.Operation, string, error) {
-	return []*inferencev1.Operation{{Id: "op-1"}}, "next", nil
+func (fakeRead) ListOperationsPage(context.Context, string, string, inferencebiz.ListOptions) ([]*inferencev1.Operation, int64, error) {
+	return []*inferencev1.Operation{{Id: "op-1"}}, 1, nil
 }
 
 func TestCreateRequiresTenant(t *testing.T) {
@@ -287,7 +288,10 @@ func TestListRequiresBoundedPageSizeAndTenant(t *testing.T) {
 	if status.Code(err) != codes.Unauthenticated {
 		t.Fatalf("code=%v err=%v", status.Code(err), err)
 	}
-	_, err = server.ListInferenceServices(WithTenantID(context.Background(), "tenant-a"), &inferencev1.ListInferenceServicesRequest{PageSize: 101})
+	_, err = server.ListInferenceServices(WithTenantID(context.Background(), "tenant-a"), func() *inferencev1.ListInferenceServicesRequest {
+		v := int32(101)
+		return &inferencev1.ListInferenceServicesRequest{PageSize: &v}
+	}())
 	if status.Code(err) != codes.InvalidArgument {
 		t.Fatalf("code=%v err=%v", status.Code(err), err)
 	}
@@ -295,9 +299,115 @@ func TestListRequiresBoundedPageSizeAndTenant(t *testing.T) {
 
 func TestListDelegatesWithTenant(t *testing.T) {
 	server := NewInferenceServerWithRead(nil, fakeRead{})
-	out, err := server.ListInferenceServices(WithTenantID(context.Background(), "tenant-a"), &inferencev1.ListInferenceServicesRequest{PageSize: 1})
-	if err != nil || len(out.GetServices()) != 1 || out.GetNextPageToken() != "next" {
+	page, size := int32(1), int32(1)
+	out, err := server.ListInferenceServices(WithTenantID(context.Background(), "tenant-a"), &inferencev1.ListInferenceServicesRequest{Page: &page, PageSize: &size})
+	if err != nil || len(out.GetItems()) != 1 || out.GetTotal() != 1 {
 		t.Fatalf("out=%v err=%v", out, err)
+	}
+}
+
+type paginationRead struct {
+	services         []*inferencev1.InferenceService
+	operations       []*inferencev1.Operation
+	serviceOptions   []inferencebiz.ListOptions
+	operationOptions []inferencebiz.ListOptions
+}
+
+func (r *paginationRead) GetService(context.Context, string, string) (*inferencev1.InferenceService, error) {
+	return nil, errors.New("unused")
+}
+func (r *paginationRead) GetOperation(context.Context, string, string) (*inferencev1.Operation, error) {
+	return nil, errors.New("unused")
+}
+func (r *paginationRead) ListServicesPage(_ context.Context, tenant string, options inferencebiz.ListOptions) ([]*inferencev1.InferenceService, int64, error) {
+	r.serviceOptions = append(r.serviceOptions, options)
+	start := int(options.Offset)
+	if start >= len(r.services) {
+		return []*inferencev1.InferenceService{}, int64(len(r.services)), nil
+	}
+	end := start + int(options.Limit)
+	if end > len(r.services) {
+		end = len(r.services)
+	}
+	return r.services[start:end], int64(len(r.services)), nil
+}
+func (r *paginationRead) ListOperationsPage(_ context.Context, tenant, resource string, options inferencebiz.ListOptions) ([]*inferencev1.Operation, int64, error) {
+	r.operationOptions = append(r.operationOptions, options)
+	start := int(options.Offset)
+	if start >= len(r.operations) {
+		return []*inferencev1.Operation{}, int64(len(r.operations)), nil
+	}
+	end := start + int(options.Limit)
+	if end > len(r.operations) {
+		end = len(r.operations)
+	}
+	return r.operations[start:end], int64(len(r.operations)), nil
+}
+
+func TestListServicesUsesPageOffsetAndStableTotal(t *testing.T) {
+	r := &paginationRead{}
+	for i := 0; i < 45; i++ {
+		r.services = append(r.services, &inferencev1.InferenceService{Id: fmt.Sprintf("svc-%02d", i)})
+	}
+	s := NewInferenceServerWithRead(nil, r)
+	page, size := int32(3), int32(2)
+	out, err := s.ListInferenceServices(WithTenantID(context.Background(), "tenant-a"), &inferencev1.ListInferenceServicesRequest{Page: &page, PageSize: &size})
+	if err != nil || len(out.GetItems()) != 2 || out.GetTotal() != 45 || out.GetItems()[0].GetId() != "svc-04" {
+		t.Fatalf("page=%v err=%v", out, err)
+	}
+	if got := r.serviceOptions[0]; got.Offset != 4 || got.Limit != 2 {
+		t.Fatalf("options=%+v", got)
+	}
+}
+
+func TestListDefaultsAndEmptyPage(t *testing.T) {
+	r := &paginationRead{}
+	for i := 0; i < 21; i++ {
+		r.services = append(r.services, &inferencev1.InferenceService{Id: fmt.Sprintf("svc-%02d", i)})
+	}
+	s := NewInferenceServerWithRead(nil, r)
+	out, err := s.ListInferenceServices(WithTenantID(context.Background(), "tenant-a"), &inferencev1.ListInferenceServicesRequest{})
+	if err != nil || len(out.GetItems()) != 20 || out.GetTotal() != 21 {
+		t.Fatalf("default=%v err=%v", out, err)
+	}
+	page, size := int32(100), int32(100)
+	empty, err := s.ListInferenceServices(WithTenantID(context.Background(), "tenant-a"), &inferencev1.ListInferenceServicesRequest{Page: &page, PageSize: &size})
+	if err != nil || len(empty.GetItems()) != 0 || empty.GetTotal() != 21 {
+		t.Fatalf("empty=%v err=%v", empty, err)
+	}
+}
+
+func TestListRejectsInvalidPageValuesBeforeRead(t *testing.T) {
+	r := &paginationRead{}
+	s := NewInferenceServerWithRead(nil, r)
+	for _, tc := range []struct {
+		name       string
+		page, size int32
+	}{
+		{"page zero", 0, 20}, {"page too large", 101, 20}, {"size zero", 1, 0}, {"size too large", 1, 101},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := s.ListInferenceServices(WithTenantID(context.Background(), "tenant-a"), &inferencev1.ListInferenceServicesRequest{Page: &tc.page, PageSize: &tc.size})
+			if status.Code(err) != codes.InvalidArgument {
+				t.Fatalf("err=%v", err)
+			}
+		})
+	}
+	if len(r.serviceOptions) != 0 {
+		t.Fatalf("read called for invalid page: %+v", r.serviceOptions)
+	}
+}
+
+func TestListOperationsPreservesResourceFilterAndTotal(t *testing.T) {
+	r := &paginationRead{operations: []*inferencev1.Operation{{Id: "op-1", ServiceId: "svc-a"}, {Id: "op-2", ServiceId: "svc-a"}, {Id: "op-3", ServiceId: "svc-a"}}}
+	s := NewInferenceServerWithRead(nil, r)
+	page, size := int32(2), int32(2)
+	out, err := s.ListOperations(WithTenantID(context.Background(), "tenant-a"), &inferencev1.ListOperationsRequest{ResourceId: "svc-a", Page: &page, PageSize: &size})
+	if err != nil || len(out.GetItems()) != 1 || out.GetTotal() != 3 {
+		t.Fatalf("out=%v err=%v", out, err)
+	}
+	if got := r.operationOptions[0]; got.Offset != 2 || got.Limit != 2 {
+		t.Fatalf("options=%+v", got)
 	}
 }
 

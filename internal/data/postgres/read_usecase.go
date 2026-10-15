@@ -372,3 +372,127 @@ func (u *ReadUseCase) ListOperations(ctx context.Context, tenantID, serviceID st
 	}
 	return result, next, nil
 }
+
+// readTx opens the stable snapshot required for count and page data.
+func (u *ReadUseCase) readTx(ctx context.Context) (pgx.Tx, error) {
+	pool, ok := u.pool.(interface {
+		DBTX
+		BeginTx(context.Context, pgx.TxOptions) (pgx.Tx, error)
+	})
+	if !ok {
+		return nil, errors.New("postgres read use case requires transaction-capable pool")
+	}
+	return pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+}
+
+func serviceFromListRow(row ListServicesRow) (*inferencev1.InferenceService, error) {
+	item := &inferencev1.InferenceService{Id: row.ID.String(), Name: row.Name, DesiredState: row.DesiredState, Generation: row.DesiredGeneration, AppliedGeneration: row.AppliedGeneration, ModelVersionId: row.ModelVersionID.String(), Replicas: row.Replicas, RuntimePhase: row.RuntimePhase, PublicationPhase: row.PublicationPhase, InvocationHealth: row.InvocationHealth, Runtime: &inferencev1.RuntimeSpec{Mode: runtimeModeEnum(row.RuntimeMode), WorkerReplicas: row.WorkerReplicas, Provider: runtimeProviderEnum(row.RuntimeProvider)}}
+	item.Runtime.Endpoint = endpointProto(row.EndpointContainerPort, row.EndpointServicePort, row.EndpointTargetPort, row.EndpointProtocol)
+	if err := applySpecProjection(item, row.ModelVersionID.String(), row.ArtifactProvider, row.ArtifactRef, row.ArtifactSha256, row.ImageRef, row.ServedModelName, row.EngineRuntime, row.CommandArgv); err != nil {
+		return nil, err
+	}
+	var resource struct {
+		Requests map[string]string `json:"requests"`
+		Limits   map[string]string `json:"limits"`
+	}
+	if len(row.Resources) != 0 {
+		if err := json.Unmarshal(row.Resources, &resource); err != nil {
+			return nil, err
+		}
+	}
+	gpuRequest, err := decodeGPURequest(row.GpuRequest)
+	if err != nil {
+		return nil, err
+	}
+	item.Resource = &inferencev1.ResourceSpec{Requests: resource.Requests, Limits: resource.Limits, Gpu: gpuRequest}
+	if row.ObservedAt.Valid {
+		item.ObservedAt = timestamppb.New(row.ObservedAt.Time)
+	}
+	return item, nil
+}
+
+func pageServiceRow(row ListServicesPageRow) ListServicesRow {
+	return ListServicesRow{TenantID: row.TenantID, ID: row.ID, Name: row.Name, DesiredState: row.DesiredState, DesiredGeneration: row.DesiredGeneration, AppliedGeneration: row.AppliedGeneration, CreatedAt: row.CreatedAt, ModelVersionID: row.ModelVersionID, ArtifactProvider: row.ArtifactProvider, ArtifactRef: row.ArtifactRef, ArtifactSha256: row.ArtifactSha256, ImageRef: row.ImageRef, ServedModelName: row.ServedModelName, EngineRuntime: row.EngineRuntime, CommandArgv: row.CommandArgv, Resources: row.Resources, Replicas: row.Replicas, RuntimeMode: row.RuntimeMode, WorkerReplicas: row.WorkerReplicas, RuntimeProvider: row.RuntimeProvider, EndpointContainerPort: row.EndpointContainerPort, EndpointServicePort: row.EndpointServicePort, EndpointTargetPort: row.EndpointTargetPort, EndpointProtocol: row.EndpointProtocol, GpuRequest: row.GpuRequest, GpuPlan: row.GpuPlan, GpuPlanDigest: row.GpuPlanDigest, RuntimePhase: row.RuntimePhase, PublicationPhase: row.PublicationPhase, InvocationHealth: row.InvocationHealth, ObservedAt: row.ObservedAt}
+}
+
+func (u *ReadUseCase) ListServicesPage(ctx context.Context, tenantID string, options inferencebiz.ListOptions) ([]*inferencev1.InferenceService, int64, error) {
+	tenant, err := tenantUUID(tenantID)
+	if err != nil {
+		return nil, 0, err
+	}
+	if u == nil || u.pool == nil {
+		return nil, 0, errors.New("nil postgres read use case")
+	}
+	if options.Limit < 1 || options.Limit > maxListPageSize || options.Offset < 0 || options.Offset > int64(^uint32(0)>>1) {
+		return nil, 0, errors.New("invalid list options")
+	}
+	tx, err := u.readTx(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer tx.Rollback(ctx)
+	q := New(tx)
+	total, err := q.CountServices(ctx, tenant)
+	if err != nil {
+		return nil, 0, err
+	}
+	rows, err := q.ListServicesPage(ctx, ListServicesPageParams{TenantID: tenant, Limit: options.Limit, Offset: int32(options.Offset)})
+	if err != nil {
+		return nil, 0, err
+	}
+	result := make([]*inferencev1.InferenceService, 0, len(rows))
+	for _, row := range rows {
+		item, e := serviceFromListRow(pageServiceRow(row))
+		if e != nil {
+			return nil, 0, e
+		}
+		result = append(result, item)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, 0, err
+	}
+	return result, total, nil
+}
+
+func (u *ReadUseCase) ListOperationsPage(ctx context.Context, tenantID, serviceID string, options inferencebiz.ListOptions) ([]*inferencev1.Operation, int64, error) {
+	tenant, err := tenantUUID(tenantID)
+	if err != nil {
+		return nil, 0, err
+	}
+	if u == nil || u.pool == nil {
+		return nil, 0, errors.New("nil postgres read use case")
+	}
+	if options.Limit < 1 || options.Limit > maxListPageSize || options.Offset < 0 || options.Offset > int64(^uint32(0)>>1) {
+		return nil, 0, errors.New("invalid list options")
+	}
+	var sid pgtype.UUID
+	if serviceID != "" {
+		id, e := workUUID("resource_id", serviceID)
+		if e != nil {
+			return nil, 0, e
+		}
+		sid = id
+	}
+	tx, err := u.readTx(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer tx.Rollback(ctx)
+	q := New(tx)
+	total, err := q.CountOperations(ctx, CountOperationsParams{TenantID: tenant, Column2: sid})
+	if err != nil {
+		return nil, 0, err
+	}
+	rows, err := q.ListOperationsPage(ctx, ListOperationsPageParams{TenantID: tenant, Column2: sid, Limit: options.Limit, Offset: int32(options.Offset)})
+	if err != nil {
+		return nil, 0, err
+	}
+	result := make([]*inferencev1.Operation, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, operationProto(row))
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, 0, err
+	}
+	return result, total, nil
+}

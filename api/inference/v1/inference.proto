@@ -148,8 +148,17 @@ message DeleteInferenceServiceRequest {
   repeated OriginalQuotaCharge original_charges = 5;
 }
 message GetInferenceServiceRequest { string resource_id = 1; }
-message ListInferenceServicesRequest { int32 page_size = 1; string page_token = 2; }
-message ListInferenceServicesResponse { repeated InferenceService services = 1; string next_page_token = 2; }
+message ListInferenceServicesRequest {
+  reserved 1, 2;
+  optional int32 page = 3;
+  optional int32 page_size = 4 [json_name = "pageSize"];
+}
+message ListInferenceServicesResponse {
+  reserved 1, 2;
+  reserved "services", "next_page_token";
+  repeated InferenceService items = 3;
+  int64 total = 4;
+}
 message OperationResponse {
   InferenceService resource = 1;
   Operation operation = 2;
@@ -159,11 +168,17 @@ message OperationResponse {
 }
 message GetOperationRequest { string operation_id = 1; }
 message ListOperationsRequest {
-  int32 page_size = 1;
-  string page_token = 2;
+  reserved 1, 2;
   string resource_id = 3;
+  optional int32 page = 4;
+  optional int32 page_size = 5 [json_name = "pageSize"];
 }
-message ListOperationsResponse { repeated Operation operations = 1; string next_page_token = 2; }
+message ListOperationsResponse {
+  reserved 1, 2;
+  reserved "operations", "next_page_token";
+  repeated Operation items = 3;
+  int64 total = 4;
+}
 
 service InferenceServiceManager {
   rpc CreateInferenceService(CreateInferenceServiceRequest) returns (OperationResponse);

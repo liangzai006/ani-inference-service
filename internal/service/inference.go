@@ -391,6 +391,20 @@ func (s *InferenceServer) GetInferenceService(ctx context.Context, req *inferenc
 	return out, err
 }
 
+func listPage(reqPage, reqSize int32, hasPage, hasSize bool) (inferencebiz.ListOptions, error) {
+	page, size := int32(1), int32(20)
+	if hasPage {
+		page = reqPage
+	}
+	if hasSize {
+		size = reqSize
+	}
+	if page < 1 || page > 100 || size < 1 || size > 100 {
+		return inferencebiz.ListOptions{}, status.Error(codes.InvalidArgument, "page and page_size must be between 1 and 100")
+	}
+	return inferencebiz.ListOptions{Limit: size, Offset: int64(page-1) * int64(size)}, nil
+}
+
 func (s *InferenceServer) ListInferenceServices(ctx context.Context, req *inferencev1.ListInferenceServicesRequest) (*inferencev1.ListInferenceServicesResponse, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
@@ -402,21 +416,15 @@ func (s *InferenceServer) ListInferenceServices(ctx context.Context, req *infere
 	if s.read == nil {
 		return nil, status.Error(codes.FailedPrecondition, "inference read use case is not configured")
 	}
-	pageSize := req.GetPageSize()
-	if pageSize == 0 {
-		pageSize = 50
-	}
-	if pageSize < 1 || pageSize > 100 {
-		return nil, status.Error(codes.InvalidArgument, "page_size must be between 1 and 100")
-	}
-	services, next, err := s.read.ListServices(ctx, tenant, pageSize, req.GetPageToken())
-	if errors.Is(err, inferencebiz.ErrInvalidPageToken) {
-		return nil, status.Error(codes.InvalidArgument, "invalid page_token")
-	}
+	opts, err := listPage(req.GetPage(), req.GetPageSize(), req.Page != nil, req.PageSize != nil)
 	if err != nil {
 		return nil, err
 	}
-	return &inferencev1.ListInferenceServicesResponse{Services: services, NextPageToken: next}, nil
+	items, total, err := s.read.ListServicesPage(ctx, tenant, opts)
+	if err != nil {
+		return nil, err
+	}
+	return &inferencev1.ListInferenceServicesResponse{Items: items, Total: total}, nil
 }
 
 func (s *InferenceServer) GetOperation(ctx context.Context, req *inferencev1.GetOperationRequest) (*inferencev1.Operation, error) {
@@ -448,21 +456,15 @@ func (s *InferenceServer) ListOperations(ctx context.Context, req *inferencev1.L
 	if s.read == nil {
 		return nil, status.Error(codes.FailedPrecondition, "inference read use case is not configured")
 	}
-	pageSize := req.GetPageSize()
-	if pageSize == 0 {
-		pageSize = 50
-	}
-	if pageSize < 1 || pageSize > 100 {
-		return nil, status.Error(codes.InvalidArgument, "page_size must be between 1 and 100")
-	}
-	operations, next, err := s.read.ListOperations(ctx, tenant, req.GetResourceId(), pageSize, req.GetPageToken())
-	if errors.Is(err, inferencebiz.ErrInvalidPageToken) {
-		return nil, status.Error(codes.InvalidArgument, "invalid page_token")
-	}
+	opts, err := listPage(req.GetPage(), req.GetPageSize(), req.Page != nil, req.PageSize != nil)
 	if err != nil {
 		return nil, err
 	}
-	return &inferencev1.ListOperationsResponse{Operations: operations, NextPageToken: next}, nil
+	items, total, err := s.read.ListOperationsPage(ctx, tenant, req.GetResourceId(), opts)
+	if err != nil {
+		return nil, err
+	}
+	return &inferencev1.ListOperationsResponse{Items: items, Total: total}, nil
 }
 
 func (s *InferenceServer) CreateInferenceService(ctx context.Context, req *inferencev1.CreateInferenceServiceRequest) (*inferencev1.OperationResponse, error) {

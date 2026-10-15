@@ -699,3 +699,57 @@ WHERE sp.tenant_id = sqlc.arg(tenant_id)
   AND w.lease_token = sqlc.arg(lease_token)
   AND w.lease_until > clock_timestamp()
   AND (sp.gpu_plan IS NULL OR sp.gpu_plan = sqlc.arg(gpu_plan)::jsonb);
+
+-- name: CountServices :one
+SELECT count(*)::bigint
+FROM inference_services s
+WHERE s.tenant_id = $1 AND s.deleted_at IS NULL;
+
+-- name: ListServicesPage :many
+SELECT s.tenant_id, s.id, s.name, s.desired_state, s.desired_generation, s.applied_generation,
+       s.created_at,
+       sp.model_version_id AS model_version_id,
+       COALESCE(sp.artifact_provider, '') AS artifact_provider,
+       COALESCE(sp.artifact_ref, '') AS artifact_ref,
+       COALESCE(sp.artifact_sha256, '') AS artifact_sha256,
+       COALESCE(sp.image_ref, '') AS image_ref,
+       COALESCE(sp.served_model_name, '') AS served_model_name,
+       COALESCE(sp.engine_runtime, '') AS engine_runtime,
+       COALESCE(sp.command_argv, '[]'::jsonb) AS command_argv,
+       COALESCE(sp.resources, '{}'::jsonb) AS resources,
+       COALESCE(sp.replicas, 0)::int4 AS replicas,
+       COALESCE(sp.runtime_mode, 'deployment') AS runtime_mode,
+       COALESCE(sp.worker_replicas, 1)::int4 AS worker_replicas,
+       COALESCE(sp.runtime_provider, 'deployment') AS runtime_provider,
+       sp.endpoint_container_port, sp.endpoint_service_port,
+       sp.endpoint_target_port, sp.endpoint_protocol,
+       sp.gpu_request, sp.gpu_plan, sp.gpu_plan_digest,
+       COALESCE(rt.runtime_phase, 'unknown') AS runtime_phase,
+       COALESCE(pub.observed_phase, 'withdrawn') AS publication_phase,
+       COALESCE(rt.invocation_health, 'unknown') AS invocation_health,
+       rt.observed_at
+FROM inference_services s
+LEFT JOIN inference_specs sp ON sp.tenant_id = s.tenant_id AND sp.service_id = s.id AND sp.generation = s.desired_generation
+LEFT JOIN inference_runtime rt ON rt.tenant_id = s.tenant_id AND rt.service_id = s.id
+LEFT JOIN LATERAL (
+  SELECT p.observed_phase FROM inference_publications p
+  WHERE p.tenant_id = s.tenant_id AND p.service_id = s.id AND p.generation <= s.desired_generation
+  ORDER BY p.generation DESC LIMIT 1
+) pub ON TRUE
+WHERE s.tenant_id = $1 AND s.deleted_at IS NULL
+ORDER BY s.created_at DESC, s.id DESC
+LIMIT $2 OFFSET $3;
+
+-- name: CountOperations :one
+SELECT count(*)::bigint
+FROM inference_operations
+WHERE tenant_id = $1 AND ($2::uuid IS NULL OR service_id = $2::uuid);
+
+-- name: ListOperationsPage :many
+SELECT tenant_id, id, service_id, kind, phase, step, target_generation,
+       request_hash, attempt, retry_at, lease_owner, lease_until, lease_token,
+       error_code, error_message, result_snapshot, created_at, updated_at, completed_at
+FROM inference_operations
+WHERE tenant_id = $1 AND ($2::uuid IS NULL OR service_id = $2::uuid)
+ORDER BY created_at DESC, id DESC
+LIMIT $3 OFFSET $4;
