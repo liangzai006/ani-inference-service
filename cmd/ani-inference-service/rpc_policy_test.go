@@ -24,9 +24,15 @@ func TestGovernancePolicyIncludesNonGPULifecycleReads(t *testing.T) {
 		"/inference.v1.InferenceServiceManager/GetOperation",
 		"/inference.v1.InferenceServiceManager/ListOperations",
 	} {
-		if !policy.IsAllowed("ani-governance.ani.internal", method) {
+		if !policy.IsAllowed("ani-governance", method) {
 			t.Fatalf("Governance policy denied %s", method)
 		}
+		if policy.IsAllowed("ani-governance.ani.internal", method) {
+			t.Fatalf("Governance policy accepted retired identity for %s", method)
+		}
+	}
+	if policy.IsAllowed("ani-governance", "/inference.v1.InferenceServiceManager/UnknownMethod") {
+		t.Fatal("unknown method accepted")
 	}
 }
 
@@ -40,7 +46,7 @@ func governancePeerContext(version uint16, dns string, verified bool) context.Co
 }
 
 func TestTrustedTenantMiddlewareBindsGovernanceMetadata(t *testing.T) {
-	ctx := governancePeerContext(tls.VersionTLS13, "ani-governance.ani.internal", true)
+	ctx := governancePeerContext(tls.VersionTLS13, "ani-governance", true)
 	ctx = metadata.NewIncomingContext(ctx, metadata.Pairs("x-ani-tenant-id", "tenant-a", "x-ani-actor", "governance:user:7"))
 	called := false
 	handler := trustedTenantMiddleware()(func(ctx context.Context, _ interface{}) (interface{}, error) {
@@ -59,7 +65,7 @@ func TestTrustedTenantMiddlewareBindsGovernanceMetadata(t *testing.T) {
 }
 
 func TestTrustedTenantMiddlewareRejectsMissingOrConflictingMetadata(t *testing.T) {
-	base := governancePeerContext(tls.VersionTLS13, "ani-governance.ani.internal", true)
+	base := governancePeerContext(tls.VersionTLS13, "ani-governance", true)
 	handler := trustedTenantMiddleware()(func(context.Context, interface{}) (interface{}, error) {
 		t.Fatal("unauthenticated request reached handler")
 		return nil, nil
@@ -68,6 +74,10 @@ func TestTrustedTenantMiddlewareRejectsMissingOrConflictingMetadata(t *testing.T
 		"missing": base,
 		"conflicting": metadata.NewIncomingContext(base, metadata.Pairs(
 			"x-ani-tenant-id", "tenant-a", "tenant-id", "tenant-b",
+		)),
+		"missing-actor": metadata.NewIncomingContext(base, metadata.Pairs("x-ani-tenant-id", "tenant-a")),
+		"conflicting-actor": metadata.NewIncomingContext(base, metadata.Pairs(
+			"x-ani-tenant-id", "tenant-a", "x-ani-actor", "governance:user:7", "x-ani-actor", "governance:user:8",
 		)),
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -118,7 +128,7 @@ func TestTrustedTenantMiddlewareAcceptsOnlyVerifiedTLS13(t *testing.T) {
 		{name: "unverified", version: tls.VersionTLS13, verify: false, wantErr: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			ctx := governancePeerContext(test.version, "ani-governance.ani.internal", test.verify)
+			ctx := governancePeerContext(test.version, "ani-governance", test.verify)
 			ctx = metadata.NewIncomingContext(ctx, metadata.Pairs("x-ani-tenant-id", "tenant-a", "x-ani-actor", "governance:user:7"))
 			handler := trustedTenantMiddleware()(func(context.Context, interface{}) (interface{}, error) { return nil, nil })
 			_, err := handler(ctx, struct{}{})

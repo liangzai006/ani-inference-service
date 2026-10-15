@@ -61,14 +61,8 @@ func configuredInferenceGRPCServer(c *inferencev1.Server_GRPC, middlewares ...mi
 			if len(verifiedChains) == 0 || len(verifiedChains[0]) == 0 {
 				return errors.New("unverified client certificate chain")
 			}
-			clientCert := verifiedChains[0][0]
-			if len(clientCert.DNSNames) != 1 {
-				return errors.New("client certificate must contain exactly one DNS SAN")
-			}
-			if strings.TrimSpace(clientCert.DNSNames[0]) == "" || strings.ContainsAny(clientCert.DNSNames[0], "*:/\\ \t\n") {
-				return fmt.Errorf("invalid client DNS SAN: %s", clientCert.DNSNames[0])
-			}
-			return nil
+			_, err := clientDNSIdentity(verifiedChains[0][0])
+			return err
 		},
 	}
 

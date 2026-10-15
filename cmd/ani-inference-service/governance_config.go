@@ -17,15 +17,9 @@ import (
 	"github.com/liangzai006/ani-inference-service/internal/data/governance"
 	"github.com/liangzai006/ani-inference-service/internal/service"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
-	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 )
-
-// This registered service identity also appears in the Accelerator contract.
-// The reverse refund listener uses a separate exact DNS SAN contract.
-const governanceCallerURI = "spiffe://ani.internal/service/ani-governance"
 
 func governanceRefundConfig(managed *inferencev1.ManagedGPU) (governance.Config, bool, error) {
 	refund := managed.GetRefund()
@@ -104,7 +98,17 @@ func governanceReceiverTLS(managed *inferencev1.ManagedGPU) (*tls.Config, bool, 
 	if err != nil {
 		return nil, true, fmt.Errorf("load Inference receiver identity: %w", err)
 	}
-	return &tls.Config{MinVersion: tls.VersionTLS13, ClientAuth: tls.RequireAndVerifyClientCert, ClientCAs: roots, Certificates: []tls.Certificate{cert}}, true, nil
+	return &tls.Config{
+		MinVersion: tls.VersionTLS13, ClientAuth: tls.RequireAndVerifyClientCert,
+		ClientCAs: roots, Certificates: []tls.Certificate{cert},
+		VerifyPeerCertificate: func(_ [][]byte, verifiedChains [][]*x509.Certificate) error {
+			if len(verifiedChains) == 0 || len(verifiedChains[0]) == 0 {
+				return errors.New("unverified client certificate chain")
+			}
+			_, err := clientDNSIdentity(verifiedChains[0][0])
+			return err
+		},
+	}, true, nil
 }
 
 func configuredGovernanceGRPCServer(c *inferencev1.Server_GRPC, managed *inferencev1.ManagedGPU, owner inferencev1.InferenceServiceManagerServer, middlewares ...middleware.Middleware) (*kratosgrpc.Server, error) {
@@ -130,16 +134,11 @@ func configuredGovernanceGRPCServer(c *inferencev1.Server_GRPC, managed *inferen
 func governanceIdentityMiddleware() middleware.Middleware {
 	return func(next middleware.Handler) middleware.Handler {
 		return func(ctx context.Context, request interface{}) (interface{}, error) {
-			p, ok := peer.FromContext(ctx)
-			if !ok {
-				return nil, status.Error(codes.Unauthenticated, "verified Governance identity is required")
+			identity, err := extractClientIdentity(ctx)
+			if err != nil {
+				return nil, status.Errorf(codes.Unauthenticated, "verified Governance identity is required: %v", err)
 			}
-			tlsInfo, ok := p.AuthInfo.(credentials.TLSInfo)
-			if !ok || tlsInfo.State.Version < tls.VersionTLS13 || len(tlsInfo.State.VerifiedChains) == 0 || len(tlsInfo.State.PeerCertificates) == 0 {
-				return nil, status.Error(codes.Unauthenticated, "verified Governance identity is required")
-			}
-			leaf := tlsInfo.State.PeerCertificates[0]
-			if len(leaf.URIs) != 1 || leaf.URIs[0].String() != governanceCallerURI {
+			if identity != governanceCallerDNS {
 				return nil, status.Error(codes.PermissionDenied, "unregistered Governance caller")
 			}
 			ctx = gpu.WithGovernanceIdentity(ctx)

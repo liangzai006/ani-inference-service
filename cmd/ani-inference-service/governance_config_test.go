@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	integrationv1 "github.com/zhangzhe-ctrl/ani-accelerator-service/api/gen/go/accelerator/integration/v1"
-	acceleratorv1 "github.com/zhangzhe-ctrl/ani-accelerator-service/api/gen/go/accelerator/v1"
 	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
 	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
 	"github.com/liangzai006/ani-inference-service/internal/service"
+	integrationv1 "github.com/zhangzhe-ctrl/ani-accelerator-service/api/gen/go/accelerator/integration/v1"
+	acceleratorv1 "github.com/zhangzhe-ctrl/ani-accelerator-service/api/gen/go/accelerator/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
@@ -90,7 +90,7 @@ func TestGovernanceReceiverBindsAuthenticatedAttachmentTenantAndIdentity(t *test
 		}
 		return nil, nil
 	})
-	ctx := trustedPeerContext(t, []string{governanceCallerURI}, true)
+	ctx := governancePeerContext(tls.VersionTLS13, "ani-governance", true)
 	ctx = metadata.NewIncomingContext(ctx, metadata.Pairs("x-ani-tenant-id", tenant))
 	if _, err := handler(ctx, request); err != nil || !called {
 		t.Fatalf("trusted command rejected: %v", err)
@@ -104,8 +104,7 @@ func TestGovernanceReceiverBindsAuthenticatedAttachmentTenantAndIdentity(t *test
 
 func TestGovernanceReceiverRejectsMetadataOnlyWrongOrAmbiguousCertificate(t *testing.T) {
 	handler := governanceIdentityMiddleware()(func(context.Context, interface{}) (interface{}, error) {
-		t.Fatal("unauthorized command reached handler")
-		return nil, nil
+		return nil, status.Error(codes.Internal, "unauthorized command reached handler")
 	})
 	for _, test := range []struct {
 		name string
@@ -113,9 +112,12 @@ func TestGovernanceReceiverRejectsMetadataOnlyWrongOrAmbiguousCertificate(t *tes
 		want codes.Code
 	}{
 		{"metadata-only", metadata.NewIncomingContext(context.Background(), metadata.Pairs("x-ani-owner-service", "ani-governance")), codes.Unauthenticated},
-		{"unverified-ca", trustedPeerContext(t, []string{governanceCallerURI}, false), codes.Unauthenticated},
-		{"wrong-uri", trustedPeerContext(t, []string{"spiffe://ani.internal/service/ani-inference"}, true), codes.PermissionDenied},
-		{"multiple-uri", trustedPeerContext(t, []string{governanceCallerURI, "spiffe://ani.internal/service/other"}, true), codes.PermissionDenied},
+		{"unverified-ca", governancePeerContext(tls.VersionTLS13, "ani-governance", false), codes.Unauthenticated},
+		{"tls12", governancePeerContext(tls.VersionTLS12, "ani-governance", true), codes.Unauthenticated},
+		{"old-dns", governancePeerContext(tls.VersionTLS13, "ani-governance.ani.internal", true), codes.PermissionDenied},
+		{"wrong-dns", governancePeerContext(tls.VersionTLS13, "ani-inference", true), codes.PermissionDenied},
+		{"uri-only", trustedPeerContext(t, []string{"spiffe://ani.internal/service/ani-governance"}, true), codes.Unauthenticated},
+		{"multiple-uri", trustedPeerContext(t, []string{"spiffe://ani.internal/service/ani-governance", "spiffe://ani.internal/service/other"}, true), codes.Unauthenticated},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if _, err := handler(test.ctx, &inferencev1.CreateInferenceServiceRequest{}); status.Code(err) != test.want {

@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
+	"strings"
 
 	"github.com/go-kratos/kratos/v3/middleware"
 	"github.com/go-kratos/kratos/v3/transport"
@@ -12,6 +14,24 @@ import (
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 )
+
+const governanceCallerDNS = "ani-governance"
+
+// clientDNSIdentity is shared by both TLS listeners and RPC authentication.
+// ANI client identities have exactly one DNS SAN and no other SAN types.
+func clientDNSIdentity(cert *x509.Certificate) (string, error) {
+	if cert == nil || len(cert.DNSNames) != 1 {
+		return "", fmt.Errorf("client certificate must have exactly one DNS SAN")
+	}
+	if len(cert.URIs) != 0 || len(cert.IPAddresses) != 0 || len(cert.EmailAddresses) != 0 {
+		return "", fmt.Errorf("client certificate must not contain URI, IP or email SANs")
+	}
+	identity := cert.DNSNames[0]
+	if identity == "" || strings.ContainsAny(identity, "*:/\\ \t\r\n") {
+		return "", fmt.Errorf("invalid client DNS SAN")
+	}
+	return identity, nil
+}
 
 // RPCPolicyMiddleware enforces method-level authorization based on the
 // verified TLS client certificate identity. This implements deny-by-default:
@@ -61,16 +81,10 @@ func extractClientIdentity(ctx context.Context) (string, error) {
 	if tlsInfo.State.Version < tls.VersionTLS13 {
 		return "", fmt.Errorf("client TLS version must be 1.3 or newer")
 	}
-	if len(tlsInfo.State.VerifiedChains) == 0 {
+	if len(tlsInfo.State.VerifiedChains) == 0 || len(tlsInfo.State.VerifiedChains[0]) == 0 {
 		return "", fmt.Errorf("client certificate is not verified")
 	}
-
-	cert := tlsInfo.State.PeerCertificates[0]
-	if len(cert.DNSNames) != 1 {
-		return "", fmt.Errorf("client certificate must have exactly one DNS SAN, found %d", len(cert.DNSNames))
-	}
-
-	return cert.DNSNames[0], nil
+	return clientDNSIdentity(tlsInfo.State.PeerCertificates[0])
 }
 
 // RPCPolicy defines which client identities can call which RPC methods.
@@ -98,7 +112,7 @@ func (p StaticRPCPolicy) IsAllowed(clientIdentity, method string) bool {
 func InferenceServicePolicy() RPCPolicy {
 	policy := StaticRPCPolicy{
 		// Governance Service can create and delete inference services (managed GPU commands)
-		"ani-governance.ani.internal": {
+		governanceCallerDNS: {
 			"/inference.v1.InferenceServiceManager/CreateInferenceService",
 			"/inference.v1.InferenceServiceManager/GetInferenceService",
 			"/inference.v1.InferenceServiceManager/ListInferenceServices",
@@ -117,8 +131,8 @@ func InferenceServicePolicy() RPCPolicy {
 	return &ValidatedPolicy{
 		underlying: policy,
 		expectedIdentities: map[string]string{
-			"ani-governance.ani.internal": "Governance Service",
-			"ani-model.ani.internal":      "Model Service",
+			governanceCallerDNS:      "Governance Service",
+			"ani-model.ani.internal": "Model Service",
 		},
 	}
 }
