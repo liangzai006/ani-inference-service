@@ -709,7 +709,7 @@ WHERE s.tenant_id = sqlc.arg(tenant_id) AND s.deleted_at IS NULL
   AND (sqlc.arg(status)::text = '' OR (s.desired_state = 'running' AND COALESCE(rt.runtime_phase, 'unknown') = 'ready'))
   AND (sqlc.arg(capability)::text = '' OR EXISTS (
     SELECT 1 FROM jsonb_array_elements_text(COALESCE(sp.spec_json->'model_capabilities', '[]'::jsonb)) AS c(value)
-    WHERE c.value = sqlc.arg(capability)::text
+    WHERE lower(trim(c.value)) = sqlc.arg(capability)::text
   ));
 
 -- name: ListServicesPage :many
@@ -747,7 +747,7 @@ WHERE s.tenant_id = sqlc.arg(tenant_id) AND s.deleted_at IS NULL
   AND (sqlc.arg(status)::text = '' OR (s.desired_state = 'running' AND COALESCE(rt.runtime_phase, 'unknown') = 'ready'))
   AND (sqlc.arg(capability)::text = '' OR EXISTS (
     SELECT 1 FROM jsonb_array_elements_text(COALESCE(sp.spec_json->'model_capabilities', '[]'::jsonb)) AS c(value)
-    WHERE c.value = sqlc.arg(capability)::text
+    WHERE lower(trim(c.value)) = sqlc.arg(capability)::text
   ))
 ORDER BY s.created_at DESC, s.id DESC
 LIMIT sqlc.arg(page_limit) OFFSET sqlc.arg(page_offset);

@@ -305,7 +305,7 @@ WHERE s.tenant_id = $1 AND s.deleted_at IS NULL
   AND ($2::text = '' OR (s.desired_state = 'running' AND COALESCE(rt.runtime_phase, 'unknown') = 'ready'))
   AND ($3::text = '' OR EXISTS (
     SELECT 1 FROM jsonb_array_elements_text(COALESCE(sp.spec_json->'model_capabilities', '[]'::jsonb)) AS c(value)
-    WHERE c.value = $3::text
+    WHERE lower(trim(c.value)) = $3::text
   ))
 `
 
@@ -1739,7 +1739,7 @@ WHERE s.tenant_id = $1 AND s.deleted_at IS NULL
   AND ($2::text = '' OR (s.desired_state = 'running' AND COALESCE(rt.runtime_phase, 'unknown') = 'ready'))
   AND ($3::text = '' OR EXISTS (
     SELECT 1 FROM jsonb_array_elements_text(COALESCE(sp.spec_json->'model_capabilities', '[]'::jsonb)) AS c(value)
-    WHERE c.value = $3::text
+    WHERE lower(trim(c.value)) = $3::text
   ))
 ORDER BY s.created_at DESC, s.id DESC
 LIMIT $5 OFFSET $4

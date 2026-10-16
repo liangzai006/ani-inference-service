@@ -223,7 +223,7 @@ func TestReadUseCasePageFiltersBeforeCountAndOffset(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := pool.Exec(ctx, `UPDATE inference_specs SET spec_json=$3 WHERE tenant_id=$1 AND service_id=$2 AND generation=1`, tenant, sid, []byte(`{"model_capabilities":["Vision"]}`)); err != nil {
+		if _, err := pool.Exec(ctx, `UPDATE inference_specs SET spec_json=$3 WHERE tenant_id=$1 AND service_id=$2 AND generation=1`, tenant, sid, []byte(`{"model_capabilities":[" Vision "]}`)); err != nil {
 			t.Fatal(err)
 		}
 		phase := "ready"
