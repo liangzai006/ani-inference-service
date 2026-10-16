@@ -56,4 +56,4 @@
 
 - [x] 运行 `go test -count=1 ./...`、`go vet ./...`、`go build -trimpath ./...`。
 - [x] 运行 Helm lint/template 并检查 Service 只暴露 `19090/19091`。
-- [ ] 检查差异和敏感信息后提交并推送 Inference。
+- [x] 检查差异和敏感信息后提交并推送 Inference。
