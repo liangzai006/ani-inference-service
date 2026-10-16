@@ -206,12 +206,12 @@ SELECT s.tenant_id, $1, s.service_id, $2, s.model_id,
        $11, $12,
        $13, $14,
        CASE WHEN $15::text <> '' THEN $15 ELSE s.runtime_provider END,
-       s.spec_json,
-       $16, $17, $18, $19,
-       $20, $21, $22
+       CASE WHEN $3::uuid IS NOT NULL THEN s.spec_json || $16::jsonb ELSE s.spec_json END,
+       $17, $18, $19, $20,
+       $21, $22, $23
 FROM inference_specs s
-WHERE s.tenant_id = $23 AND s.service_id = $24
-  AND s.generation = $25
+WHERE s.tenant_id = $24 AND s.service_id = $25
+  AND s.generation = $26
 `
 
 type CloneSpecWithRuntimeUpdateParams struct {
@@ -230,6 +230,7 @@ type CloneSpecWithRuntimeUpdateParams struct {
 	RuntimeMode           string
 	WorkerReplicas        int32
 	RuntimeProvider       string
+	ModelCapabilities     []byte
 	EndpointContainerPort pgtype.Int4
 	EndpointServicePort   pgtype.Int4
 	EndpointTargetPort    pgtype.Text
@@ -259,6 +260,7 @@ func (q *Queries) CloneSpecWithRuntimeUpdate(ctx context.Context, arg CloneSpecW
 		arg.RuntimeMode,
 		arg.WorkerReplicas,
 		arg.RuntimeProvider,
+		arg.ModelCapabilities,
 		arg.EndpointContainerPort,
 		arg.EndpointServicePort,
 		arg.EndpointTargetPort,

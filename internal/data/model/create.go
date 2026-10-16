@@ -38,5 +38,6 @@ func (u *CreateUseCase) Create(ctx context.Context, in inference.CreateInput) (*
 		return nil, status.Error(codes.InvalidArgument, "artifact does not match Model version")
 	}
 	in.ArtifactProvider, in.ArtifactRef, in.ArtifactSHA256 = "model", v.ArtifactRef, v.ArtifactSHA256
+	in.ModelCapabilities = v.Capabilities
 	return u.next.Create(ctx, in)
 }

@@ -12,6 +12,7 @@ import (
 type CreateInput struct {
 	TenantID, RequestID, Actor, Name, ModelVersionID string
 	ArtifactProvider, ArtifactRef, ArtifactSHA256    string
+	ModelCapabilities                                []string
 	ImageRef, ServedModelName, EngineRuntime         string
 	RuntimeProvider                                  string
 	EngineCommand                                    string

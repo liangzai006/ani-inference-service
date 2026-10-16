@@ -166,7 +166,7 @@ SELECT s.tenant_id, sqlc.arg(id), s.service_id, sqlc.arg(target_generation), s.m
        sqlc.arg(resources), sqlc.arg(replicas),
        sqlc.arg(runtime_mode), sqlc.arg(worker_replicas),
        CASE WHEN sqlc.arg(runtime_provider)::text <> '' THEN sqlc.arg(runtime_provider) ELSE s.runtime_provider END,
-       s.spec_json,
+       CASE WHEN sqlc.arg(model_version_id)::uuid IS NOT NULL THEN s.spec_json || sqlc.arg(model_capabilities)::jsonb ELSE s.spec_json END,
        sqlc.arg(endpoint_container_port), sqlc.arg(endpoint_service_port), sqlc.arg(endpoint_target_port), sqlc.arg(endpoint_protocol),
        sqlc.arg(gpu_request), sqlc.arg(gpu_plan), sqlc.arg(gpu_plan_digest)
 FROM inference_specs s

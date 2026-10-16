@@ -20,6 +20,7 @@ import (
 type Snapshot struct {
 	VersionID, ModelID, ArtifactRef, ArtifactSHA256 string
 	ArtifactSizeBytes                               int64
+	Capabilities                                    []string
 }
 type Download struct {
 	URL, StoragePath string
@@ -62,7 +63,20 @@ func (c *Client) GetReadyVersion(ctx context.Context, tenant, versionID string) 
 	if err != nil || len(digest) != sha256.Size || strings.TrimSpace(v.GetStoragePath()) == "" {
 		return Snapshot{}, status.Error(codes.DataLoss, "Model artifact is incomplete")
 	}
-	return Snapshot{VersionID: v.GetId(), ModelID: v.GetModelId(), ArtifactRef: v.GetStoragePath(), ArtifactSHA256: v.GetChecksumSha256(), ArtifactSizeBytes: v.GetSizeBytes()}, nil
+	capabilities := make([]string, 0, len(r.GetModel().GetCapabilities()))
+	seen := make(map[string]struct{}, len(capabilities))
+	for _, capability := range r.GetModel().GetCapabilities() {
+		capability = strings.ToLower(strings.TrimSpace(capability))
+		if capability == "" {
+			continue
+		}
+		if _, ok := seen[capability]; ok {
+			continue
+		}
+		seen[capability] = struct{}{}
+		capabilities = append(capabilities, capability)
+	}
+	return Snapshot{VersionID: v.GetId(), ModelID: v.GetModelId(), ArtifactRef: v.GetStoragePath(), ArtifactSHA256: v.GetChecksumSha256(), ArtifactSizeBytes: v.GetSizeBytes(), Capabilities: capabilities}, nil
 }
 
 func (c *Client) GetArtifactDownloadURL(ctx context.Context, tenant, versionID, requester string) (Download, error) {

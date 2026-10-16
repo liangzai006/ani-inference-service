@@ -6,10 +6,10 @@ import (
 	"errors"
 
 	"github.com/google/uuid"
-	integrationv1 "github.com/zhangzhe-ctrl/ani-accelerator-service/api/gen/go/accelerator/integration/v1"
 	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
 	gpubiz "github.com/liangzai006/ani-inference-service/internal/biz/gpu"
 	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
+	integrationv1 "github.com/zhangzhe-ctrl/ani-accelerator-service/api/gen/go/accelerator/integration/v1"
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
@@ -58,6 +58,10 @@ func (u *CreateUseCase) Create(ctx context.Context, in inferencebiz.CreateInput)
 	if err != nil {
 		return nil, err
 	}
+	specJSON, err := json.Marshal(map[string]any{"model_capabilities": in.ModelCapabilities})
+	if err != nil {
+		return nil, err
+	}
 	serviceID, operationID := uuid.New(), uuid.New()
 	idempotencyKey := in.RequestID
 	var responseSnapshot []byte
@@ -85,6 +89,7 @@ func (u *CreateUseCase) Create(ctx context.Context, in inferencebiz.CreateInput)
 		RuntimeMode: in.RuntimeMode, WorkerReplicas: in.WorkerReplicas, RuntimeProvider: in.RuntimeProvider,
 		GPURequest: gpuRequestJSON,
 		GPUPlan:    gpuPlanJSON, GPUPlanDigest: gpuPlanDigest,
+		SpecJSON:   specJSON,
 		ManagedGPU: in.ManagedGPU, ResponseSnapshot: responseSnapshot,
 		EndpointEnabled:       in.Endpoint != nil,
 		EndpointContainerPort: endpointContainerPort(in.Endpoint), EndpointServicePort: endpointServicePort(in.Endpoint),

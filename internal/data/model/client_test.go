@@ -19,11 +19,15 @@ type modelAPIFake struct {
 	version  *modelv1.ModelVersion
 	download *modelv1.GetModelDownloadURLResponse
 	request  *modelv1.GetModelVersionRequest
+	response *modelv1.GetModelVersionResponse
 	err      error
 }
 
 func (f *modelAPIFake) GetModelVersion(_ context.Context, r *modelv1.GetModelVersionRequest, _ ...grpc.CallOption) (*modelv1.GetModelVersionResponse, error) {
 	f.request = r
+	if f.response != nil {
+		return f.response, f.err
+	}
 	return &modelv1.GetModelVersionResponse{Version: f.version}, f.err
 }
 func (f *modelAPIFake) GetModelDownloadURL(context.Context, *modelv1.GetModelDownloadURLRequest, ...grpc.CallOption) (*modelv1.GetModelDownloadURLResponse, error) {
@@ -43,6 +47,19 @@ func TestGetReadyVersionMapsArtifactSnapshotOnly(t *testing.T) {
 	}
 	if got.VersionID != "version-id" || got.ModelID != "external-model" || got.ArtifactRef != "tenant/model" || got.ArtifactSHA256 != strings.Repeat("a", 64) || got.ArtifactSizeBytes != 3<<30 {
 		t.Fatalf("snapshot=%+v", got)
+	}
+}
+
+func TestGetReadyVersionNormalizesModelCapabilities(t *testing.T) {
+	api := &modelAPIFake{version: readyVersion()}
+	// Capabilities belong to the Model returned alongside the version.
+	api.response = &modelv1.GetModelVersionResponse{Model: &modelv1.Model{Capabilities: []string{" Text-Generation ", "VISION", "text-generation", "", " vision "}}, Version: api.version}
+	got, err := NewClient(api).GetReadyVersion(context.Background(), "tenant-id", "version-id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(got.Capabilities, ",") != "text-generation,vision" {
+		t.Fatalf("capabilities=%v", got.Capabilities)
 	}
 }
 func TestGetReadyVersionRejectsInvalidSnapshots(t *testing.T) {
