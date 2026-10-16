@@ -1271,6 +1271,8 @@ type ListInferenceServicesRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Page          *int32                 `protobuf:"varint,3,opt,name=page,proto3,oneof" json:"page,omitempty"`
 	PageSize      *int32                 `protobuf:"varint,4,opt,name=page_size,json=pageSize,proto3,oneof" json:"page_size,omitempty"`
+	Status        string                 `protobuf:"bytes,5,opt,name=status,proto3" json:"status,omitempty"`
+	Capability    string                 `protobuf:"bytes,6,opt,name=capability,proto3" json:"capability,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1317,6 +1319,20 @@ func (x *ListInferenceServicesRequest) GetPageSize() int32 {
 		return *x.PageSize
 	}
 	return 0
+}
+
+func (x *ListInferenceServicesRequest) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *ListInferenceServicesRequest) GetCapability() string {
+	if x != nil {
+		return x.Capability
+	}
+	return ""
 }
 
 type ListInferenceServicesResponse struct {
@@ -1722,10 +1738,14 @@ const file_inference_v1_inference_proto_rawDesc = "" +
 	"\x10original_charges\x18\x05 \x03(\v2!.inference.v1.OriginalQuotaChargeR\x0foriginalCharges\"=\n" +
 	"\x1aGetInferenceServiceRequest\x12\x1f\n" +
 	"\vresource_id\x18\x01 \x01(\tR\n" +
-	"resourceId\"|\n" +
+	"resourceId\"\xb4\x01\n" +
 	"\x1cListInferenceServicesRequest\x12\x17\n" +
 	"\x04page\x18\x03 \x01(\x05H\x00R\x04page\x88\x01\x01\x12 \n" +
-	"\tpage_size\x18\x04 \x01(\x05H\x01R\bpageSize\x88\x01\x01B\a\n" +
+	"\tpage_size\x18\x04 \x01(\x05H\x01R\bpageSize\x88\x01\x01\x12\x16\n" +
+	"\x06status\x18\x05 \x01(\tR\x06status\x12\x1e\n" +
+	"\n" +
+	"capability\x18\x06 \x01(\tR\n" +
+	"capabilityB\a\n" +
 	"\x05_pageB\f\n" +
 	"\n" +
 	"_page_sizeJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03\"\x92\x01\n" +

@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -208,5 +209,37 @@ func TestReadUseCasePageQueriesKeepCountAndRowsScoped(t *testing.T) {
 	ops, opsTotal, err := read.ListOperationsPage(ctx, tenant.String(), services[0].String(), inferencebiz.ListOptions{Limit: 10})
 	if err != nil || opsTotal != 1 || len(ops) != 1 || ops[0].GetServiceId() != services[0].String() {
 		t.Fatalf("resource-scoped operations=%v total=%d err=%v", ops, opsTotal, err)
+	}
+}
+
+func TestReadUseCasePageFiltersBeforeCountAndOffset(t *testing.T) {
+	ctx, pool, tenant, _ := lifecycleDatabase(t)
+	services := []uuid.UUID{uuid.New(), uuid.New(), uuid.New()}
+	for i, sid := range services {
+		_, err := NewRepository(pool).CreateService(ctx, CreateAggregateInput{
+			TenantID: tenant.String(), ServiceID: sid.String(), OperationID: uuid.NewString(),
+			Name: "filter-" + sid.String(), ModelVersionID: uuid.NewString(), RequestHash: fmt.Sprintf("filter-%d", i), IdempotencyKey: fmt.Sprintf("filter-%d", i),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, `UPDATE inference_specs SET spec_json=$3 WHERE tenant_id=$1 AND service_id=$2 AND generation=1`, tenant, sid, []byte(`{"model_capabilities":["Vision"]}`)); err != nil {
+			t.Fatal(err)
+		}
+		phase := "ready"
+		if i == 1 {
+			phase = "pending"
+		}
+		if _, err := pool.Exec(ctx, `INSERT INTO inference_runtime(tenant_id,service_id,generation,runtime_phase,publication_phase,invocation_health) VALUES($1,$2,1,$3,'withdrawn','unknown')`, tenant, sid, phase); err != nil {
+			t.Fatal(err)
+		}
+	}
+	read := NewReadUseCase(pool)
+	items, total, err := read.ListServicesPage(ctx, tenant.String(), inferencebiz.ListOptions{Status: "running", Capability: "vision", Limit: 1, Offset: 1})
+	if err != nil || total != 2 || len(items) != 1 {
+		t.Fatalf("filtered page=%v total=%d err=%v", items, total, err)
+	}
+	if items[0].GetId() == services[1].String() {
+		t.Fatalf("pending service matched running filter: %s", items[0].GetId())
 	}
 }

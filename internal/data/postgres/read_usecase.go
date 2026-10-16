@@ -432,11 +432,11 @@ func (u *ReadUseCase) ListServicesPage(ctx context.Context, tenantID string, opt
 	}
 	defer tx.Rollback(ctx)
 	q := New(tx)
-	total, err := q.CountServices(ctx, tenant)
+	total, err := q.CountServices(ctx, CountServicesParams{TenantID: tenant, Status: options.Status, Capability: options.Capability})
 	if err != nil {
 		return nil, 0, err
 	}
-	rows, err := q.ListServicesPage(ctx, ListServicesPageParams{TenantID: tenant, Limit: options.Limit, Offset: int32(options.Offset)})
+	rows, err := q.ListServicesPage(ctx, ListServicesPageParams{TenantID: tenant, Status: options.Status, Capability: options.Capability, PageLimit: options.Limit, PageOffset: int32(options.Offset)})
 	if err != nil {
 		return nil, 0, err
 	}

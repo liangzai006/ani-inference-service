@@ -313,6 +313,31 @@ type paginationRead struct {
 	operationOptions []inferencebiz.ListOptions
 }
 
+func TestListServicesNormalizesSupportedFilters(t *testing.T) {
+	r := &paginationRead{}
+	s := NewInferenceServerWithRead(nil, r)
+	statusFilter, capability := " RUNNING ", " Vision "
+	_, err := s.ListInferenceServices(WithTenantID(context.Background(), "tenant-a"), &inferencev1.ListInferenceServicesRequest{Status: statusFilter, Capability: capability})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.serviceOptions) != 1 || r.serviceOptions[0].Status != "running" || r.serviceOptions[0].Capability != "vision" {
+		t.Fatalf("options=%+v", r.serviceOptions)
+	}
+}
+
+func TestListServicesRejectsUnsupportedStatus(t *testing.T) {
+	r := &paginationRead{}
+	s := NewInferenceServerWithRead(nil, r)
+	_, err := s.ListInferenceServices(WithTenantID(context.Background(), "tenant-a"), &inferencev1.ListInferenceServicesRequest{Status: "paused"})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("code=%v err=%v", status.Code(err), err)
+	}
+	if len(r.serviceOptions) != 0 {
+		t.Fatalf("read called for invalid status: %+v", r.serviceOptions)
+	}
+}
+
 func (r *paginationRead) GetService(context.Context, string, string) (*inferencev1.InferenceService, error) {
 	return nil, errors.New("unused")
 }

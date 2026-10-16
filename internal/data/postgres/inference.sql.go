@@ -299,11 +299,24 @@ func (q *Queries) CountOperations(ctx context.Context, arg CountOperationsParams
 const countServices = `-- name: CountServices :one
 SELECT count(*)::bigint
 FROM inference_services s
+LEFT JOIN inference_specs sp ON sp.tenant_id = s.tenant_id AND sp.service_id = s.id AND sp.generation = s.desired_generation
+LEFT JOIN inference_runtime rt ON rt.tenant_id = s.tenant_id AND rt.service_id = s.id
 WHERE s.tenant_id = $1 AND s.deleted_at IS NULL
+  AND ($2::text = '' OR (s.desired_state = 'running' AND COALESCE(rt.runtime_phase, 'unknown') = 'ready'))
+  AND ($3::text = '' OR EXISTS (
+    SELECT 1 FROM jsonb_array_elements_text(COALESCE(sp.spec_json->'model_capabilities', '[]'::jsonb)) AS c(value)
+    WHERE c.value = $3::text
+  ))
 `
 
-func (q *Queries) CountServices(ctx context.Context, tenantID pgtype.UUID) (int64, error) {
-	row := q.db.QueryRow(ctx, countServices, tenantID)
+type CountServicesParams struct {
+	TenantID   pgtype.UUID
+	Status     string
+	Capability string
+}
+
+func (q *Queries) CountServices(ctx context.Context, arg CountServicesParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countServices, arg.TenantID, arg.Status, arg.Capability)
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
@@ -1723,14 +1736,21 @@ LEFT JOIN LATERAL (
   ORDER BY p.generation DESC LIMIT 1
 ) pub ON TRUE
 WHERE s.tenant_id = $1 AND s.deleted_at IS NULL
+  AND ($2::text = '' OR (s.desired_state = 'running' AND COALESCE(rt.runtime_phase, 'unknown') = 'ready'))
+  AND ($3::text = '' OR EXISTS (
+    SELECT 1 FROM jsonb_array_elements_text(COALESCE(sp.spec_json->'model_capabilities', '[]'::jsonb)) AS c(value)
+    WHERE c.value = $3::text
+  ))
 ORDER BY s.created_at DESC, s.id DESC
-LIMIT $2 OFFSET $3
+LIMIT $5 OFFSET $4
 `
 
 type ListServicesPageParams struct {
-	TenantID pgtype.UUID
-	Limit    int32
-	Offset   int32
+	TenantID   pgtype.UUID
+	Status     string
+	Capability string
+	PageOffset int32
+	PageLimit  int32
 }
 
 type ListServicesPageRow struct {
@@ -1768,7 +1788,13 @@ type ListServicesPageRow struct {
 }
 
 func (q *Queries) ListServicesPage(ctx context.Context, arg ListServicesPageParams) ([]ListServicesPageRow, error) {
-	rows, err := q.db.Query(ctx, listServicesPage, arg.TenantID, arg.Limit, arg.Offset)
+	rows, err := q.db.Query(ctx, listServicesPage,
+		arg.TenantID,
+		arg.Status,
+		arg.Capability,
+		arg.PageOffset,
+		arg.PageLimit,
+	)
 	if err != nil {
 		return nil, err
 	}

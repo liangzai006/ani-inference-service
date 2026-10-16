@@ -405,6 +405,14 @@ func listPage(reqPage, reqSize int32, hasPage, hasSize bool) (inferencebiz.ListO
 	return inferencebiz.ListOptions{Limit: size, Offset: int64(page-1) * int64(size)}, nil
 }
 
+func listStatus(statusFilter string) (string, error) {
+	statusFilter = strings.ToLower(strings.TrimSpace(statusFilter))
+	if statusFilter == "" || statusFilter == "running" {
+		return statusFilter, nil
+	}
+	return "", status.Error(codes.InvalidArgument, "unsupported status filter")
+}
+
 func (s *InferenceServer) ListInferenceServices(ctx context.Context, req *inferencev1.ListInferenceServicesRequest) (*inferencev1.ListInferenceServicesResponse, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
@@ -420,6 +428,11 @@ func (s *InferenceServer) ListInferenceServices(ctx context.Context, req *infere
 	if err != nil {
 		return nil, err
 	}
+	opts.Status, err = listStatus(req.GetStatus())
+	if err != nil {
+		return nil, err
+	}
+	opts.Capability = strings.ToLower(strings.TrimSpace(req.GetCapability()))
 	items, total, err := s.read.ListServicesPage(ctx, tenant, opts)
 	if err != nil {
 		return nil, err

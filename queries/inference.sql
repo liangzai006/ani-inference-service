@@ -703,7 +703,14 @@ WHERE sp.tenant_id = sqlc.arg(tenant_id)
 -- name: CountServices :one
 SELECT count(*)::bigint
 FROM inference_services s
-WHERE s.tenant_id = $1 AND s.deleted_at IS NULL;
+LEFT JOIN inference_specs sp ON sp.tenant_id = s.tenant_id AND sp.service_id = s.id AND sp.generation = s.desired_generation
+LEFT JOIN inference_runtime rt ON rt.tenant_id = s.tenant_id AND rt.service_id = s.id
+WHERE s.tenant_id = sqlc.arg(tenant_id) AND s.deleted_at IS NULL
+  AND (sqlc.arg(status)::text = '' OR (s.desired_state = 'running' AND COALESCE(rt.runtime_phase, 'unknown') = 'ready'))
+  AND (sqlc.arg(capability)::text = '' OR EXISTS (
+    SELECT 1 FROM jsonb_array_elements_text(COALESCE(sp.spec_json->'model_capabilities', '[]'::jsonb)) AS c(value)
+    WHERE c.value = sqlc.arg(capability)::text
+  ));
 
 -- name: ListServicesPage :many
 SELECT s.tenant_id, s.id, s.name, s.desired_state, s.desired_generation, s.applied_generation,
@@ -736,9 +743,14 @@ LEFT JOIN LATERAL (
   WHERE p.tenant_id = s.tenant_id AND p.service_id = s.id AND p.generation <= s.desired_generation
   ORDER BY p.generation DESC LIMIT 1
 ) pub ON TRUE
-WHERE s.tenant_id = $1 AND s.deleted_at IS NULL
+WHERE s.tenant_id = sqlc.arg(tenant_id) AND s.deleted_at IS NULL
+  AND (sqlc.arg(status)::text = '' OR (s.desired_state = 'running' AND COALESCE(rt.runtime_phase, 'unknown') = 'ready'))
+  AND (sqlc.arg(capability)::text = '' OR EXISTS (
+    SELECT 1 FROM jsonb_array_elements_text(COALESCE(sp.spec_json->'model_capabilities', '[]'::jsonb)) AS c(value)
+    WHERE c.value = sqlc.arg(capability)::text
+  ))
 ORDER BY s.created_at DESC, s.id DESC
-LIMIT $2 OFFSET $3;
+LIMIT sqlc.arg(page_limit) OFFSET sqlc.arg(page_offset);
 
 -- name: CountOperations :one
 SELECT count(*)::bigint

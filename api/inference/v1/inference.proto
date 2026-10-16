@@ -152,6 +152,8 @@ message ListInferenceServicesRequest {
   reserved 1, 2;
   optional int32 page = 3;
   optional int32 page_size = 4 [json_name = "pageSize"];
+  string status = 5;
+  string capability = 6;
 }
 message ListInferenceServicesResponse {
   reserved 1, 2;
