@@ -31,7 +31,7 @@ func buildAppWithAllDependenciesAndManagedGPU(bc *inferencev1.Bootstrap, logger 
 	if _, enabled, err := governanceRefundConfig(bc.GetManagedGpu()); err != nil {
 		return nil, err
 	} else if enabled && refund == nil {
-		return nil, errors.New("managed GPU receiver requires the real refund reporter")
+		return nil, errors.New("managed GPU refund requires the real reporter")
 	}
 	readiness := server.NewReadiness()
 	observability, err := server.NewObservability(Name, Version, readiness)
@@ -62,15 +62,7 @@ func buildAppWithAllDependenciesAndManagedGPU(bc *inferencev1.Bootstrap, logger 
 		return nil, err
 	}
 	inferencev1.RegisterInferenceServiceManagerServer(grpcServer, owner)
-	managedServer, err := configuredGovernanceGRPCServer(bc.Server.Grpc, bc.GetManagedGpu(), owner, middlewares...)
-	if err != nil {
-		_ = observability.Shutdown(context.Background())
-		return nil, err
-	}
 	readyOnStart := readyOnStartForBackground(background)
-	if managedServer != nil {
-		background = append(background, managedServer)
-	}
 	referenceReader, _ := read.(inferencebiz.ModelReferenceReader)
 	inferencev1.RegisterModelReferenceServiceServer(grpcServer, service.NewModelReferenceServer(referenceReader))
 	adminServer := server.NewAdminServer(bc.Server.Admin, readiness, observability.Gatherer(), adminMiddlewares...)

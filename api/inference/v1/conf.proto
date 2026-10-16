@@ -8,20 +8,12 @@ import "google/protobuf/duration.proto";
 
 message Bootstrap {
   Server server = 1;
-  // Optional managed Governance command/refund wiring. When configured, both
-  // inbound and outbound identities are required; no plaintext fallback.
+  // Optional outbound Governance refund wiring. Inbound commands use the
+  // ordinary TLS gRPC listener and verified tenant metadata.
   ManagedGPU managed_gpu = 2;
 }
 
 message ManagedGPU {
-  message Receiver {
-    string ca_file = 1;
-    string cert_file = 2;
-    string key_file = 3;
-    // Dedicated internal listener; the existing CPU/model-reference listener
-    // retains its own transport contract.
-    string address = 4;
-  }
   message Refund {
     string address = 1;
     string ca_file = 2;
@@ -30,7 +22,7 @@ message ManagedGPU {
     string server_name = 5;
     google.protobuf.Duration timeout = 6;
   }
-  Receiver receiver = 1;
+  reserved 1;
   Refund refund = 2;
 }
 

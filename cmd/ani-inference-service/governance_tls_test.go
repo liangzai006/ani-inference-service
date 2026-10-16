@@ -21,8 +21,6 @@ import (
 	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
 	"github.com/liangzai006/ani-inference-service/internal/server"
 	"github.com/liangzai006/ani-inference-service/internal/service"
-	integrationv1 "github.com/zhangzhe-ctrl/ani-accelerator-service/api/gen/go/accelerator/integration/v1"
-	acceleratorv1 "github.com/zhangzhe-ctrl/ani-accelerator-service/api/gen/go/accelerator/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -113,7 +111,7 @@ func startReceiverTestServer(t *testing.T, srv *kratosgrpc.Server) string {
 	return endpoint.Host
 }
 
-func newGovernanceIdentityReceivers(t *testing.T) (*receiverTestPKI, map[string]string) {
+func newGovernanceIdentityReceiver(t *testing.T) (*receiverTestPKI, string) {
 	t.Helper()
 	pki := newReceiverTestPKI(t)
 	_, _, serverCert, serverKey := pki.certificate(t, "server", &x509.Certificate{DNSNames: []string{"ani-inference.ani.internal"}, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}})
@@ -128,18 +126,11 @@ func newGovernanceIdentityReceivers(t *testing.T) (*receiverTestPKI, map[string]
 		t.Fatal(err)
 	}
 	inferencev1.RegisterInferenceServiceManagerServer(ordinary, owner)
-	managed := validManagedConfig()
-	managed.Receiver.Address = "127.0.0.1:0"
-	managed.Receiver.CaFile, managed.Receiver.CertFile, managed.Receiver.KeyFile = pki.caFile, serverCert, serverKey
-	managedServer, err := configuredGovernanceGRPCServer(config, managed, owner, policy, server.DirectTenantMiddleware())
-	if err != nil {
-		t.Fatal(err)
-	}
-	return pki, map[string]string{"ordinary": startReceiverTestServer(t, ordinary), "managed": startReceiverTestServer(t, managedServer)}
+	return pki, startReceiverTestServer(t, ordinary)
 }
 
 func TestGovernanceDNSIdentityThroughProductionReceivers(t *testing.T) {
-	pki, addresses := newGovernanceIdentityReceivers(t)
+	pki, address := newGovernanceIdentityReceiver(t)
 	roots := x509.NewCertPool()
 	roots.AddCert(pki.ca)
 	uri, err := url.Parse("spiffe://ani.internal/service/ani-governance")
@@ -164,47 +155,35 @@ func TestGovernanceDNSIdentityThroughProductionReceivers(t *testing.T) {
 	for _, test := range cases {
 		test.spec.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}
 		pair, _, _, _ := pki.certificate(t, test.name, &test.spec)
-		for receiver, address := range addresses {
-			t.Run(receiver+"/"+test.name, func(t *testing.T) {
-				conn, err := grpc.NewClient(address, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13, RootCAs: roots, ServerName: "ani-inference.ani.internal", Certificates: []tls.Certificate{pair}})))
-				if err != nil {
-					t.Fatal(err)
-				}
-				defer conn.Close()
-				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-				defer cancel()
-				ctx = metadata.NewOutgoingContext(ctx, metadata.Pairs("x-ani-tenant-id", tenant, "x-ani-actor", "governance:user:7"))
-				rpc := inferencev1.NewInferenceServiceManagerClient(conn)
-				create := &inferencev1.CreateInferenceServiceRequest{}
-				if receiver == "managed" {
-					create.GpuOwnerAttachment = &integrationv1.GpuOwnerCreateAttachment{Ref: &acceleratorv1.GpuUsageRef{TenantId: tenant}}
-				}
-				_, err = rpc.CreateInferenceService(ctx, create)
-				if status.Code(err) != test.code {
-					t.Fatalf("CREATE code=%v err=%v want=%v", status.Code(err), err, test.code)
-				}
-				if test.name != "registered-dns" {
-					return
-				}
-				if !strings.Contains(status.Convert(err).Message(), "request_id, name and model_version_id are required") {
-					t.Fatalf("CREATE did not reach production validation: %v", err)
-				}
-				_, err = rpc.GetInferenceService(ctx, &inferencev1.GetInferenceServiceRequest{})
-				if status.Code(err) != codes.InvalidArgument || !strings.Contains(status.Convert(err).Message(), "resource_id is required") {
-					t.Fatalf("GET did not reach production validation: %v", err)
-				}
-				_, err = rpc.UpdateInferenceService(ctx, &inferencev1.UpdateInferenceServiceRequest{})
-				if status.Code(err) != codes.PermissionDenied {
-					t.Fatalf("method outside RPC policy accepted: %v", err)
-				}
-				if receiver == "managed" {
-					conflicting := metadata.NewOutgoingContext(ctx, metadata.Pairs("x-ani-tenant-id", "10000000-0000-4000-8000-000000000099", "x-ani-actor", "governance:user:7"))
-					_, err = rpc.CreateInferenceService(conflicting, create)
-					if status.Code(err) != codes.PermissionDenied {
-						t.Fatalf("attachment tenant conflict accepted: %v", err)
-					}
-				}
-			})
-		}
+		t.Run(test.name, func(t *testing.T) {
+			conn, err := grpc.NewClient(address, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13, RootCAs: roots, ServerName: "ani-inference.ani.internal", Certificates: []tls.Certificate{pair}})))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer conn.Close()
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			ctx = metadata.NewOutgoingContext(ctx, metadata.Pairs("x-ani-tenant-id", tenant, "x-ani-actor", "governance:user:7"))
+			rpc := inferencev1.NewInferenceServiceManagerClient(conn)
+			create := &inferencev1.CreateInferenceServiceRequest{}
+			_, err = rpc.CreateInferenceService(ctx, create)
+			if status.Code(err) != test.code {
+				t.Fatalf("CREATE code=%v err=%v want=%v", status.Code(err), err, test.code)
+			}
+			if test.name != "registered-dns" {
+				return
+			}
+			if !strings.Contains(status.Convert(err).Message(), "request_id, name and model_version_id are required") {
+				t.Fatalf("CREATE did not reach production validation: %v", err)
+			}
+			_, err = rpc.GetInferenceService(ctx, &inferencev1.GetInferenceServiceRequest{})
+			if status.Code(err) != codes.InvalidArgument || !strings.Contains(status.Convert(err).Message(), "resource_id is required") {
+				t.Fatalf("GET did not reach production validation: %v", err)
+			}
+			_, err = rpc.UpdateInferenceService(ctx, &inferencev1.UpdateInferenceServiceRequest{})
+			if status.Code(err) != codes.PermissionDenied {
+				t.Fatalf("method outside RPC policy accepted: %v", err)
+			}
+		})
 	}
 }

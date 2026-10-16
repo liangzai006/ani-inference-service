@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/go-kratos/kratos/v3/middleware"
+	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
+	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
 	"github.com/liangzai006/ani-inference-service/internal/service"
 	"google.golang.org/grpc/codes"
 	grpcmetadata "google.golang.org/grpc/metadata"
@@ -50,9 +52,42 @@ func trustedTenantMiddleware() middleware.Middleware {
 			if actor != "" {
 				ctx = service.WithActor(ctx, actor)
 			}
+			var bindErr error
+			ctx, bindErr = bindGovernanceGPUContext(ctx, req, tenant, identity)
+			if bindErr != nil {
+				return nil, bindErr
+			}
 			return next(ctx, req)
 		}
 	}
+}
+
+// bindGovernanceGPUContext keeps the single ordinary listener usable for both
+// tenant-scoped reads and Governance-owned GPU commands. The mTLS identity and
+// tenant metadata are trusted first; the attachment tenant is only a
+// consistency check and never establishes scope by itself.
+func bindGovernanceGPUContext(ctx context.Context, req interface{}, tenant, identity string) (context.Context, error) {
+	if identity != governanceCallerDNS {
+		return ctx, nil
+	}
+	var attachmentTenant string
+	switch request := req.(type) {
+	case *inferencev1.CreateInferenceServiceRequest:
+		if request.GetGpuOwnerAttachment() != nil {
+			attachmentTenant = strings.TrimSpace(request.GetGpuOwnerAttachment().GetRef().GetTenantId())
+		}
+	case *inferencev1.DeleteInferenceServiceRequest:
+		if request.GetGpuOwnerAttachment() != nil {
+			attachmentTenant = strings.TrimSpace(request.GetGpuOwnerAttachment().GetRef().GetTenantId())
+		}
+	}
+	if attachmentTenant == "" {
+		return ctx, nil
+	}
+	if attachmentTenant != tenant {
+		return ctx, status.Error(codes.PermissionDenied, "GPU command tenant does not match authenticated scope")
+	}
+	return gpu.WithGovernanceIdentity(ctx), nil
 }
 
 var errTenantMetadataMissing = errors.New("x-ani-tenant-id metadata is required")

@@ -106,10 +106,9 @@ service:
   grpcPort: 19090
   adminPort: 19091
 
-# Ordinary Inference gRPC is always TLS 1.3 with a verified client
-# certificate. This is the listener used by Governance for non-GPU lifecycle
-# commands and by Model for reference checks. The managed GPU receiver, when
-# enabled, has its own separate certificate contract.
+# Inference gRPC is always TLS 1.3 with a verified client certificate. This
+# single listener is used by Governance for queries, CPU lifecycle and GPU
+# contract commands, and by Model for reference checks.
 serverTLS:
   existingSecret: ani-inference-server-tls
   mountPath: /var/run/secrets/inference-server

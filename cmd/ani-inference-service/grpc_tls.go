@@ -14,8 +14,8 @@ import (
 )
 
 // InferenceServerTLSConfig is the mandatory TLS material for the ordinary
-// Inference gRPC listener. It is separate from managed_gpu.receiver because
-// that listener has a dedicated address and Governance attachment contract.
+// Inference gRPC listener. All tenant-scoped reads, CPU lifecycle calls and
+// Governance-owned GPU commands use this single mTLS-protected endpoint.
 type InferenceServerTLSConfig struct {
 	CAFile, CertFile, KeyFile string
 }

@@ -56,10 +56,11 @@ func TestManagedOwnerProcess(t *testing.T) {
 	}
 	repo := postgres.NewRepository(pool)
 	owner := service.NewInferenceServerWithAll(postgres.NewCreateUseCase(repo), postgres.NewReadUseCase(pool), postgres.NewCommandUseCase(repo), postgres.NewUpdateUseCase(repo))
-	grpcServer, err := configuredGovernanceGRPCServer(bc.Server.Grpc, bc.GetManagedGpu(), owner, server.DirectTenantMiddleware())
+	grpcServer, err := configuredInferenceGRPCServer(bc.Server.Grpc, server.DirectTenantMiddleware())
 	if err != nil {
 		t.Fatal(err)
 	}
+	inferencev1.RegisterInferenceServiceManagerServer(grpcServer, owner)
 	endpoint, err := grpcServer.Endpoint()
 	if err != nil {
 		t.Fatal(err)

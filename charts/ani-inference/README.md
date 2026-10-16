@@ -22,7 +22,7 @@
 - `ClusterIssuer` 或其他签发者
 - PostgreSQL、Ceph/S3、Model Service
 
-`Certificate` 引用已经存在的 `ClusterIssuer/ani-internal`。普通 Inference gRPC 监听器始终使用 TLS 1.3 和双向证书校验，服务端证书写入 `ani-inference-server-tls`，DNS SAN 为 `ani-inference.ani.internal`；Governance 和 Model 的客户端证书必须由同一 CA 签发，并通过 RPC 身份策略。Governance 客户端唯一 DNS SAN 为 `ani-governance`，普通入口和受管 GPU 入口均拒绝附加 DNS、URI、IP 或 email SAN。Inference 调用 Model 的客户端证书写入 `inference-model-mtls`，其 DNS SAN 为 `ani-inference.ani.internal`，并校验对端身份 `ani-model.ani.internal`。
+`Certificate` 引用已经存在的 `ClusterIssuer/ani-internal`。Inference gRPC 唯一监听器始终使用 TLS 1.3 和双向证书校验，服务端证书写入 `ani-inference-server-tls`，DNS SAN 为 `ani-inference.ani.internal`；Governance 和 Model 的客户端证书必须由同一 CA 签发，并通过 RPC 身份策略。Governance 客户端唯一 DNS SAN 为 `ani-governance`，查询、CPU 生命周期和 GPU 合同请求都走 `19090`。Inference 调用 Model 的客户端证书写入 `inference-model-mtls`，其 DNS SAN 为 `ani-inference.ani.internal`，并校验对端身份 `ani-model.ani.internal`。
 
 数据库只读取已有 Secret `inference-database` 的 `dsn`。`higress.publicBaseURL` 必须在安装时传入。
 

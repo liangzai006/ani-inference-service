@@ -15,12 +15,12 @@ original charge vector. The command resource/create/delete IDs come from
 Governance; local generations and restart/update operation IDs never replace
 the original refund identity.
 
-The managed gRPC listener requires TLS 1.3 and a verified client certificate.
-Its sole SAN must be the registered DNS identity `ani-governance`, also used
-by the ordinary Governance RPC listener. Additional DNS names, URI, IP or
-email SANs, CN, owner metadata or an unverified same-name certificate cannot authorize a
-command. After authentication the receiver binds the attachment's tenant;
-incoming tenant metadata, when present, must match it. The service separately
+The single Inference gRPC listener requires TLS 1.3 and a verified client
+certificate. Its sole SAN must be the registered DNS identity `ani-governance`.
+Additional DNS names, URI, IP or email SANs, CN, owner metadata or an
+unverified same-name certificate cannot authorize a command. After
+authentication the transport binds the tenant from verified metadata; for GPU
+commands the attachment tenant must match that context. The service separately
 requires the trusted marker and the validated plan/business/charge contract.
 
 An ACK means only that the command, original context and execution or closing
@@ -196,16 +196,11 @@ cluster scheduled the emitted object or loaded the model.
 
 `Bootstrap.managed_gpu` is the actual typed configuration read by the
 composition root. An entirely empty block leaves managed GPU wiring disabled.
-Any configured managed identity requires both receiver and refund settings.
-CPU/direct compatibility never authorizes an untrusted GPU attachment.
+Only the outbound refund client is configured here. CPU/direct compatibility
+never authorizes an untrusted GPU attachment.
 
 ```yaml
 managed_gpu:
-  receiver:
-    address: <registered-inference-managed-host:port>
-    ca_file: /managed/inbound-ca.pem
-    cert_file: /managed/inference-server.pem
-    key_file: /managed/inference-server.key
   refund:
     address: <registered-governance-quota-host:port>
     ca_file: /managed/refund-ca.pem
@@ -217,15 +212,12 @@ managed_gpu:
 
 These paths are placeholders, not issued production identities. The shipped
 configuration expands the existing `ANI` environment source keys:
-`ANI_GOVERNANCE_RECEIVER_GRPC_ADDR`, `ANI_GOVERNANCE_RECEIVER_{CA,CERT,KEY}_FILE` and
 `ANI_GOVERNANCE_QUOTA_GRPC_ADDR`, `ANI_GOVERNANCE_QUOTA_{CA,CERT,KEY}_FILE`,
 `ANI_GOVERNANCE_QUOTA_SERVER_NAME`, `ANI_GOVERNANCE_QUOTA_TIMEOUT`.
 Equivalent explicit YAML values use the same typed fields. No plaintext,
 `skipVerify`, arbitrary owner override or public refund HTTP endpoint exists.
-The dedicated managed listener registers the same Inference service instance;
-the existing CPU/model-reference listener keeps its transport configuration.
-Managed GPU attachments on that ordinary listener still fail the service's
-trusted Governance identity check.
+There is no second managed listener; Governance uses the ordinary `19090`
+listener for queries, CPU lifecycle and GPU commands.
 
 The inbound Governance certificate's URI rule and the reverse refund client's
 DNS rule are separate contracts. Governance must register the exact issued
@@ -296,7 +288,7 @@ totals. A malformed or incomplete successful response is an error.
 
 The configured timeout bounds both context lookup and RPC. Persistence errors,
 transport/gRPC errors and invalid responses propagate to the caller. After a
-timeout, unavailable receiver or lost response, retry the **same persisted
+timeout, unavailable Governance quota endpoint or lost response, retry the **same persisted
 event and content**; do not invent a new ID. Governance owns receipt
 idempotency and cumulative accounting. `PermissionDenied`, invalid-context or
 conflict errors require correction of identity/state/input, not blind changes
@@ -316,6 +308,6 @@ Stop/start/restart/update, exit, failure, timeout, a missing CR/Binding, partial
 cleanup and DELETE ACK do not call this reporter. Managed GPU commands do not
 reserve a second quota or use the legacy reservation release step. Controlled
 software tests explicitly inject an already-completed notification after a
-persistent DELETE and exercise the actual receiver and ledger; they do not
+persistent DELETE and exercise the actual Governance quota endpoint and ledger; they do not
 claim that real deletion occurred. Adapter-only TLS tests use an isolated
 remote protocol fixture and are distinct from those cross-service PG tests.

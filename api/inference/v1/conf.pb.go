@@ -25,8 +25,8 @@ const (
 type Bootstrap struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	Server *Server                `protobuf:"bytes,1,opt,name=server,proto3" json:"server,omitempty"`
-	// Optional managed Governance command/refund wiring. When configured, both
-	// inbound and outbound identities are required; no plaintext fallback.
+	// Optional outbound Governance refund wiring. Inbound commands use the
+	// ordinary TLS gRPC listener and verified tenant metadata.
 	ManagedGpu    *ManagedGPU `protobuf:"bytes,2,opt,name=managed_gpu,json=managedGpu,proto3" json:"managed_gpu,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -78,7 +78,6 @@ func (x *Bootstrap) GetManagedGpu() *ManagedGPU {
 
 type ManagedGPU struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Receiver      *ManagedGPU_Receiver   `protobuf:"bytes,1,opt,name=receiver,proto3" json:"receiver,omitempty"`
 	Refund        *ManagedGPU_Refund     `protobuf:"bytes,2,opt,name=refund,proto3" json:"refund,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -112,13 +111,6 @@ func (x *ManagedGPU) ProtoReflect() protoreflect.Message {
 // Deprecated: Use ManagedGPU.ProtoReflect.Descriptor instead.
 func (*ManagedGPU) Descriptor() ([]byte, []int) {
 	return file_inference_v1_conf_proto_rawDescGZIP(), []int{1}
-}
-
-func (x *ManagedGPU) GetReceiver() *ManagedGPU_Receiver {
-	if x != nil {
-		return x.Receiver
-	}
-	return nil
 }
 
 func (x *ManagedGPU) GetRefund() *ManagedGPU_Refund {
@@ -188,76 +180,6 @@ func (x *Server) GetShutdownTimeout() *durationpb.Duration {
 	return nil
 }
 
-type ManagedGPU_Receiver struct {
-	state    protoimpl.MessageState `protogen:"open.v1"`
-	CaFile   string                 `protobuf:"bytes,1,opt,name=ca_file,json=caFile,proto3" json:"ca_file,omitempty"`
-	CertFile string                 `protobuf:"bytes,2,opt,name=cert_file,json=certFile,proto3" json:"cert_file,omitempty"`
-	KeyFile  string                 `protobuf:"bytes,3,opt,name=key_file,json=keyFile,proto3" json:"key_file,omitempty"`
-	// Dedicated internal listener; the existing CPU/model-reference listener
-	// retains its own transport contract.
-	Address       string `protobuf:"bytes,4,opt,name=address,proto3" json:"address,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ManagedGPU_Receiver) Reset() {
-	*x = ManagedGPU_Receiver{}
-	mi := &file_inference_v1_conf_proto_msgTypes[3]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ManagedGPU_Receiver) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ManagedGPU_Receiver) ProtoMessage() {}
-
-func (x *ManagedGPU_Receiver) ProtoReflect() protoreflect.Message {
-	mi := &file_inference_v1_conf_proto_msgTypes[3]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ManagedGPU_Receiver.ProtoReflect.Descriptor instead.
-func (*ManagedGPU_Receiver) Descriptor() ([]byte, []int) {
-	return file_inference_v1_conf_proto_rawDescGZIP(), []int{1, 0}
-}
-
-func (x *ManagedGPU_Receiver) GetCaFile() string {
-	if x != nil {
-		return x.CaFile
-	}
-	return ""
-}
-
-func (x *ManagedGPU_Receiver) GetCertFile() string {
-	if x != nil {
-		return x.CertFile
-	}
-	return ""
-}
-
-func (x *ManagedGPU_Receiver) GetKeyFile() string {
-	if x != nil {
-		return x.KeyFile
-	}
-	return ""
-}
-
-func (x *ManagedGPU_Receiver) GetAddress() string {
-	if x != nil {
-		return x.Address
-	}
-	return ""
-}
-
 type ManagedGPU_Refund struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Address       string                 `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
@@ -272,7 +194,7 @@ type ManagedGPU_Refund struct {
 
 func (x *ManagedGPU_Refund) Reset() {
 	*x = ManagedGPU_Refund{}
-	mi := &file_inference_v1_conf_proto_msgTypes[4]
+	mi := &file_inference_v1_conf_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -284,7 +206,7 @@ func (x *ManagedGPU_Refund) String() string {
 func (*ManagedGPU_Refund) ProtoMessage() {}
 
 func (x *ManagedGPU_Refund) ProtoReflect() protoreflect.Message {
-	mi := &file_inference_v1_conf_proto_msgTypes[4]
+	mi := &file_inference_v1_conf_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -297,7 +219,7 @@ func (x *ManagedGPU_Refund) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ManagedGPU_Refund.ProtoReflect.Descriptor instead.
 func (*ManagedGPU_Refund) Descriptor() ([]byte, []int) {
-	return file_inference_v1_conf_proto_rawDescGZIP(), []int{1, 1}
+	return file_inference_v1_conf_proto_rawDescGZIP(), []int{1, 0}
 }
 
 func (x *ManagedGPU_Refund) GetAddress() string {
@@ -353,7 +275,7 @@ type Server_GRPC struct {
 
 func (x *Server_GRPC) Reset() {
 	*x = Server_GRPC{}
-	mi := &file_inference_v1_conf_proto_msgTypes[5]
+	mi := &file_inference_v1_conf_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -365,7 +287,7 @@ func (x *Server_GRPC) String() string {
 func (*Server_GRPC) ProtoMessage() {}
 
 func (x *Server_GRPC) ProtoReflect() protoreflect.Message {
-	mi := &file_inference_v1_conf_proto_msgTypes[5]
+	mi := &file_inference_v1_conf_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -413,7 +335,7 @@ type Server_Admin struct {
 
 func (x *Server_Admin) Reset() {
 	*x = Server_Admin{}
-	mi := &file_inference_v1_conf_proto_msgTypes[6]
+	mi := &file_inference_v1_conf_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -425,7 +347,7 @@ func (x *Server_Admin) String() string {
 func (*Server_Admin) ProtoMessage() {}
 
 func (x *Server_Admin) ProtoReflect() protoreflect.Message {
-	mi := &file_inference_v1_conf_proto_msgTypes[6]
+	mi := &file_inference_v1_conf_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -470,16 +392,10 @@ const file_inference_v1_conf_proto_rawDesc = "" +
 	"\tBootstrap\x12,\n" +
 	"\x06server\x18\x01 \x01(\v2\x14.inference.v1.ServerR\x06server\x129\n" +
 	"\vmanaged_gpu\x18\x02 \x01(\v2\x18.inference.v1.ManagedGPUR\n" +
-	"managedGpu\"\xc7\x03\n" +
+	"managedGpu\"\x97\x02\n" +
 	"\n" +
-	"ManagedGPU\x12=\n" +
-	"\breceiver\x18\x01 \x01(\v2!.inference.v1.ManagedGPU.ReceiverR\breceiver\x127\n" +
-	"\x06refund\x18\x02 \x01(\v2\x1f.inference.v1.ManagedGPU.RefundR\x06refund\x1au\n" +
-	"\bReceiver\x12\x17\n" +
-	"\aca_file\x18\x01 \x01(\tR\x06caFile\x12\x1b\n" +
-	"\tcert_file\x18\x02 \x01(\tR\bcertFile\x12\x19\n" +
-	"\bkey_file\x18\x03 \x01(\tR\akeyFile\x12\x18\n" +
-	"\aaddress\x18\x04 \x01(\tR\aaddress\x1a\xc9\x01\n" +
+	"ManagedGPU\x127\n" +
+	"\x06refund\x18\x02 \x01(\v2\x1f.inference.v1.ManagedGPU.RefundR\x06refund\x1a\xc9\x01\n" +
 	"\x06Refund\x12\x18\n" +
 	"\aaddress\x18\x01 \x01(\tR\aaddress\x12\x17\n" +
 	"\aca_file\x18\x02 \x01(\tR\x06caFile\x12\x1b\n" +
@@ -487,7 +403,7 @@ const file_inference_v1_conf_proto_rawDesc = "" +
 	"\bkey_file\x18\x04 \x01(\tR\akeyFile\x12\x1f\n" +
 	"\vserver_name\x18\x05 \x01(\tR\n" +
 	"serverName\x123\n" +
-	"\atimeout\x18\x06 \x01(\v2\x19.google.protobuf.DurationR\atimeout\"\x86\x03\n" +
+	"\atimeout\x18\x06 \x01(\v2\x19.google.protobuf.DurationR\atimeoutJ\x04\b\x01\x10\x02\"\x86\x03\n" +
 	"\x06Server\x12-\n" +
 	"\x04grpc\x18\x01 \x01(\v2\x19.inference.v1.Server.GRPCR\x04grpc\x120\n" +
 	"\x05admin\x18\x02 \x01(\v2\x1a.inference.v1.Server.AdminR\x05admin\x12D\n" +
@@ -513,33 +429,31 @@ func file_inference_v1_conf_proto_rawDescGZIP() []byte {
 	return file_inference_v1_conf_proto_rawDescData
 }
 
-var file_inference_v1_conf_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_inference_v1_conf_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_inference_v1_conf_proto_goTypes = []any{
 	(*Bootstrap)(nil),           // 0: inference.v1.Bootstrap
 	(*ManagedGPU)(nil),          // 1: inference.v1.ManagedGPU
 	(*Server)(nil),              // 2: inference.v1.Server
-	(*ManagedGPU_Receiver)(nil), // 3: inference.v1.ManagedGPU.Receiver
-	(*ManagedGPU_Refund)(nil),   // 4: inference.v1.ManagedGPU.Refund
-	(*Server_GRPC)(nil),         // 5: inference.v1.Server.GRPC
-	(*Server_Admin)(nil),        // 6: inference.v1.Server.Admin
-	(*durationpb.Duration)(nil), // 7: google.protobuf.Duration
+	(*ManagedGPU_Refund)(nil),   // 3: inference.v1.ManagedGPU.Refund
+	(*Server_GRPC)(nil),         // 4: inference.v1.Server.GRPC
+	(*Server_Admin)(nil),        // 5: inference.v1.Server.Admin
+	(*durationpb.Duration)(nil), // 6: google.protobuf.Duration
 }
 var file_inference_v1_conf_proto_depIdxs = []int32{
-	2,  // 0: inference.v1.Bootstrap.server:type_name -> inference.v1.Server
-	1,  // 1: inference.v1.Bootstrap.managed_gpu:type_name -> inference.v1.ManagedGPU
-	3,  // 2: inference.v1.ManagedGPU.receiver:type_name -> inference.v1.ManagedGPU.Receiver
-	4,  // 3: inference.v1.ManagedGPU.refund:type_name -> inference.v1.ManagedGPU.Refund
-	5,  // 4: inference.v1.Server.grpc:type_name -> inference.v1.Server.GRPC
-	6,  // 5: inference.v1.Server.admin:type_name -> inference.v1.Server.Admin
-	7,  // 6: inference.v1.Server.shutdown_timeout:type_name -> google.protobuf.Duration
-	7,  // 7: inference.v1.ManagedGPU.Refund.timeout:type_name -> google.protobuf.Duration
-	7,  // 8: inference.v1.Server.GRPC.timeout:type_name -> google.protobuf.Duration
-	7,  // 9: inference.v1.Server.Admin.timeout:type_name -> google.protobuf.Duration
-	10, // [10:10] is the sub-list for method output_type
-	10, // [10:10] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	2, // 0: inference.v1.Bootstrap.server:type_name -> inference.v1.Server
+	1, // 1: inference.v1.Bootstrap.managed_gpu:type_name -> inference.v1.ManagedGPU
+	3, // 2: inference.v1.ManagedGPU.refund:type_name -> inference.v1.ManagedGPU.Refund
+	4, // 3: inference.v1.Server.grpc:type_name -> inference.v1.Server.GRPC
+	5, // 4: inference.v1.Server.admin:type_name -> inference.v1.Server.Admin
+	6, // 5: inference.v1.Server.shutdown_timeout:type_name -> google.protobuf.Duration
+	6, // 6: inference.v1.ManagedGPU.Refund.timeout:type_name -> google.protobuf.Duration
+	6, // 7: inference.v1.Server.GRPC.timeout:type_name -> google.protobuf.Duration
+	6, // 8: inference.v1.Server.Admin.timeout:type_name -> google.protobuf.Duration
+	9, // [9:9] is the sub-list for method output_type
+	9, // [9:9] is the sub-list for method input_type
+	9, // [9:9] is the sub-list for extension type_name
+	9, // [9:9] is the sub-list for extension extendee
+	0, // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_inference_v1_conf_proto_init() }
@@ -553,7 +467,7 @@ func file_inference_v1_conf_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_inference_v1_conf_proto_rawDesc), len(file_inference_v1_conf_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   7,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
