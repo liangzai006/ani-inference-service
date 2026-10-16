@@ -3,4 +3,4 @@ name: ani-inference
 description: ANI inference control-plane service
 type: application
 version: 0.1.1
-appVersion: "cleanup-20261015-r2"
+appVersion: "main-ff24af7-20261016"

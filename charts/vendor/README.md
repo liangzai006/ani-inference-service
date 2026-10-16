@@ -9,7 +9,7 @@ SHA-256 校验值记录在 [`SHA256SUMS`](SHA256SUMS) 中。
 | 文件 | 官方来源 |
 | --- | --- |
 | KServe、LLMInferenceService | [KServe v0.16.0 发布页](https://github.com/kserve/kserve/releases/tag/v0.16.0) |
-| cert-manager | [cert-manager v1.18.2 Chart](https://cert-manager.io/docs/installation/helm/) |
+| cert-manager | 外部基础设施；不随本目录打包，由平台提前安装 |
 | LeaderWorkerSet | [LWS v0.6.2 发布页](https://github.com/kubernetes-sigs/lws/releases/tag/v0.6.2) |
 | Higress | [Higress Helm Chart 仓库](https://higress.io/helm-charts) |
 | Gateway API | [Gateway API v1.6.0 发布页](https://github.com/kubernetes-sigs/gateway-api/releases/tag/v1.6.0) |

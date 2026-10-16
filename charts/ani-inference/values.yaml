@@ -24,7 +24,7 @@ migration:
 
 image:
   repository: docker.changqingyun.cn/ani/inference-service
-  tag: cleanup-20261015-r2
+  tag: main-ff24af7-20261016
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []
