@@ -96,6 +96,13 @@ func (u *CommandUseCase) Command(ctx context.Context, in inferencebiz.CommandInp
 		return nil, err
 	}
 	targetGeneration := current.DesiredGeneration + 1
+	var cancelledActive int64
+	if in.Kind == "delete" {
+		cancelledActive, err = q.CancelActiveOperation(ctx, CancelActiveOperationParams{TenantID: tenant, ServiceID: serviceID})
+		if err != nil {
+			return nil, err
+		}
+	}
 	var requestedResources []byte
 	if in.Kind == "start" || in.Kind == "restart" {
 		currentSpec, specErr := q.GetSpec(ctx, GetSpecParams{TenantID: tenant, ServiceID: serviceID, Generation: current.DesiredGeneration})
@@ -143,6 +150,11 @@ func (u *CommandUseCase) Command(ctx context.Context, in inferencebiz.CommandInp
 			return nil, inferencebiz.ErrOperationActive
 		}
 		return nil, err
+	}
+	if cancelledActive > 0 {
+		if _, err := q.ReleaseResourceWorkLease(ctx, ReleaseResourceWorkLeaseParams{TenantID: tenant, ServiceID: serviceID}); err != nil {
+			return nil, err
+		}
 	}
 	if !managed && (in.Kind == "start" || in.Kind == "restart") {
 		if err := q.InsertQuotaReservation(ctx, InsertQuotaReservationParams{TenantID: tenant, ServiceID: serviceID, OperationID: opID, Generation: targetGeneration, ReservationID: "pending-" + opID.String(), RequestedResources: requestedResources}); err != nil {

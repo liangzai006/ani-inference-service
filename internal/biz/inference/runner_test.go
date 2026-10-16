@@ -145,7 +145,11 @@ type runnerRuntime struct {
 	observations                                                         []RuntimeObservation
 }
 
-type runnerModel struct{ observation ModelObservation }
+type runnerModel struct {
+	observation ModelObservation
+	cleaned     bool
+	cleanupErr  error
+}
 
 type runnerGPU struct {
 	plan  *gpu.Plan
@@ -159,6 +163,10 @@ func (r *runnerGPU) ResolveGPU(context.Context, OperationContext) (*gpu.Plan, er
 
 func (m *runnerModel) EnsureModel(context.Context, OperationContext) (ModelObservation, error) {
 	return m.observation, nil
+}
+func (m *runnerModel) CleanupModel(context.Context, OperationContext) error {
+	m.cleaned = true
+	return m.cleanupErr
 }
 
 func (r *runnerRuntime) ApplyCR(context.Context, OperationContext) error {
@@ -271,6 +279,41 @@ func TestRunnerMissingProviderRetriesOperation(t *testing.T) {
 	}
 	if len(store.advanced) != 0 {
 		t.Fatalf("missing provider advanced operation: %+v", store.advanced)
+	}
+}
+
+func TestRunnerCleansModelBeforeReleasingQuota(t *testing.T) {
+	store := &runnerStore{op: operation(string(StepDeleteCR))}
+	store.op.Kind = "delete"
+	store.op.LeaseToken = "lease"
+	runtime := &runnerRuntime{}
+	model := &runnerModel{}
+	runner := &Runner{Store: store, Runtime: runtime, Model: model, Audit: &runnerAudit{}}
+	if _, err := runner.Execute(context.Background(), item()); err != nil {
+		t.Fatalf("Execute error=%v", err)
+	}
+	if !model.cleaned {
+		t.Fatal("model materialization was not cleaned")
+	}
+	if len(store.advanced) != 1 || store.advanced[0].NextStep != string(StepReleaseQuota) {
+		t.Fatalf("transition=%+v, want release_quota after model cleanup", store.advanced)
+	}
+}
+
+func TestRunnerRetriesWhenModelCleanupFails(t *testing.T) {
+	store := &runnerStore{op: operation(string(StepDeleteCR))}
+	store.op.Kind = "delete"
+	store.op.LeaseToken = "lease"
+	model := &runnerModel{cleanupErr: errors.New("materialization is terminating")}
+	runner := &Runner{Store: store, Runtime: &runnerRuntime{}, Model: model, Audit: &runnerAudit{}}
+	if _, err := runner.Execute(context.Background(), item()); err == nil {
+		t.Fatal("Execute succeeded while model cleanup was incomplete")
+	}
+	if len(store.advanced) != 0 {
+		t.Fatalf("cleanup failure advanced operation: %+v", store.advanced)
+	}
+	if len(store.retried) != 1 || store.retried[0].ExpectedStep != string(StepDeleteCR) {
+		t.Fatalf("retry=%+v, want one delete_cr retry", store.retried)
 	}
 }
 

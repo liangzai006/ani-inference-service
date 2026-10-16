@@ -174,7 +174,7 @@ func buildKubernetesServers(pool *pgxpool.Pool, modelClient *modeldata.Client, r
 	workStore := postgres.NewWorkStore(pool, postgres.WorkStoreOptions{})
 	reconcileStore := postgres.NewReconcileStore(pool)
 	runtimeSource := postgres.NewRuntimeSource(pool, namespace)
-	runtimeExecutor := &kubernetes.RuntimeExecutor{Source: runtimeSource, Bindings: postgres.NewRepository(pool), RequireQuota: false}
+	runtimeExecutor := &kubernetes.RuntimeExecutor{Source: runtimeSource, Bindings: postgres.NewRepository(pool), RequireQuota: false, ServiceAccountName: materializerSettings.ServiceAccountName}
 	kserveExecutor := &kubernetes.KServeRuntimeExecutor{RuntimeExecutor: runtimeExecutor}
 	runtimeRouter := &kubernetes.RuntimeRouter{
 		Source:              runtimeSource,
@@ -196,13 +196,14 @@ func buildKubernetesServers(pool *pgxpool.Pool, modelClient *modeldata.Client, r
 	runtimeExecutor.CRClient = mgr.GetClient()
 	controller.Status = &kubernetes.StatusProjector{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Source: postgres.NewStatusProjectionSource(pool)}
 	modelMaterializer := &modeldata.Materializer{
-		Catalog:      modelClient,
-		Source:       runtimeSource,
-		Client:       mgr.GetClient(),
-		Reader:       mgr.GetAPIReader(),
-		StorageClass: materializerSettings.StorageClass,
-		Image:        materializerSettings.Image,
-		Namespace:    namespace,
+		Catalog:            modelClient,
+		Source:             runtimeSource,
+		Client:             mgr.GetClient(),
+		Reader:             mgr.GetAPIReader(),
+		StorageClass:       materializerSettings.StorageClass,
+		Image:              materializerSettings.Image,
+		ServiceAccountName: materializerSettings.ServiceAccountName,
+		Namespace:          namespace,
 	}
 	publicationPublisher := &kubernetes.HTTPRoutePublisher{
 		Client:    mgr.GetClient(),
@@ -211,12 +212,14 @@ func buildKubernetesServers(pool *pgxpool.Pool, modelClient *modeldata.Client, r
 		// Backend selection is read from each persisted runtime generation.
 		// This compatibility field is intentionally empty so it cannot migrate
 		// an existing service through process configuration.
-		RuntimeProvider:  "",
-		GatewayNamespace: envOrDefault("ANI_HIGRESS_GATEWAY_NAMESPACE", "higress-system"),
-		GatewayName:      envOrDefault("ANI_HIGRESS_GATEWAY_NAME", "ani-higress"),
-		RouteNamespace:   envOrDefault("ANI_HIGRESS_ROUTE_NAMESPACE", namespace),
-		PublicBaseURL:    publicBaseURL,
-		PathPrefix:       envOrDefault("ANI_HIGRESS_PATH_PREFIX", "/v1/completions"),
+		RuntimeProvider:    "",
+		GatewayNamespace:   envOrDefault("ANI_HIGRESS_GATEWAY_NAMESPACE", "higress-system"),
+		GatewayName:        envOrDefault("ANI_HIGRESS_GATEWAY_NAME", "ani-higress"),
+		RouteNamespace:     envOrDefault("ANI_HIGRESS_ROUTE_NAMESPACE", namespace),
+		PublicBaseURL:      publicBaseURL,
+		PathPrefix:         envOrDefault("ANI_HIGRESS_PATH_PREFIX", "/v1/completions"),
+		RateLimitNamespace: envOrDefault("ANI_HIGRESS_RATE_LIMIT_NAMESPACE", "higress-system"),
+		RateLimitPlugin:    envOrDefault("ANI_HIGRESS_RATE_LIMIT_PLUGIN", "ani-request-rate-limit"),
 	}
 	operationStore := postgres.NewOperationStore(pool)
 	gpuResolver, err := configuredGPUResolver()

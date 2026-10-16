@@ -124,9 +124,16 @@ curl -sS -X POST "${HIGRESS_PUBLIC_BASE_URL}/v1/completions" \
 
 应验证两个不同模型、未知模型、流式请求、网关指标/AI 统计，以及超过配置
 限制后的 HTTP 429。当前未接入 IAM，限流按 served model 计算，每个模型为
-每秒 10 个请求。Inference 发布器会根据有效 ANI HTTPRoute 同步
+每秒 10 个请求；这是每个 Higress 数据面实例的本地限流，不是跨网关副本的
+全局总量。Inference 发布器会根据有效 ANI HTTPRoute 同步
 `higress-system/ani-request-rate-limit`：发布模型后先加入限流配置，再暴露
-路由；最后一条路由撤回后移除模型配置。Token 配额和按身份限流暂不接入。
+路由；最后一条路由撤回后移除由 Inference 创建的模型配置，同时保留其他模型
+和人工配置。Higress 要求 `limit_keys` 至少有一条有效项，因此没有其他项时会
+保留最后一条无主配置，不能用空数组关闭插件。Token 配额和按身份限流暂不接入。
+
+Inference Helm Chart 默认创建跨命名空间的最小 Role/RoleBinding。控制面
+ServiceAccount 只能读取和修改指定的 `ani-request-rate-limit` WasmPlugin；如果
+手工关闭 `higress.rbac.create`，模型发布会因没有限流配置权限而失败。
 
 ## 回滚
 

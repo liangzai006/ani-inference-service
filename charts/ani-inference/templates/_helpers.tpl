@@ -23,11 +23,20 @@ app.kubernetes.io/name: {{ include "ani-inference.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 
+{{- define "ani-inference.serviceAccountName" -}}
+{{- default (include "ani-inference.fullname" .) .Values.serviceAccount.name -}}
+{{- end -}}
+
+{{- define "ani-inference.runtimeServiceAccountName" -}}
+{{- default (printf "%s-runtime" (include "ani-inference.fullname" .)) .Values.runtimeServiceAccount.name -}}
+{{- end -}}
+
 {{- define "ani-inference.image" -}}
-{{- $image := .Values.image.repository -}}
-{{- if .Values.image.tag }}{{- $image = printf "%s:%s" $image .Values.image.tag }}{{- end }}
-{{- if .Values.image.digest }}{{- $image = printf "%s@%s" $image .Values.image.digest }}{{- end }}
-{{- $image -}}
+{{- printf "%s:%s" .Values.image.repository .Values.image.tag -}}
+{{- end -}}
+
+{{- define "ani-inference.migrationImage" -}}
+{{- printf "%s:%s" .Values.migration.image.repository .Values.migration.image.tag -}}
 {{- end -}}
 
 {{- define "ani-inference.higressRoleName" -}}

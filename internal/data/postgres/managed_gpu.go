@@ -202,6 +202,13 @@ func (u *CommandUseCase) acceptManagedGPUDelete(ctx context.Context, in inferenc
 		return nil, fmt.Errorf("%w: managed GPU resource is already deleted", inferencebiz.ErrInvalidState)
 	}
 	targetGeneration := service.DesiredGeneration + 1
+	cancelledActive, err := q.CancelActiveOperation(ctx, CancelActiveOperationParams{
+		TenantID:  service.TenantID,
+		ServiceID: service.ID,
+	})
+	if err != nil {
+		return nil, err
+	}
 	if rows, err := q.TransitionService(ctx, TransitionServiceParams{
 		DesiredState: "deleted", TargetGeneration: targetGeneration, OperationID: pgUUIDMust(original.DeleteOperationID),
 		TenantID: service.TenantID, ServiceID: service.ID, ExpectedGeneration: service.DesiredGeneration,
@@ -216,6 +223,14 @@ func (u *CommandUseCase) acceptManagedGPUDelete(ctx context.Context, in inferenc
 			return nil, inferencebiz.ErrOperationActive
 		}
 		return nil, err
+	}
+	if cancelledActive > 0 {
+		if _, err := q.ReleaseResourceWorkLease(ctx, ReleaseResourceWorkLeaseParams{
+			TenantID:  service.TenantID,
+			ServiceID: service.ID,
+		}); err != nil {
+			return nil, err
+		}
 	}
 	if err := q.UpsertResourceWork(ctx, UpsertResourceWorkParams{TenantID: service.TenantID, ServiceID: service.ID, DirtyVersion: targetGeneration}); err != nil {
 		return nil, err

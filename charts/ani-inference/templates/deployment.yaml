@@ -17,7 +17,7 @@ spec:
         {{- include "ani-inference.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: runtime
     spec:
-      serviceAccountName: {{ include "ani-inference.fullname" . }}
+      serviceAccountName: {{ include "ani-inference.serviceAccountName" . }}
       automountServiceAccountToken: true
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
@@ -89,6 +89,8 @@ spec:
               value: {{ required "model.tls.serverName is required" (trim .Values.model.tls.serverName) | quote }}
             - name: ANI_MODEL_MATERIALIZER_IMAGE
               value: {{ required "model.materializerImage is required" .Values.model.materializerImage | quote }}
+            - name: ANI_KUBERNETES_SERVICE_ACCOUNT
+              value: {{ include "ani-inference.runtimeServiceAccountName" . | quote }}
             - name: ANI_MODEL_STORAGE_CLASS
               value: {{ .Values.model.storageClass | quote }}
             {{- if .Values.accelerator.enabled }}

@@ -57,7 +57,8 @@ func TestPostgresManagedGPUDeletePreservesAcceptedCreateAndRejectsTopologyMutati
 	if _, err := pool.Exec(ctx, `UPDATE inference_operations SET phase='succeeded',step='complete' WHERE tenant_id=$1 AND id=$2`, tenant, stopped.GetOperation().GetId()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := server.StartInferenceService(ctx, &inferencev1.ServiceCommandRequest{RequestId: uuid.NewString(), ResourceId: resource.String(), ExpectedGeneration: 3}); err != nil {
+	started, err := server.StartInferenceService(ctx, &inferencev1.ServiceCommandRequest{RequestId: uuid.NewString(), ResourceId: resource.String(), ExpectedGeneration: 3})
+	if err != nil {
 		t.Fatal(err)
 	}
 	var reservations int
@@ -80,6 +81,13 @@ func TestPostgresManagedGPUDeletePreservesAcceptedCreateAndRejectsTopologyMutati
 	}
 	if deleteStep != "withdraw_publication" || deletePhase != "pending" || deleteGeneration != 5 {
 		t.Fatalf("managed DELETE operation=%s/%s generation=%d, want pending withdraw_publication generation 5", deletePhase, deleteStep, deleteGeneration)
+	}
+	var oldPhase, oldErrorCode string
+	if err := pool.QueryRow(ctx, `SELECT phase, error_code FROM inference_operations WHERE tenant_id=$1 AND id=$2`, tenant, started.GetOperation().GetId()).Scan(&oldPhase, &oldErrorCode); err != nil {
+		t.Fatal(err)
+	}
+	if oldPhase != "failed" || oldErrorCode != "cancelled_by_delete" {
+		t.Fatalf("managed DELETE did not cancel active operation: phase=%s error_code=%s", oldPhase, oldErrorCode)
 	}
 	original, err = repo.LoadRefundContext(ctx, tenant.String(), resource.String(), req.GpuOwnerAttachment.Ref.CreateOperationId)
 	if err != nil || original.DeleteOperationID != deletion.GpuOwnerAttachment.DeleteOperationId || original.Plan.ResolutionDigest != req.GpuOwnerAttachment.GpuPlan.ResolutionDigest {

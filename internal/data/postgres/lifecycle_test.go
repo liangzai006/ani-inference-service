@@ -106,7 +106,7 @@ func testPostgresCreateLifecycle(t *testing.T, ctx context.Context, pool *pgxpoo
 		case <-time.After(time.Millisecond):
 		}
 	}
-	wantCalls := []string{"admit", "reserve", "confirm", "apply_cr", "materialize", "apply_runtime", "observe_runtime", "publish", "confirm_published", "observe_runtime"}
+	wantCalls := []string{"admit", "reserve", "confirm", "apply_cr", "materialize", "apply_runtime", "observe_runtime", "publish", "confirm_published"}
 	if !reflect.DeepEqual(provider.calls, wantCalls) {
 		t.Fatalf("provider order=%v, want %v", provider.calls, wantCalls)
 	}
@@ -227,6 +227,10 @@ func (p *lifecycleProvider) Get(context.Context, string, string) (quota.Reservat
 func (p *lifecycleProvider) EnsureModel(context.Context, inference.OperationContext) (inference.ModelObservation, error) {
 	p.calls = append(p.calls, "materialize")
 	return inference.ModelObservation{Known: true, Ready: true}, nil
+}
+func (p *lifecycleProvider) CleanupModel(context.Context, inference.OperationContext) error {
+	p.calls = append(p.calls, "cleanup_model")
+	return nil
 }
 func (p *lifecycleProvider) ApplyCR(ctx context.Context, op inference.OperationContext) error {
 	p.calls = append(p.calls, "apply_cr")

@@ -12,11 +12,39 @@ helm template ani-inference "$repo_root/charts/ani-inference" \
   --namespace ani-system \
   --set higress.publicBaseURL="$public_url" \
   >"$tmp_dir/inference.yaml"
+helm template ani-inference "$repo_root/charts/ani-inference" \
+  --namespace ani-system \
+  --set higress.publicBaseURL="$public_url" \
+  --show-only templates/higress-rbac.yaml \
+  >"$tmp_dir/higress-rbac.yaml"
+helm template ani-inference "$repo_root/charts/ani-inference" \
+  --namespace ani-system \
+  --set higress.publicBaseURL="$public_url" \
+  --set higress.rateLimitNamespace=custom-higress-system \
+  --set higress.rateLimitPlugin=custom-rate-limit \
+  --set higress.rbac.namespace=custom-higress-system \
+  --set serviceAccount.name=custom-control-plane \
+  --show-only templates/higress-rbac.yaml \
+  >"$tmp_dir/higress-rbac-custom.yaml"
 helm template ani-inference-config "$repo_root/charts/ani-inference-config" \
   --namespace kserve \
   >"$tmp_dir/config.yaml"
 test -s "$tmp_dir/inference.yaml"
 test -s "$tmp_dir/config.yaml"
+test -s "$tmp_dir/higress-rbac.yaml"
+test -s "$tmp_dir/higress-rbac-custom.yaml"
+grep -q '^kind: Role$' "$tmp_dir/higress-rbac.yaml"
+grep -q '^kind: RoleBinding$' "$tmp_dir/higress-rbac.yaml"
+grep -q '^  namespace: higress-system$' "$tmp_dir/higress-rbac.yaml"
+grep -q '^    resourceNames: \["ani-request-rate-limit"\]$' "$tmp_dir/higress-rbac.yaml"
+grep -q '^    verbs: \["get", "patch"\]$' "$tmp_dir/higress-rbac.yaml"
+grep -q '^    name: ani-inference$' "$tmp_dir/higress-rbac.yaml"
+grep -q '^    namespace: ani-system$' "$tmp_dir/higress-rbac.yaml"
+test "$(grep -c '^  namespace: higress-system$' "$tmp_dir/higress-rbac.yaml")" -eq 2
+grep -q '^  namespace: custom-higress-system$' "$tmp_dir/higress-rbac-custom.yaml"
+grep -q '^    resourceNames: \["custom-rate-limit"\]$' "$tmp_dir/higress-rbac-custom.yaml"
+grep -q '^    name: custom-control-plane$' "$tmp_dir/higress-rbac-custom.yaml"
+test "$(grep -c '^  namespace: custom-higress-system$' "$tmp_dir/higress-rbac-custom.yaml")" -eq 2
 grep -q '^kind: Certificate$' "$tmp_dir/inference.yaml"
 grep -q 'ANI_SERVER_TLS_CA_FILE' "$tmp_dir/inference.yaml"
 grep -q 'ani-inference-server-tls' "$tmp_dir/inference.yaml"

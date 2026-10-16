@@ -1,8 +1,14 @@
 package main
 
+import (
+	"os"
+	"strings"
+)
+
 type modelMaterializerSettings struct {
-	Image        string
-	StorageClass string
+	Image              string
+	StorageClass       string
+	ServiceAccountName string
 }
 
 func configuredModelMaterializerSettings() (modelMaterializerSettings, error) {
@@ -11,7 +17,8 @@ func configuredModelMaterializerSettings() (modelMaterializerSettings, error) {
 		return modelMaterializerSettings{}, err
 	}
 	return modelMaterializerSettings{
-		Image:        image,
-		StorageClass: envOrDefault("ANI_MODEL_STORAGE_CLASS", "cephfs"),
+		Image:              image,
+		StorageClass:       strings.TrimSpace(os.Getenv("ANI_MODEL_STORAGE_CLASS")),
+		ServiceAccountName: strings.TrimSpace(os.Getenv("ANI_KUBERNETES_SERVICE_ACCOUNT")),
 	}, nil
 }

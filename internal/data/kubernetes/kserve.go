@@ -461,6 +461,9 @@ func applyGPUPlanToPredictor(predictor map[string]interface{}, pod *corev1.PodSp
 	if pod.RuntimeClassName != nil && *pod.RuntimeClassName != "" {
 		predictor["runtimeClassName"] = *pod.RuntimeClassName
 	}
+	if strings.TrimSpace(pod.ServiceAccountName) != "" {
+		predictor["serviceAccountName"] = pod.ServiceAccountName
+	}
 	if len(annotations) > 0 {
 		// PredictorSpec embeds ComponentExtensionSpec, whose annotations are
 		// copied to the generated predictor Pod template by KServe.
@@ -503,6 +506,7 @@ func renderKServeInferenceService(spec RuntimeSpec) (*unstructured.Unstructured,
 		container.Ports = []corev1.ContainerPort{{Name: "http", ContainerPort: spec.ContainerPort, Protocol: spec.ServiceProtocol}}
 	}
 	pod := corev1.PodSpec{Containers: []corev1.Container{container}}
+	pod.ServiceAccountName = strings.TrimSpace(spec.ServiceAccountName)
 	// KServe owns the predictor Service for an InferenceService, so an
 	// explicit Inference-owned endpoint is optional on this path. Keep the
 	// health probes only when the caller supplied a port; mounting the
@@ -655,6 +659,10 @@ func renderKServeLLMInferenceService(spec RuntimeSpec) (*unstructured.Unstructur
 		// An explicit worker section is what makes KServe create the native
 		// LeaderWorkerSet. The command is copied exactly from the request.
 		"worker": map[string]interface{}{"containers": []interface{}{workerContainer}},
+	}
+	if serviceAccountName := strings.TrimSpace(spec.ServiceAccountName); serviceAccountName != "" {
+		serviceSpec["template"].(map[string]interface{})["serviceAccountName"] = serviceAccountName
+		serviceSpec["worker"].(map[string]interface{})["serviceAccountName"] = serviceAccountName
 	}
 	applyGPUPlanToPredictor(serviceSpec["template"].(map[string]interface{}), &pod, nil)
 	applyGPUPlanToPredictor(serviceSpec["worker"].(map[string]interface{}), &pod, nil)

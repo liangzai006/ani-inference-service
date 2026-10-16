@@ -56,6 +56,18 @@ WHERE w.tenant_id = sqlc.arg(tenant_id) AND w.service_id = sqlc.arg(service_id)
   AND w.lease_token = sqlc.arg(lease_token)
   AND w.lease_until > clock_timestamp();
 
+-- name: ReleaseResourceWorkLease :execrows
+-- DELETE has already fenced the previous operation by replacing the service's
+-- current_operation_id. Release its work lease so the delete worker can claim
+-- immediately instead of waiting for the old lease timeout.
+UPDATE inference_resource_work
+SET next_run_at = clock_timestamp(),
+    lease_owner = NULL,
+    lease_until = NULL,
+    lease_token = NULL,
+    updated_at = clock_timestamp()
+WHERE tenant_id = $1 AND service_id = $2;
+
 -- name: GetResourceWork :one
 SELECT tenant_id, service_id, dirty_version, acknowledged_version, next_run_at,
        attempt, lease_owner, lease_until, lease_token, last_error_code, updated_at

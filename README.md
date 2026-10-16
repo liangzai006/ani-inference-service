@@ -41,8 +41,8 @@ ANI_HIGRESS_ROUTE_NAMESPACE=$ANI_INFERENCE_NAMESPACE
 ANI_HIGRESS_PUBLIC_BASE_URL=http://10.10.1.67:30090  # required; use the Higress public DNS URL in production
 ANI_HIGRESS_PATH_PREFIX=/v1/completions
 ANI_MODEL_GRPC_ADDR=ani-model-service.<namespace>.svc:9000  # required with Kubernetes lifecycle
-ANI_MODEL_MATERIALIZER_IMAGE=registry.example/model-fetcher@sha256:<digest>  # required
-ANI_MODEL_STORAGE_CLASS=cephfs  # default; must support ReadWriteMany
+ANI_MODEL_MATERIALIZER_IMAGE=registry.example/model-fetcher:v1.2.3  # required
+ANI_MODEL_STORAGE_CLASS=  # optional; empty uses the cluster default StorageClass
 ```
 
 GPU resolution is opt-in per request. A request without `resource.gpu` does

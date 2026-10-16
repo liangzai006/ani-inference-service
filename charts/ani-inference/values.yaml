@@ -6,7 +6,9 @@ fullnameOverride: ""
 # to false after first install if schema changes are managed externally.
 migration:
   enabled: true
-  image: docker.changqingyun.cn/library/postgres:16-alpine
+  image:
+    repository: docker.changqingyun.cn/library/postgres
+    tag: 16-alpine
   imagePullPolicy: IfNotPresent
   imagePullSecrets: []
   backoffLimit: 1
@@ -22,11 +24,20 @@ migration:
 
 image:
   repository: docker.changqingyun.cn/ani/inference-service
-  tag: ani-inference-new-20260930-cleanup-limit-r2
-  digest: sha256:4639122b2269c86e50402f898090714555818dc587a015e69c76ba9f87700022
+  tag: cleanup-20261015-r2
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []
+
+serviceAccount:
+  # Empty uses the Helm release name. The account carries imagePullSecrets
+  # for the control-plane Deployment.
+  name: ""
+
+runtimeServiceAccount:
+  # This account is used only by materializer Jobs and KServe runtime Pods.
+  # It has no RoleBinding; imagePullSecrets are its only chart-managed setting.
+  name: ""
 
 database:
   existingSecret: inference-database
@@ -34,11 +45,11 @@ database:
 
 model:
   grpcAddress: ani-model-grpc.ani-system.svc.cluster.local:19090
-  materializerImage: docker.changqingyun.cn/ani/model-import-worker:ani-model-new-20260928-r2@sha256:e8cbf686d3fa4f3661cb396f2d8d67e5767ae4d790b8331b0df5831bd0f5e8f0
-  storageClass: cephfs
-  # Zero-trust client identity for the Model call. The install script installs
-  # or adopts cert-manager; this chart only requests the Certificate and does
-  # not create the issuer.
+  materializerImage: docker.changqingyun.cn/ani/model-import-worker:model-search-20261014-r1
+  # Empty uses the cluster's default StorageClass.
+  storageClass: ""
+  # Zero-trust client identity for the Model call. cert-manager and the issuer
+  # must already exist; this chart only requests the Certificate.
   tls:
     existingSecret: inference-model-mtls
     mountPath: /var/run/secrets/model
@@ -72,9 +83,10 @@ higress:
   rateLimitNamespace: higress-system
   rateLimitPlugin: ani-request-rate-limit
   rbac:
-    create: false
-    # Empty follows rateLimitNamespace; set this only when the plugin role
-    # intentionally lives in a different namespace.
+    # The control-plane account needs to patch only rateLimitPlugin.
+    create: true
+    # Empty follows rateLimitNamespace. Keep an override equal to the
+    # namespace containing rateLimitPlugin.
     namespace: ""
 
 # GPU resolution is opt-in. The accelerator client always uses TLS/mTLS.

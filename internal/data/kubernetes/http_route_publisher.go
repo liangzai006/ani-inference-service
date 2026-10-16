@@ -30,12 +30,14 @@ type HTTPRoutePublisher struct {
 	// predictor/workload Service.
 	RuntimeProvider string
 
-	GatewayNamespace string
-	GatewayName      string
-	RouteNamespace   string
-	PublicBaseURL    string
-	PathPrefix       string
-	FieldManager     string
+	GatewayNamespace   string
+	GatewayName        string
+	RouteNamespace     string
+	PublicBaseURL      string
+	PathPrefix         string
+	FieldManager       string
+	RateLimitNamespace string
+	RateLimitPlugin    string
 }
 
 var _ publication.Port = (*HTTPRoutePublisher)(nil)
@@ -146,6 +148,9 @@ func (p *HTTPRoutePublisher) Publish(ctx context.Context, pub publication.Public
 	if owner == "" {
 		owner = "ani-inference-publication"
 	}
+	if err := p.ensureRateLimit(ctx, desired.ServedModelName, routeOwnerID(routeNamespace, route.GetName())); err != nil {
+		return err
+	}
 	return p.Client.Patch(ctx, route, client.Apply, client.FieldOwner(owner))
 }
 
@@ -181,6 +186,9 @@ func (p *HTTPRoutePublisher) ConfirmWithdrawn(ctx context.Context, pub publicati
 	current := &gatewayv1.HTTPRoute{}
 	if err := p.reader().Get(ctx, client.ObjectKeyFromObject(route), current); err != nil {
 		if apierrors.IsNotFound(err) {
+			if err := p.cleanupRateLimit(ctx, routeOwnerID(route.GetNamespace(), route.GetName())); err != nil {
+				return false, err
+			}
 			return true, nil
 		}
 		return false, err

@@ -146,6 +146,7 @@ type AdmissionPort interface {
 
 type ModelPort interface {
 	EnsureModel(context.Context, OperationContext) (ModelObservation, error)
+	CleanupModel(context.Context, OperationContext) error
 }
 
 // GPUResolver resolves the request through the accelerator service. The
@@ -569,7 +570,13 @@ func (r *Runner) runStep(ctx context.Context, op OperationContext) (stepResult, 
 		if r.Runtime == nil {
 			return stepResult{}, fmt.Errorf("%w: runtime", ErrOperationProviderMissing)
 		}
+		if r.Model == nil {
+			return stepResult{}, fmt.Errorf("%w: model", ErrOperationProviderMissing)
+		}
 		if err := r.Runtime.DeleteCR(ctx, op); err != nil {
+			return stepResult{}, err
+		}
+		if err := r.Model.CleanupModel(ctx, op); err != nil {
 			return stepResult{}, err
 		}
 		return stepResult{phase: OperationRunning, step: string(StepReleaseQuota), event: "cr.deleted"}, nil

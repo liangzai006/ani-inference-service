@@ -8,7 +8,7 @@ metadata:
   namespace: kubeflow
 # KServe 0.16 selects this well-known name whenever spec.worker and
 # spec.parallelism.pipeline are present, but the 0.16 addon does not ship the
-# resource. Keep it empty so ANI's caller-provided command and args are the
+# resource. Keep it empty so ANI's shell wrapper around the caller-provided command string are the
 # complete engine configuration; KServe still uses parallelism.pipeline to set
 # the native LeaderWorkerSet size.
 spec: {}

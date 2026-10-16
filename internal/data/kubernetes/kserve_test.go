@@ -45,9 +45,10 @@ func TestRenderKServeWrapsRawEngineCommandAndModelMount(t *testing.T) {
 	obj, err := renderKServeInferenceService(RuntimeSpec{
 		TenantID: "tenant", ServiceID: "service", Name: "model", Namespace: "models", Image: "registry/vllm:1",
 		ArtifactProvider: "model", ModelClaim: "ani-model-claim", Generation: 4, Replicas: 1,
-		EngineCommand: `/usr/bin/env VLLM_USE_V1=1 vllm serve '/models' --max-model-len 8192 --served-model-name custom-qwen`,
-		Resources:     resources.Normalized{Requests: map[string]string{"cpu": "2", "memory": "8Gi"}, Limits: map[string]string{"memory": "12Gi"}},
-		Endpoint:      &EndpointSpec{ContainerPort: 8080, ServicePort: 80, Protocol: "TCP"},
+		ServiceAccountName: "ani-inference-runtime",
+		EngineCommand:      `/usr/bin/env VLLM_USE_V1=1 vllm serve '/models' --max-model-len 8192 --served-model-name custom-qwen`,
+		Resources:          resources.Normalized{Requests: map[string]string{"cpu": "2", "memory": "8Gi"}, Limits: map[string]string{"memory": "12Gi"}},
+		Endpoint:           &EndpointSpec{ContainerPort: 8080, ServicePort: 80, Protocol: "TCP"},
 	})
 	if err != nil {
 		t.Fatalf("renderKServeInferenceService() error = %v", err)
@@ -61,6 +62,9 @@ func TestRenderKServeWrapsRawEngineCommandAndModelMount(t *testing.T) {
 	predictor, found, err := unstructured.NestedMap(obj.Object, "spec", "predictor")
 	if err != nil || !found {
 		t.Fatalf("predictor = %#v, found=%v, err=%v", predictor, found, err)
+	}
+	if got, _ := predictor["serviceAccountName"].(string); got != "ani-inference-runtime" {
+		t.Fatalf("predictor service account = %q, want ani-inference-runtime", got)
 	}
 	containers, found, err := unstructured.NestedSlice(predictor, "containers")
 	if err != nil || !found || len(containers) != 1 {
@@ -239,7 +243,7 @@ func TestRenderKServeLeaderWorkerSetUsesLLMInferenceService(t *testing.T) {
 	obj, err := RenderKServeRuntime(RuntimeSpec{
 		TenantID: "tenant", ServiceID: "service", Name: "distributed", Namespace: "models", Image: "registry/vllm:1",
 		ArtifactProvider: "model", ModelClaim: "ani-model-claim", Generation: 1, Replicas: 1, WorkerReplicas: 1,
-		RuntimeMode: "leader_worker_set", ServedModelName: "qwen",
+		RuntimeMode: "leader_worker_set", ServedModelName: "qwen", ServiceAccountName: "ani-inference-runtime",
 		EngineCommand: "vllm serve /models --served-model-name qwen",
 	})
 	if err != nil {
@@ -269,6 +273,12 @@ func TestRenderKServeLeaderWorkerSetUsesLLMInferenceService(t *testing.T) {
 	parallelism, found, err := unstructured.NestedMap(obj.Object, "spec", "parallelism")
 	if err != nil || !found || parallelism["pipeline"] != int64(2) {
 		t.Fatalf("parallelism = %#v, found=%v, err=%v; want pipeline=2", parallelism, found, err)
+	}
+	for _, path := range [][]string{{"spec", "template"}, {"spec", "worker"}} {
+		pod, found, err := unstructured.NestedMap(obj.Object, path...)
+		if err != nil || !found || pod["serviceAccountName"] != "ani-inference-runtime" {
+			t.Fatalf("service account at %v = %#v, found=%v, err=%v", path, pod["serviceAccountName"], found, err)
+		}
 	}
 	model, found, err := unstructured.NestedMap(obj.Object, "spec", "model")
 	if err != nil || !found || model["uri"] != "pvc://ani-model-claim/data" || model["name"] != "qwen" {

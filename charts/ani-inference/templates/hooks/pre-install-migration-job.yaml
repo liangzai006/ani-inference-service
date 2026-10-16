@@ -27,7 +27,7 @@ spec:
       {{- end }}
       containers:
         - name: migrate
-          image: {{ .Values.migration.image }}
+          image: {{ include "ani-inference.migrationImage" . }}
           imagePullPolicy: {{ .Values.migration.imagePullPolicy }}
           env:
             - name: DATABASE_DSN

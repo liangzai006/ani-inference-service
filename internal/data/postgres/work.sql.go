@@ -291,6 +291,32 @@ func (q *Queries) ListUndeletedServices(ctx context.Context, tenantID pgtype.UUI
 	return items, nil
 }
 
+const releaseResourceWorkLease = `-- name: ReleaseResourceWorkLease :execrows
+UPDATE inference_resource_work
+SET next_run_at = clock_timestamp(),
+    lease_owner = NULL,
+    lease_until = NULL,
+    lease_token = NULL,
+    updated_at = clock_timestamp()
+WHERE tenant_id = $1 AND service_id = $2
+`
+
+type ReleaseResourceWorkLeaseParams struct {
+	TenantID  pgtype.UUID
+	ServiceID pgtype.UUID
+}
+
+// DELETE has already fenced the previous operation by replacing the service's
+// current_operation_id. Release its work lease so the delete worker can claim
+// immediately instead of waiting for the old lease timeout.
+func (q *Queries) ReleaseResourceWorkLease(ctx context.Context, arg ReleaseResourceWorkLeaseParams) (int64, error) {
+	result, err := q.db.Exec(ctx, releaseResourceWorkLease, arg.TenantID, arg.ServiceID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const retryResourceWork = `-- name: RetryResourceWork :execrows
 UPDATE inference_resource_work w
 SET next_run_at = clock_timestamp() + $1::double precision * interval '1 second',

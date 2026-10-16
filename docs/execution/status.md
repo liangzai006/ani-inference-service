@@ -276,7 +276,7 @@ LeaderWorkerSet，官方 LWS v0.10.0 controller 成功创建 StatefulSet，3 个
 
 - 已确认：Model 是独立服务；它拥有模型目录、版本和制品。版本中的旧 engine 启动字段仅为兼容保留，不作为 Inference 默认值。
 - 已确认：Inference 不接管 Model 的物化状态；`model_ready_known`、runtime ready 和 invocation health 是 Inference 自己的运行事实。
-- 已确认：Inference 创建或更新时要求请求显式提供 `engine.type`、`engine.image` 和 `engine.command`；请求中的 `engine.args` 原样作为附加参数保存，Model 不提供或拼接启动命令。
+- 当前契约更新（2026-10-14）：创建时由请求提交 `engine.type`、`engine.image` 和完整字符串 `engine.command`；更新可省略引擎配置以保留原值。旧的独立 `engine.args` 字段已移除。前端可从 ModelVersion 回填默认值并临时修改；服务不会拼接启动命令。
 - `not_verified`：Model gRPC 契约、真实 endpoint、鉴权和制品协议。
 - 证据：[2026-09-14-model-contract-boundary.md](records/2026-09-14-model-contract-boundary.md)
 # 2026-09-14：Model 原型契约兼容

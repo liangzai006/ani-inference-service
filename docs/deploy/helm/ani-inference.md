@@ -13,14 +13,14 @@ context，避免误操作旧环境。`scripts/install.sh` 和
 - Higress 2.2.4、GatewayClass/Gateway、模型路由、统计、限流和 x-api-key 插件；
 - LeaderWorkerSet 0.6.2；
 - KServe 0.16 Core、LLMInferenceService CRD 和控制器；
-- `ani-inference` Deployment、Service、ServiceAccount、RBAC，以及向已有 ClusterIssuer 申请的零信任 Certificate。Chart 不创建签发者。
+- `ani-inference` Deployment、ServiceAccount、最小 Higress 限流 RBAC，以及向已有 ClusterIssuer 申请的零信任 Certificate。Chart 不创建签发者；RBAC 默认只允许控制面账号对指定限流 WasmPlugin 执行 `get`/`patch`。
 
 Kubeflow 发行版保持 v1.10；KServe 单独使用 0.16 是为了让当前代码的
 `LLMInferenceService` 和原生多机 LWS 链路可用。KServe 0.15 没有这组 LLMI
-控制器 Chart。正式 Helm 命令会安装固定版本 cert-manager，已有完整安装会复用，
-部分安装会停止保护现有资源；PostgreSQL、S3、Model Service 和 ClusterIssuer
+控制器 Chart。cert-manager 必须作为外部基础设施预先安装并保持就绪；本流程和
+ANI Chart 不安装、升级或接管它。PostgreSQL、S3、Model Service 和 ClusterIssuer
 仍属于外部公共依赖。在当前没有 Ceph 数据盘的新集群中，它们由独立的 `ani-infra`
-基础设施层和 `local-path` StorageClass 提供，不放进业务 Chart。KServe/LWS 的
+基础设施层提供默认 StorageClass，不放进业务 Chart。KServe/LWS 的
 admission webhook 使用 cert-manager。
 
 同一个集群只能有一个 KServe 控制器管理这些集群级 CRD 和 webhook。Kubeflow
@@ -37,8 +37,9 @@ Gateway API 没有上游 Helm Chart，正式命令直接应用已下载到
 
 Model 和 Inference 必须在同一个新集群、同一个 `ani-system` 命名空间中，按下面顺序安装：
 
-1. 用下面的 Helm/`kubectl apply` 命令安装或复用 cert-manager、Gateway API、LWS、Higress、
-   KServe 和 LLMI，并创建、标记 `ani-system`。这些命令不会安装 ANI Deployment。
+1. 确认外部 cert-manager 和 `ClusterIssuer/ani-internal` 已经 Ready，再用下面的
+   Helm/`kubectl apply` 命令安装 Gateway API、LWS、Higress、KServe 和 LLMI，
+   并创建、标记 `ani-system`。这些命令不会安装或接管 cert-manager，也不会安装 ANI Deployment。
 2. 确认公共 `ClusterIssuer/ani-internal` 已经存在且 Ready，然后安装
    `ani-model-service` 仓库的 Model Chart。Model Chart 会申请
    `ani-model-server-tls`，并在启动时检查 PostgreSQL 和 S3。
@@ -57,20 +58,20 @@ DNS、URI、IP 或 email SAN。每次请求携带唯一的
 
 安装前还要准备：
 
-- cert-manager：上面的 Helm 命令安装固定版本；如果已经完整且就绪则直接复用。发现只有部分 CRD/Deployment 时应先停止，不要覆盖未知安装；
+- cert-manager：由平台基础设施提前安装并保持就绪。下面的命令只读取 CRD 和 Deployment 状态，不安装、升级或接管；如果只有部分 CRD/Deployment，应先停止并修复基础设施；
 - `ani-system/inference-database` Secret，键名 `dsn`；
 - 公共 ClusterIssuer `ani-internal`。Chart 用它向 cert-manager 申请普通 gRPC 服务端证书 `ani-inference-server-tls`（DNS SAN `ani-inference.ani.internal`）和调用 Model 的客户端证书 `inference-model-mtls`（DNS SAN `ani-inference.ani.internal`）；Model 对端身份是 `ani-model.ani.internal`。不要手工创建这两张证书；
 - `ani-system/ani-model-grpc` Service；
-- Model Chart 使用的 S3/Ceph 访问配置和 StorageClass；
+- Model Chart 使用的 S3/Ceph 访问配置；Inference 模型 PVC 不指定 `model.storageClass`，使用集群默认 StorageClass；
+- 如果镜像仓库需要认证，先在 `ani-system` 创建镜像拉取 Secret；安装时通过 `imagePullSecrets` 传入 Secret 名称。Chart 会把它挂到独立的 runtime ServiceAccount，物化 Job 和 KServe 推理 Pod 共用该账号；该账号没有控制面 Role；
 - 依赖镜像已同步到新环境可访问的镜像仓库。
 
 当前 values 已把 KServe、LLMI 和 LWS 控制面镜像指向
 `docker.changqingyun.cn/mirror`，Higress 也使用该镜像前缀。执行安装前确认这些
-镜像以及 cert-manager 的五个控制器镜像已经通过 ORAS 同步到目标仓库；模型引擎镜像仍由创建推理的请求传入，安装脚本
+平台依赖镜像已经通过 ORAS 同步到目标仓库；模型引擎镜像仍由创建推理的请求传入，安装脚本
 不会替换它。
 
-如果目标仓库路径不同，只修改 `charts/platform-values/*.yaml`（包括
-`cert-manager.yaml`）和
+如果目标仓库路径不同，只修改 `charts/platform-values/*.yaml` 和
 `docs/deploy/higress/new-cluster-values.yaml` 中的镜像地址，再执行上面的 Helm 命令。
 
 ## 正式安装平台依赖
@@ -87,14 +88,12 @@ test "$(kubectl config current-context)" = "$KUBE_CONTEXT" || {
 }
 export ANI_HIGRESS_API_KEY="${ANI_HIGRESS_API_KEY:?填写新环境 API Key}"
 
-# cert-manager 三个 CRD 和 Deployment 都已存在且 Ready 时跳过下一条 Helm 命令；
-# 如果只存在其中一部分，先停止处理，不要覆盖未知安装。
+# cert-manager 是外部基础设施；这里只做只读前置检查，不执行安装或升级。
 kubectl get crd certificates.cert-manager.io issuers.cert-manager.io clusterissuers.cert-manager.io
-kubectl -n cert-manager get deployment cert-manager
-helm upgrade --install cert-manager charts/vendor/cert-manager-v1.18.2.tgz \
-  --namespace cert-manager --create-namespace \
-  --values charts/platform-values/cert-manager.yaml \
-  --set crds.enabled=true --wait --timeout 15m
+kubectl -n cert-manager get deployment cert-manager cert-manager-webhook cert-manager-cainjector
+kubectl -n cert-manager rollout status deployment/cert-manager --timeout=5m
+kubectl -n cert-manager rollout status deployment/cert-manager-webhook --timeout=5m
+kubectl -n cert-manager rollout status deployment/cert-manager-cainjector --timeout=5m
 
 kubectl apply --server-side --field-manager=ani-inference-platform \
   -f charts/vendor/gateway-api-v1.6.0-standard-install.yaml \
@@ -107,9 +106,6 @@ helm upgrade --install lws charts/vendor/lws-v0.6.2.tgz \
 helm upgrade --install higress charts/vendor/higress-2.2.4.tgz \
   --namespace higress-system --create-namespace \
   --values docs/deploy/higress/new-cluster-values.yaml \
-  --set global.o11y.grafana.pvc.storageClassName=local-path \
-  --set global.o11y.prometheus.pvc.storageClassName=local-path \
-  --set global.o11y.loki.pvc.storageClassName=local-path \
   --wait --timeout 15m
 kubectl apply -f docs/deploy/higress/gateway.yaml
 kubectl apply --server-side --field-manager=ani-inference-platform \
@@ -144,7 +140,6 @@ export HIGRESS_PUBLIC_BASE_URL="${HIGRESS_PUBLIC_BASE_URL:?填写新环境网关
 helm upgrade --install ani-inference charts/ani-inference \
   --namespace ani-system --create-namespace \
   --set-string higress.publicBaseURL="$HIGRESS_PUBLIC_BASE_URL" \
-  --set-string model.storageClass=local-path \
   --wait --timeout 15m
 kubectl -n ani-system rollout status deployment/ani-inference-service --timeout=15m
 ```
@@ -157,10 +152,26 @@ kubectl -n ani-system rollout status deployment/ani-inference-service --timeout=
 
 上游 LLMI Chart 自带的示例 `LLMInferenceServiceConfig` 会写入固定的 vLLM
 命令。上面 Helm 命令通过 Helm 的 `--post-renderer` 参数删除这些示例命令，只保留空的
-配置占位；这不是服务安装脚本。创建推理时，
-同时删除 LLMI Chart 与 Core Chart 重复的 `inferenceservice-config`。创建推理时，
-调用方必须把完整的 `template.command`、`template.args` 传入；系统不会拼接、改写
-或补充任何引擎启动参数。
+配置占位，并删除 LLMI Chart 与 Core Chart 重复的 `inferenceservice-config`。
+这是 Helm 渲染步骤，不是服务安装脚本。
+
+创建推理时，前端向 Gov 提交完整的 `command` 字符串，Gov 转发到 Inference
+的 `engine.command`。选择模型版本可以回填命令，提交前仍可临时修改，例如：
+
+```json
+{"command": "vllm serve /models --served-model-name qwen2.5-1.5b-instruct"}
+```
+
+Kubernetes/KServe 适配器仅将该字符串放入固定 shell 包装：
+
+```yaml
+command: ["/bin/sh", "-c"]
+args:
+  - vllm serve /models --served-model-name qwen2.5-1.5b-instruct
+```
+
+镜像必须包含 `/bin/sh`。业务接口不接收命令数组或独立的 `engine.args`；
+服务不会拆解命令、追加 `exec`、拼接或补充任何引擎启动参数。
 
 ## 数据库迁移
 

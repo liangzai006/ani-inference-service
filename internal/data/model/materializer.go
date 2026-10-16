@@ -30,11 +30,19 @@ type Materializer struct {
 	Client                         client.Client
 	Reader                         client.Reader
 	StorageClass, Image, Namespace string
+	ServiceAccountName             string
 }
+
+const (
+	materializationComponentLabel = "ani.kubercloud.com/component"
+	materializationComponentValue = "model-materializer"
+)
+
+var _ inference.ModelPort = (*Materializer)(nil)
 
 func (m *Materializer) EnsureModel(ctx context.Context, op inference.OperationContext) (inference.ModelObservation, error) {
 	unknown := inference.ModelObservation{}
-	if m == nil || m.Client == nil || m.Source == nil || m.Catalog == nil || m.Image == "" || m.StorageClass == "" {
+	if m == nil || m.Client == nil || m.Source == nil || m.Catalog == nil || m.Image == "" {
 		return unknown, fmt.Errorf("model materializer dependencies are not configured")
 	}
 	if op.ServiceID == "" || op.TargetGeneration < 1 || op.LeaseToken == "" || m.Namespace == "" {
@@ -63,7 +71,7 @@ func (m *Materializer) EnsureModel(ctx context.Context, op inference.OperationCo
 		reader = m.Client
 	}
 	name := kube.ModelClaimName(spec)
-	labels := map[string]string{"ani.kubercloud.com/tenant-id": op.TenantID, "ani.kubercloud.com/service-id": op.ServiceID, "ani.kubercloud.com/generation": fmt.Sprint(op.TargetGeneration)}
+	labels := map[string]string{"ani.kubercloud.com/tenant-id": op.TenantID, "ani.kubercloud.com/service-id": op.ServiceID, "ani.kubercloud.com/generation": fmt.Sprint(op.TargetGeneration), materializationComponentLabel: materializationComponentValue}
 	annotations := map[string]string{"ani.kubercloud.com/artifact-sha256": spec.ArtifactSHA256, "ani.kubercloud.com/model-version-id": spec.ModelVersionID}
 	meta := func(n string) metav1.ObjectMeta {
 		return metav1.ObjectMeta{Name: n, Namespace: m.Namespace, Labels: labels, Annotations: annotations}
@@ -126,7 +134,14 @@ func (m *Materializer) EnsureModel(ctx context.Context, op inference.OperationCo
 	claim := &corev1.PersistentVolumeClaim{}
 	err = reader.Get(ctx, client.ObjectKey{Namespace: m.Namespace, Name: name}, claim)
 	if apierrors.IsNotFound(err) {
-		claim = &corev1.PersistentVolumeClaim{ObjectMeta: meta(name), Spec: corev1.PersistentVolumeClaimSpec{StorageClassName: ptr.To(m.StorageClass), AccessModes: []corev1.PersistentVolumeAccessMode{materializationAccessMode(m.StorageClass)}, Resources: corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse(pvcSize(snapshot.ArtifactSizeBytes))}}}}
+		claimSpec := corev1.PersistentVolumeClaimSpec{
+			AccessModes: []corev1.PersistentVolumeAccessMode{materializationAccessMode(m.StorageClass)},
+			Resources:   corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse(pvcSize(snapshot.ArtifactSizeBytes))}},
+		}
+		if storageClass := strings.TrimSpace(m.StorageClass); storageClass != "" {
+			claimSpec.StorageClassName = ptr.To(storageClass)
+		}
+		claim = &corev1.PersistentVolumeClaim{ObjectMeta: meta(name), Spec: claimSpec}
 		if err = m.Client.Create(ctx, claim); err != nil {
 			return unknown, err
 		}
@@ -162,7 +177,30 @@ func (m *Materializer) EnsureModel(ctx context.Context, op inference.OperationCo
 	}
 	if jobMissing {
 		annotations["ani.kubercloud.com/model-claim-uid"] = string(claim.UID)
-		job = &batchv1.Job{ObjectMeta: meta(name + "-fetch"), Spec: batchv1.JobSpec{BackoffLimit: ptr.To(int32(2)), ActiveDeadlineSeconds: ptr.To(int64(600)), Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: labels}, Spec: corev1.PodSpec{RestartPolicy: corev1.RestartPolicyNever, AutomountServiceAccountToken: ptr.To(false), Volumes: []corev1.Volume{{Name: "model", VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: name}}}}, Containers: []corev1.Container{{Name: "download", Image: m.Image, Command: []string{"python3"}, Args: []string{"-c", downloadBundle}, VolumeMounts: []corev1.VolumeMount{{Name: "model", MountPath: "/model"}}, Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("100m"), corev1.ResourceMemory: resource.MustParse("128Mi")}, Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourceMemory: resource.MustParse("512Mi")}}, Env: []corev1.EnvVar{{Name: "MODEL_SHA256", Value: spec.ArtifactSHA256}, {Name: "MODEL_MAX_BYTES", Value: strconv.FormatInt(snapshot.ArtifactSizeBytes, 10)}, {Name: "MODEL_DOWNLOAD_URL", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: secret.Name}, Key: "url"}}}}}}}}}}
+		jobSpec := corev1.PodSpec{
+			RestartPolicy:                corev1.RestartPolicyNever,
+			AutomountServiceAccountToken: ptr.To(false),
+			Volumes: []corev1.Volume{{Name: "model", VolumeSource: corev1.VolumeSource{
+				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: name},
+			}}},
+			Containers: []corev1.Container{{
+				Name: "download", Image: m.Image, Command: []string{"python3"}, Args: []string{"-c", downloadBundle},
+				VolumeMounts: []corev1.VolumeMount{{Name: "model", MountPath: "/model"}},
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("100m"), corev1.ResourceMemory: resource.MustParse("128Mi")},
+					Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourceMemory: resource.MustParse("512Mi")},
+				},
+				Env: []corev1.EnvVar{
+					{Name: "MODEL_SHA256", Value: spec.ArtifactSHA256},
+					{Name: "MODEL_MAX_BYTES", Value: strconv.FormatInt(snapshot.ArtifactSizeBytes, 10)},
+					{Name: "MODEL_DOWNLOAD_URL", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{Name: secret.Name}, Key: "url",
+					}}},
+				},
+			}},
+		}
+		jobSpec.ServiceAccountName = strings.TrimSpace(m.ServiceAccountName)
+		job = &batchv1.Job{ObjectMeta: meta(name + "-fetch"), Spec: batchv1.JobSpec{BackoffLimit: ptr.To(int32(2)), ActiveDeadlineSeconds: ptr.To(int64(600)), Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: labels}, Spec: jobSpec}}}
 		if err = m.Client.Create(ctx, job); err != nil {
 			return unknown, err
 		}
@@ -170,11 +208,200 @@ func (m *Materializer) EnsureModel(ctx context.Context, op inference.OperationCo
 	return inference.ModelObservation{Reason: "model download Job is pending"}, nil
 }
 
+// CleanupModel removes only the model materialization resources owned by an
+// inference service. Model catalog data and the object-storage artifact are
+// deliberately outside this boundary and are retained for reuse.
+func (m *Materializer) CleanupModel(ctx context.Context, op inference.OperationContext) error {
+	if m == nil || m.Client == nil || strings.TrimSpace(m.Namespace) == "" {
+		return fmt.Errorf("model materializer dependencies are not configured")
+	}
+	if strings.TrimSpace(op.TenantID) == "" || strings.TrimSpace(op.ServiceID) == "" {
+		return fmt.Errorf("model materializer scope mismatch")
+	}
+	reader := m.Reader
+	if reader == nil {
+		reader = m.Client
+	}
+	selector := m.materializationListOptions(op)
+
+	jobs := &batchv1.JobList{}
+	if err := reader.List(ctx, jobs, selector...); err != nil {
+		return fmt.Errorf("list model materialization jobs: %w", err)
+	}
+	ownedJobs := make([]client.Object, 0, len(jobs.Items))
+	jobNames := make(map[string]struct{}, len(jobs.Items))
+	jobUIDs := make(map[string]struct{}, len(jobs.Items))
+	for i := range jobs.Items {
+		job := &jobs.Items[i]
+		if !isMaterializationObject(job) {
+			continue
+		}
+		ownedJobs = append(ownedJobs, job)
+		jobNames[job.Name] = struct{}{}
+		if job.UID != "" {
+			jobUIDs[string(job.UID)] = struct{}{}
+		}
+	}
+
+	pods := &corev1.PodList{}
+	if err := reader.List(ctx, pods, selector...); err != nil {
+		return fmt.Errorf("list model materialization pods: %w", err)
+	}
+	ownedPods := make([]client.Object, 0, len(pods.Items))
+	for i := range pods.Items {
+		pod := &pods.Items[i]
+		if isMaterializationPod(pod, jobNames, jobUIDs) {
+			ownedPods = append(ownedPods, pod)
+		}
+	}
+
+	claims := &corev1.PersistentVolumeClaimList{}
+	if err := reader.List(ctx, claims, selector...); err != nil {
+		return fmt.Errorf("list model materialization claims: %w", err)
+	}
+	ownedClaims := make([]client.Object, 0, len(claims.Items))
+	for i := range claims.Items {
+		claim := &claims.Items[i]
+		if isMaterializationObject(claim) {
+			ownedClaims = append(ownedClaims, claim)
+		}
+	}
+
+	secrets := &corev1.SecretList{}
+	if err := reader.List(ctx, secrets, selector...); err != nil {
+		return fmt.Errorf("list model materialization secrets: %w", err)
+	}
+	ownedSecrets := make([]client.Object, 0, len(secrets.Items))
+	for i := range secrets.Items {
+		secret := &secrets.Items[i]
+		if isMaterializationObject(secret) {
+			ownedSecrets = append(ownedSecrets, secret)
+		}
+	}
+
+	// Delete Jobs first, then their Pods, so a running downloader releases its
+	// volume before the PVC is removed. UID preconditions prevent a stale list
+	// from deleting a replacement object.
+	for _, objects := range [][]client.Object{ownedJobs, ownedPods, ownedClaims, ownedSecrets} {
+		for _, object := range objects {
+			if err := m.deleteMaterializationObject(ctx, object); err != nil {
+				return err
+			}
+		}
+	}
+
+	// A successful Delete may only mark an object terminating. Keep the
+	// operation in this step until the API no longer returns any owned object;
+	// the durable worker will retry on the next pass.
+	return m.ensureMaterializationAbsent(ctx, op)
+}
+
+func (m *Materializer) deleteMaterializationObject(ctx context.Context, object client.Object) error {
+	options := []client.DeleteOption{client.PropagationPolicy(metav1.DeletePropagationForeground)}
+	if uid := object.GetUID(); uid != "" {
+		options = append(options, client.Preconditions{UID: &uid})
+	}
+	if err := m.Client.Delete(ctx, object, options...); err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("delete model materialization %s/%s: %w", object.GetNamespace(), object.GetName(), err)
+	}
+	return nil
+}
+
+func (m *Materializer) ensureMaterializationAbsent(ctx context.Context, op inference.OperationContext) error {
+	reader := m.Reader
+	if reader == nil {
+		reader = m.Client
+	}
+	selector := m.materializationListOptions(op)
+	jobs := &batchv1.JobList{}
+	if err := reader.List(ctx, jobs, selector...); err != nil {
+		return fmt.Errorf("verify model materialization jobs: %w", err)
+	}
+	for i := range jobs.Items {
+		if isMaterializationObject(&jobs.Items[i]) {
+			return fmt.Errorf("model materialization resources are still terminating")
+		}
+	}
+	pods := &corev1.PodList{}
+	if err := reader.List(ctx, pods, selector...); err != nil {
+		return fmt.Errorf("verify model materialization pods: %w", err)
+	}
+	// Jobs are gone at this point, so only the dedicated marker or the
+	// materializer's generated job-name can identify a leftover Pod safely.
+	for i := range pods.Items {
+		if isMaterializationObject(&pods.Items[i]) || strings.HasSuffix(podJobName(&pods.Items[i]), "-fetch") {
+			return fmt.Errorf("model materialization resources are still terminating")
+		}
+	}
+	claims := &corev1.PersistentVolumeClaimList{}
+	if err := reader.List(ctx, claims, selector...); err != nil {
+		return fmt.Errorf("verify model materialization claims: %w", err)
+	}
+	for i := range claims.Items {
+		if isMaterializationObject(&claims.Items[i]) {
+			return fmt.Errorf("model materialization resources are still terminating")
+		}
+	}
+	secrets := &corev1.SecretList{}
+	if err := reader.List(ctx, secrets, selector...); err != nil {
+		return fmt.Errorf("verify model materialization secrets: %w", err)
+	}
+	for i := range secrets.Items {
+		if isMaterializationObject(&secrets.Items[i]) {
+			return fmt.Errorf("model materialization resources are still terminating")
+		}
+	}
+	return nil
+}
+
+func (m *Materializer) materializationListOptions(op inference.OperationContext) []client.ListOption {
+	return []client.ListOption{
+		client.InNamespace(m.Namespace),
+		client.MatchingLabels{
+			"ani.kubercloud.com/tenant-id":  op.TenantID,
+			"ani.kubercloud.com/service-id": op.ServiceID,
+		},
+	}
+}
+
+func isMaterializationObject(object client.Object) bool {
+	labels := object.GetLabels()
+	if labels[materializationComponentLabel] == materializationComponentValue {
+		return true
+	}
+	return object.GetAnnotations()["ani.kubercloud.com/model-version-id"] != ""
+}
+
+func isMaterializationPod(pod *corev1.Pod, jobNames, jobUIDs map[string]struct{}) bool {
+	if isMaterializationObject(pod) {
+		return true
+	}
+	if name := podJobName(pod); name != "" {
+		if _, ok := jobNames[name]; ok || strings.HasSuffix(name, "-fetch") {
+			return true
+		}
+	}
+	for _, owner := range pod.OwnerReferences {
+		if _, ok := jobUIDs[string(owner.UID)]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func podJobName(pod *corev1.Pod) string {
+	if name := pod.Labels["batch.kubernetes.io/job-name"]; name != "" {
+		return name
+	}
+	return pod.Labels["job-name"]
+}
+
 // local-path provisions node-local volumes and only supports a single writer.
 // Shared storage classes keep the existing RWX contract so a later multi-
 // replica deployment can mount one verified model bundle from all replicas.
 func materializationAccessMode(storageClass string) corev1.PersistentVolumeAccessMode {
-	if strings.EqualFold(strings.TrimSpace(storageClass), "local-path") {
+	storageClass = strings.TrimSpace(storageClass)
+	if storageClass == "" || strings.EqualFold(storageClass, "local-path") {
 		return corev1.ReadWriteOnce
 	}
 	return corev1.ReadWriteMany

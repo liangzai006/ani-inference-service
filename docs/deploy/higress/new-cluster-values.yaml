@@ -15,21 +15,21 @@ global:
         tag: 9.3.6
       storage: 2Gi
       pvc:
-        storageClassName: cephfs
+        storageClassName: ""
     prometheus:
       image:
         repository: docker.changqingyun.cn/mirror/higress/prometheus
         tag: v2.40.7
       storage: 4Gi
       pvc:
-        storageClassName: cephfs
+        storageClassName: ""
     loki:
       image:
         repository: docker.changqingyun.cn/mirror/higress/loki
         tag: 2.9.4
       storage: 4Gi
       pvc:
-        storageClassName: cephfs
+        storageClassName: ""
 
 higress-core:
   gateway:

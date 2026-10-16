@@ -30,6 +30,7 @@ type RuntimeSpec struct {
 	ModelVersionID, ArtifactProvider, ArtifactRef, ArtifactSHA256 string
 	ServedModelName, EngineRuntime                                string
 	RuntimeProvider                                               string
+	ServiceAccountName                                            string
 	Generation                                                    int64
 	EngineCommand                                                 string
 	Resources                                                     resources.Normalized
@@ -109,7 +110,7 @@ func Deployment(spec RuntimeSpec) (*appsv1.Deployment, error) {
 			Selector: &metav1.LabelSelector{MatchLabels: stableLabels},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{Labels: labels},
-				Spec:       corev1.PodSpec{Containers: []corev1.Container{container}},
+				Spec:       corev1.PodSpec{ServiceAccountName: spec.ServiceAccountName, Containers: []corev1.Container{container}},
 			},
 		},
 	}
@@ -142,7 +143,7 @@ func LeaderWorkerSet(spec RuntimeSpec) (*lwsv1.LeaderWorkerSet, error) {
 	}
 	container.Command, container.Args = shellCommand(spec.EngineCommand)
 	groups, size := spec.Replicas, spec.WorkerReplicas+1
-	template := corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: labels}, Spec: corev1.PodSpec{Containers: []corev1.Container{container}}}
+	template := corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: labels}, Spec: corev1.PodSpec{ServiceAccountName: spec.ServiceAccountName, Containers: []corev1.Container{container}}}
 	if err := mountModel(&template.Spec, spec); err != nil {
 		return nil, err
 	}

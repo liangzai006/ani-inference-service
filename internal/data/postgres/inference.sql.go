@@ -148,6 +148,43 @@ func (q *Queries) AppendObservationEvent(ctx context.Context, arg AppendObservat
 	return err
 }
 
+const cancelActiveOperation = `-- name: CancelActiveOperation :execrows
+UPDATE inference_operations o
+SET phase = 'failed',
+    error_code = 'cancelled_by_delete',
+    error_message = 'cancelled by delete request',
+    retry_at = NULL,
+    lease_owner = NULL,
+    lease_until = NULL,
+    lease_token = NULL,
+    completed_at = clock_timestamp(),
+    updated_at = clock_timestamp()
+FROM inference_services s
+WHERE o.tenant_id = $1
+  AND o.service_id = $2
+  AND o.tenant_id = s.tenant_id
+  AND o.service_id = s.id
+  AND s.current_operation_id = o.id
+  AND s.deleted_at IS NULL
+  AND o.phase IN ('pending', 'running')
+`
+
+type CancelActiveOperationParams struct {
+	TenantID  pgtype.UUID
+	ServiceID pgtype.UUID
+}
+
+// DELETE fences the previous worker before replacing current_operation_id.
+// The worker's later CAS then fails safely, even if it was between provider
+// calls when the delete request arrived.
+func (q *Queries) CancelActiveOperation(ctx context.Context, arg CancelActiveOperationParams) (int64, error) {
+	result, err := q.db.Exec(ctx, cancelActiveOperation, arg.TenantID, arg.ServiceID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const cloneSpecGeneration = `-- name: CloneSpecGeneration :execrows
 INSERT INTO inference_specs
   (tenant_id, id, service_id, generation, model_id, model_version_id,
@@ -360,8 +397,8 @@ func (q *Queries) DeleteRuntimeBindingCAS(ctx context.Context, arg DeleteRuntime
 }
 
 const ensureResourceWork = `-- name: EnsureResourceWork :exec
-INSERT INTO inference_resource_work (tenant_id, service_id, dirty_version, acknowledged_version)
-VALUES ($1, $2, $3, 0)
+INSERT INTO inference_resource_work (tenant_id, service_id, dirty_version, acknowledged_version, next_run_at)
+VALUES ($1, $2, $3, 0, clock_timestamp())
 ON CONFLICT (tenant_id, service_id) DO NOTHING
 `
 
@@ -2489,8 +2526,8 @@ func (q *Queries) UpsertPublicationFenced(ctx context.Context, arg UpsertPublica
 }
 
 const upsertResourceWork = `-- name: UpsertResourceWork :exec
-INSERT INTO inference_resource_work (tenant_id, service_id, dirty_version, acknowledged_version)
-VALUES ($1, $2, $3, 0)
+INSERT INTO inference_resource_work (tenant_id, service_id, dirty_version, acknowledged_version, next_run_at)
+VALUES ($1, $2, $3, 0, clock_timestamp())
 ON CONFLICT (tenant_id, service_id) DO UPDATE
 SET dirty_version = GREATEST(inference_resource_work.dirty_version + 1, EXCLUDED.dirty_version),
     next_run_at = clock_timestamp(),

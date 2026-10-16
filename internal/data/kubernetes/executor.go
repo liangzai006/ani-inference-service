@@ -87,11 +87,12 @@ type RuntimeExecutor struct {
 	// APIReader is the uncached reader used immediately after an apply. The
 	// manager cache may lag the API server and cannot be used as the binding
 	// identity source at this crash-sensitive boundary.
-	APIReader    client.Reader
-	CRClient     client.Client
-	Source       DesiredRuntimeSource
-	Bindings     BindingStore
-	FieldManager string
+	APIReader          client.Reader
+	CRClient           client.Client
+	Source             DesiredRuntimeSource
+	Bindings           BindingStore
+	FieldManager       string
+	ServiceAccountName string
 	// RequireQuota keeps the external quota gate opt-in. The current new
 	// cluster runs without IAM/quota integration, so runtime reconciliation
 	// must not manufacture or require a fixed quota reservation.
@@ -128,6 +129,7 @@ func (e *RuntimeExecutor) operationRuntime(ctx context.Context, op bizinference.
 	if spec.Generation != 0 && spec.Generation != op.TargetGeneration {
 		return DesiredRuntime{}, bizreconcile.ErrStaleGeneration
 	}
+	spec.ServiceAccountName = e.ServiceAccountName
 	spec.TenantID, spec.ServiceID, spec.Generation = op.TenantID, op.ServiceID, op.TargetGeneration
 	// The operation row is the durable hand-off from quota/publication
 	// providers. Preserve source facts while accepting the confirmed result
