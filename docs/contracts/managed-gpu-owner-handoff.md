@@ -103,6 +103,21 @@ after changing container, replicas, profile or runtime fields.
 
 ### Shared and whole field mapping
 
+The current public/managed quantity contract accepts WHOLE_EXCLUSIVE requests
+with a positive uint32 device count per Pod, up to the selected Profile's positive
+maximum, without a separate fixed device-count cap. SHARED_FIXED still
+requires both maximum and requested count to be one. Whole runtime number is
+the requested device count and its original physical charge is replicas times
+that count, using checked integer arithmetic. Replica count continues to mean
+GPU-bearing Pods; a larger device count does not create another Pod or add engine flags.
+GPU LWS remains rejected by the public and rendering boundaries.
+
+The [quantity plans](../../testdata/accelerator-quantity-plans.json) were emitted
+by Accelerator's real BuildPlan/ValidatePlan with `kserve-container`. They drive
+the complete managed receiver, PostgreSQL, CurrentRuntime, predictor renderer
+and original-charge deletion-context tests. They prove software contract and
+storage behavior, not real GPU scheduling, binding, cleanup or model execution.
+
 The two-Pod shared and whole values below come from the passed actual
 PG-to-production-renderer test
 [`TestPostgresManagedGPUFrozenSnapshotProjectsSharedAndWholeReplicas`](../../internal/data/postgres/managed_gpu_test.go).
@@ -220,14 +235,16 @@ There is no second managed listener; Governance uses the ordinary `19090`
 listener for queries, CPU lifecycle and GPU commands.
 
 The inbound Governance certificate's sole registered DNS SAN rule and the
-reverse refund client's DNS identity are separate contracts. Governance must register the exact issued
+reverse refund client's DNS identity are separate contracts. Governance must
+register the exact issued
 Inference refund DNS SAN as fixed owner `ani-inference`; Inference cannot set
 the owner or tenant in a refund request. Production address/SAN/certificate
 issuance remains deployment input; isolated test identities do not enable it.
 
 For compute-preset and cluster-scheduling integration, see the
 [owner handoff](compute-spec-scheduling-handoff.md), which distinguishes the
-current upstream source, container acceptance and deferred quantity work.
+upstream baseline, container acceptance, ported quantity work and pending
+compute-preset/scheduling integration.
 
 ## Reporting a persisted completion notice
 

@@ -12,6 +12,6 @@
 6. [持续目标](execution/GOAL.md)：重构循环、30 秒中断重试和当前执行顺序。
 7. [固定来源与检查记录](execution/records/2026-09-10-design-baseline.md)：来源 commit/tree、旧实现依据和本次验证层次。
 
-推理 owner 接入参考：[算力规格与集群调度 handoff](contracts/compute-spec-scheduling-handoff.md)。区分容器批次已完成能力、当前推理源码、延期数量补丁与后续待实施合同；不是新功能已经上线的声明。
+推理 owner 接入参考：[算力规格与集群调度 handoff](contracts/compute-spec-scheduling-handoff.md)。区分容器批次已完成能力、上游基线、本 PR 迁入的数量补丁与后续待实施规格/调度合同；不是新功能已经上线的声明。
 
 规格标识：`确认` 指用户已经明确的方向；`草案` 指待评审的具体设计。文档存在不代表实现、测试或部署通过；实际证据只看执行状态。

@@ -1,7 +1,7 @@
 # 推理算力规格与集群调度接入 handoff
 
 日期：2026-10-17。面向 Inference owner，依据容器实例联合批次及下列固定源码。
-本文交接已完成能力、可复用经验和**尚待设计/实施的推理接入**；不是已上线接口合同，也不授权合并、部署或迁库。本 PR 只改文档，不包含延期的推理实现。
+本文交接已完成能力、可复用经验和**尚待设计/实施的推理接入**；不是已上线接口合同，也不授权合并、部署或迁库。用户后续授权本 PR 同时移植前批保留的 GPU 数量补丁；新增算力规格与调度接入仍只交接方案。
 
 ## 1. 目标主链与当前断点
 
@@ -18,7 +18,7 @@
 
 可观察结果必须包含：同 key 重放不会换规格/默认值或重复占额；实际 Pod 保留完整 GPU 硬约束并得到预期调度字段；删除按原 CREATE/charges 退额。Pod 创建、ACK、Running、模型就绪、发布和可调用是不同事实。
 
-**当前断点：** 推理尚未接入本批 Res 规格和实例调度设置；上游 GPU 数量仍要求 N=1 且 Profile.max=1。已有冻结 GPU 受理、持久化、KServe 渲染和删除释放源码可作为接入基础，不能据此宣称“选择规格 → 推理运行”已经打通。
+**当前断点：** 推理尚未接入本批 Res 规格和实例调度设置；上游基线 34c9fd9 的 GPU 数量仍要求 N=1 且 Profile.max=1，本 PR 迁入的数量增量将其改为按 Profile 上限校验。已有冻结 GPU 受理、持久化、KServe 渲染和删除释放源码可作为接入基础，不能据此宣称“选择规格 → 推理运行”已经打通。
 
 ## 2. 固定来源与完成状态
 
@@ -29,6 +29,8 @@
 | Res | [`3b94192e16d9824ee6feaef23713cfcc299d062d`](https://github.com/zhangzhe-ctrl/ani-resource-service/pull/8)；`v0.0.0-20261016165835-3b94192e16d9` | 数据库规格、冻结、调度、诊断/日志源码已交付；PR 打开、未合并 |
 | Gov | [`d3f618faade182436348ce183897abe05460dd71`](https://github.com/zhangzhe-ctrl/ani-governance/pull/23) | 固定上述 ACC/Res 正式模块；容器管理、授权、调度和 SSE 已交付；PR 打开、未合并 |
 | 推理数量延期补丁 | fork [`eb6b4358f59b3a33f70d62f34a3627ab2688d307`](https://github.com/zhangzhe-ctrl/ani-inference-service/commit/eb6b4358f59b3a33f70d62f34a3627ab2688d307)，分支 `codex/instance-unified-20261016` | 基于旧 `79beaaf…` 的 13 文件补丁；已推 fork、历史定向验证通过，未进入上游/正式消费链 |
+
+本 PR 在 34c9fd9 上以最小差异迁入上述数量改动和定向设施，保留上游单入口、删除执行及释放观察；不把旧 fork 整树覆盖到新基线。PR 待审不等于 canonical 模块已经发布或 Gov 已消费。
 
 上表 PR 状态为本文编写时快照。ACC/Res 模块下载曾核对 `Origin.Hash` 和两项 checksum；有可下载版本不代表已合并或部署。Gov 仍消费原 Inference `v0.0.0-20261015020740-ceacc4063742`，没有消费 eb6 fork，也没有保留本批实验性公开推理数量字段。
 
@@ -95,7 +97,7 @@ CM 的评分参数可变与受保护 GPU 配置由 ACC 单一算法区分；没�
 
 ## 5. 推理当前已有什么，延期补丁做了什么
 
-### 上游 34c9fd9 已有源码（本次未运行验收）
+### 上游 34c9fd9 已有源码（源码接线不等于现场验收）
 
 | 路径/符号 | 当前职责 |
 |---|---|
@@ -108,33 +110,50 @@ CM 的评分参数可变与受保护 GPU 配置由 ACC 单一算法区分；没�
 
 当前只有普通业务 gRPC **19090**；TLS 1.3、入站唯一精确 DNS SAN `ani-governance`，可信 metadata 绑定 tenant/actor，GPU 附件 tenant 必须与上下文一致。不再使用独立 19092 或入站 SPIFFE URI。退款方向使用 Inference 自己登记的客户端 DNS 身份，账本 owner 仍为 `ani-inference`。详见[单入口设计](../superpowers/specs/2026-10-16-single-grpc-gpu-design.md)与[现有 GPU owner handoff](managed-gpu-owner-handoff.md)。管理 `/api/v1/...` 走 Gov；Higress 只负责 `/v1/...` 推理调用。
 
-### eb6 延期补丁的可复用成果与限制
+### eb6 数量补丁的成果与本 PR 移植范围
 
 - 更新公开 `ValidateBusinessPayload`、内部 `gpu.ValidateRequest/ValidateManagedPlan`：整卡正 uint32、N≤Profile.max、Runtime number=N、checked R×N/原物理 charge；共享仍 N/max=1。不是按 1/2/3/4 分支，也不通过穷举证明通用化。
 - 真实 ACC builder 的 `kserve-container` 向量包括同一 max2 Profile 的 N1/N2、Shared1，以及独立 max4/N4 和超限负向；完整 plan protobuf 转换、摘要/Runtime/totals 篡改校验、PG 往返/CurrentRuntime/生产 render/DELETE 原账上下文有历史定向证据。
 - fork 正常 pin 新 ACC 模块，更新 `scripts/generate-api.sh` 的精确版本 assert，Go directive 为 1.26.9；正常模块生成及公开/内部/managed/adapter 受影响目标 exit0。此前 PG roundtrip 测试曾因 JSONB 排版被误作 wire canonical 失败，修正测试编码后目标通过；失败记录保留。
 - **没有接入规格、scheduling、GPU LWS 或模型并行参数。** 未做推理全量、完整启动、真实多卡模型/硬件释放验收。较高数量的最后增量只补了软件目标，没有重跑新的 PG/现场矩阵；旧阶段证据不能提升为最新组合已验。
-- 基线是旧 79beaaf，不能整树覆盖当前 34c9fd9 的单入口和删除释放改进。后续应提取必要数量 delta、解决新基线冲突，再定向核对新的 delete/release 路径。本 PR 不 cherry-pick 该补丁，也不将其视作正式发布。
+- 原基线是旧 79beaaf，本 PR 仅提取必要数量 delta、适配新基线并定向核对持久化/原账路径，保留当前 34c9fd9 的单入口和删除释放改进。没有迁入本批曾撤下的 Gov HTTP 入口，也不将代码移植视作正式模块发布。
 
 Gov 容器 PR 保留原推理 BFF：GPU selection 仍只有 cluster/pool/profile ID/version，构造 N=1；实验性 `devices_per_replica` 入口已撤下。只更新 Inference 或 ACC 不会让用户通过当前 Gov 创建多卡推理；Gov adapter/公开输入、canonical、owner consumer 必须配套升级，未支持的数量应在占额前拒绝。
 
 原退款身份始终是 **原 CREATE operation + 完整原 charges + 持久化上下文 + 稳定 release_event_id + 累计 released_total**。当前 coordinator 用 DELETE ID 确定性派生 event ID；重试复用事件，不按当前规格、存活 Pod 数、显存块数或新 Profile 重算额度。DELETE ACK、对象暂时缺失或 usage=ENDED 都不替代完整清理和 ACC 释放证据。
 
+### 本 PR 移植后的定向验证
+
+Fedora、Go 1.26.9、既有 heavy 锁及 2 CPU/6 GiB 限制，`GOWORK=off`、正常模块、无 replace/modfile。当前输入移植自 eb6，PG quantity 用例额外断言新版 DELETE 产生 `pending/withdraw_publication`、target generation=2；没有改这些上游生产路径。
+
+| 检查 | 本次实际结果 |
+|---|---|
+| 7 个改动 Go 文件 `gofmt -l`；正式 API lint/generate/生成漂移检查 | exit0；没有重写生成物 |
+| ACC 模块下载/选中来源；`go mod verify`；`go mod tidy -diff` | exit0；Origin.Hash=c1242866…，双 checksum 与已交付版本一致 |
+| 公开、biz/gpu、adapter 数量定向 | exit0，分别 0.006/0.012/0.007s，无 skip；含 Whole1/Whole2/Shared1/WholeProfileMax、完整转换及重算摘要后的语义负向 |
+| `TestManagedGPUReleaseRequiresAcceleratorEvidenceBeforeGovernance` | exit0，service 包 0.006s；释放证据前不报告 Gov 的软件边界 |
+| `go test ./cmd/ani-inference-service -run '^$'` | exit0，0.032s；只证明装配编译，明确没有执行测试或启动服务 |
+| PG `TestPostgresManagedGPUQuantityPlanRoundtrip`、`QuantityRejectsWrongOriginalCharge`、`DeletePreservesAcceptedCreateAndRejectsTopologyMutation` | exit0，包 0.382s，无 skip；Whole1/Whole2/Shared1 完整 plan/CurrentRuntime/生产 render、原账/跨租户/DELETE 执行断言 |
+
+PG 仅使用新建任务独占库 `cf_01a14526_inf_handoff_tests`，显式事务应用当前 000001..000019；owner/runtime 分离，未迁移或更改既有四库。较高 max4/N4 此次仍是软件向量验证，不声称新 PG/现场多卡矩阵或物理释放。
+
+首轮停在 tidy-diff：go.sum 残留旧 ACC 的两行 checksum。同步删除这两行后从只读 tidy/mod-verify 继续，后续目标全部通过；原 `check01/run.exit=1` 与 diff 保留，`check02/run.exit=0`。已通过的生成未重跑。没有全量测试、完整服务启动、集群操作或新硬件验收；外部释放观察在单元测试边界替代。
+
 ## 6. 建议 owner 的落地顺序与必要验收
 
 1. 固定本文基线与 Gov/Res 接口决策：纯规格解析/授权、推理字段/快照、原始 hash 与冻结 digest、调度策略适用范围、CPU direct 与 GPU ledger 的受理职责。
 2. 从 **CPU Deployment 的最小主链** 开始：真实 Res 规格 → Gov 授权及原 key → Inference PG 冻结 → KServe 实际 Pod；先证明规格/defaults 变化后旧 key 与旧 generation 不漂移，新 key 用新值。模型可调用仍按原 Model/Engine/Publication 合同另验。
-3. 迁入必要数量补丁并配套 Gov：完整 plan 的 protobuf/JSONB 往返、R 与 N 独立、Shared1、Profile 上限/上限+1、0/非整数输入、checked 乘积/溢出、摘要正确但语义冲突、全部原 charges。只覆盖规则和边界，不新增整数穷举或多卡现场大矩阵。
+3. 完成数量合同的正式发布与 Gov 配套：本 PR 已迁入 Inference 数量侧。正式组合仍核对完整 plan 的 protobuf/JSONB 往返、R 与 N 独立、Shared1、Profile 上限/上限+1、0/非整数输入、checked 乘积/溢出、摘要正确但语义冲突、全部原 charges。只覆盖规则和边界，不新增整数穷举或多卡现场大矩阵。
 4. 接实际 scheduling：原始 presence、默认快照、显式 NONE、PriorityClass 名单/存在性/路径相容、读取失败；平台/租户互斥、跨租户/伪身份/伪内部字段拒绝。实际 KServe workload/Pod 核对软规则与所有 GPU 硬字段，分别记录 Pending、Running、RuntimeReady、调用结果。
 5. 在最新上游 delete/release 代码上验证原账：重复 CREATE/DELETE、DELETE 先到、旧 key 撤权、Pod UID 释放范围保存、ACC 未释放/故障时不退、释放证据后原额退回、重复通知不重复退。仅边界系统不可用时使用明确替身，不能模拟掉受理、身份、事务、存储或业务规则。
 
-复用当前具名设施：[managed PG](../../internal/data/postgres/managed_gpu_test.go)、[KServe renderer/控制器字段](../../internal/data/kubernetes/kserve_test.go)、[GPU 业务校验](../../internal/biz/gpu/gpu_test.go)。延期 fork 的新增 `quantity_test.go` 和 builder 向量以 eb6 固定提交为准，不把当前主分支不存在的文件当成现有入口。
+复用当前具名设施：[managed PG](../../internal/data/postgres/managed_gpu_test.go)、[KServe renderer/控制器字段](../../internal/data/kubernetes/kserve_test.go)、[GPU 业务校验](../../internal/biz/gpu/gpu_test.go)。本 PR 同时迁入 [quantity PG](../../internal/data/postgres/quantity_test.go)、[数量校验](../../internal/biz/gpu/quantity_test.go)和 [builder 向量](../../testdata/accelerator-quantity-plans.json)；上游 34c9fd9 基线本身没有这些新增文件，结果须对应具体源版本。
 
 生成、构建、测试、SQL 和集群工作沿既有 Fedora 独占环境及 owner/runtime 库权限；缺必需环境明确失败或 NOT_RUN。默认只跑改动相关目标，使用真实构造和业务行为；不运行推理全量或完整拉起服务来替代定向验证。文档修改只做引用/一致性检查，不自动触发软件重验。
 
 ### 正式模块交付与恢复
 
-模块仍为 `github.com/liangzai006/ani-inference-service`。旧 eb6 只在 fork，曾因 canonical 无写权限无法按该来源下载，用户因此延期；不要用长期 replace/go.work、伪版本或模块改名绕过。可通过 fork 向 canonical 提供方提 PR，由有权限 owner 处理实现及发布，之后正常 `GOWORK=off` 下载核对 `Origin.Hash`、checksum，再由 Gov 固定真实版本。本次文档 PR 不完成这些发布步骤，也不恢复延期实现。
+模块仍为 `github.com/liangzai006/ani-inference-service`。旧 eb6 只在 fork，曾因 canonical 无写权限无法按该来源下载，用户因此延期；不要用长期 replace/go.work、伪版本或模块改名绕过。通过 fork 提供评审差异，由有权限 owner 处理 canonical 实现及发布，之后正常 `GOWORK=off` 下载核对 `Origin.Hash`、checksum，再由 Gov 固定真实版本。本 PR 按新增授权纳入数量代码与必要定向验证，尚未完成 canonical 发布、Gov 消费或新规格/调度接入。
 
 提供方顺序是 ACC → 必要 Res 合同 / Inference 合同 → Gov；只升级实际消费的模块，Proto/生成与 `generate-api.sh` assert 同步。已有数据迁移保持不可变；新快照字段若需迁移，由 Inference 自己显式迁移并制定回退/前滚边界，不执行 Res 迁移或读取别人的业务表。
 
