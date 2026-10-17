@@ -219,11 +219,15 @@ Equivalent explicit YAML values use the same typed fields. No plaintext,
 There is no second managed listener; Governance uses the ordinary `19090`
 listener for queries, CPU lifecycle and GPU commands.
 
-The inbound Governance certificate's URI rule and the reverse refund client's
-DNS rule are separate contracts. Governance must register the exact issued
+The inbound Governance certificate's sole registered DNS SAN rule and the
+reverse refund client's DNS identity are separate contracts. Governance must register the exact issued
 Inference refund DNS SAN as fixed owner `ani-inference`; Inference cannot set
 the owner or tenant in a refund request. Production address/SAN/certificate
 issuance remains deployment input; isolated test identities do not enable it.
+
+For compute-preset and cluster-scheduling integration, see the
+[owner handoff](compute-spec-scheduling-handoff.md), which distinguishes the
+current upstream source, container acceptance and deferred quantity work.
 
 ## Reporting a persisted completion notice
 
