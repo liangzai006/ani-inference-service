@@ -172,11 +172,12 @@ func isLegacyGPUResourceName(name string) bool {
 // the gRPC layer stays independent of PostgreSQL and Kubernetes adapters.
 type InferenceServer struct {
 	inferencev1.UnimplementedInferenceServiceManagerServer
-	create  CreateUseCase
-	read    inferencebiz.ReadUseCase
-	command inferencebiz.CommandUseCase
-	update  inferencebiz.UpdateUseCase
-	refund  gpubiz.RefundReporter
+	create              CreateUseCase
+	read                inferencebiz.ReadUseCase
+	command             inferencebiz.CommandUseCase
+	update              inferencebiz.UpdateUseCase
+	refund              gpubiz.RefundReporter
+	managedGPUClusterID string
 	// nil retains the permissive isolated-test default. Production composition
 	// sets this explicitly to fail closed when managed GPU release wiring is absent.
 	managedGPUReady *bool
@@ -194,6 +195,26 @@ func (s *InferenceServer) SetManagedGPUReady(ready bool) {
 		return
 	}
 	s.managedGPUReady = &ready
+}
+
+// SetManagedGPUClusterID fences Governance-owned GPU commands to the
+// Kubernetes/ACC cluster selected by the process composition root.
+func (s *InferenceServer) SetManagedGPUClusterID(clusterID string) {
+	if s == nil {
+		return
+	}
+	s.managedGPUClusterID = strings.TrimSpace(clusterID)
+}
+
+func (s *InferenceServer) validateManagedGPUClusterID(clusterID string) error {
+	configured := strings.TrimSpace(s.managedGPUClusterID)
+	if configured == "" {
+		return status.Error(codes.FailedPrecondition, "managed GPU cluster identity is not configured")
+	}
+	if strings.TrimSpace(clusterID) != configured {
+		return status.Error(codes.InvalidArgument, "managed GPU cluster_id does not match process cluster")
+	}
+	return nil
 }
 
 func (s *InferenceServer) managedGPUConfigured() bool {
@@ -248,6 +269,11 @@ func (s *InferenceServer) UpdateInferenceService(ctx context.Context, req *infer
 		}
 		if !gpubiz.GovernanceIdentity(ctx) {
 			return nil, status.Error(codes.PermissionDenied, "managed GPU updates require Governance")
+		}
+		if req.GetContext() != nil && (req.GetClusterId() != "" || req.GetGpuExecution() != nil || req.GetGpuDisplay() != nil || req.GetResource().GetGpu() != nil) {
+			if err := s.validateManagedGPUClusterID(req.GetClusterId()); err != nil {
+				return nil, err
+			}
 		}
 		if err := inferencev1.ValidateCommandContext(req.GetContext()); err != nil {
 			return nil, status.Error(codes.InvalidArgument, err.Error())
@@ -586,7 +612,7 @@ func (s *InferenceServer) CreateInferenceService(ctx context.Context, req *infer
 	}
 	var managed *inferencebiz.ManagedGPUCommand
 	if normalized.GPU != nil {
-		managed, err = managedCreate(ctx, req)
+		managed, err = s.managedCreate(ctx, req)
 		if err != nil {
 			return nil, err
 		}

@@ -204,11 +204,60 @@ func TestManagedCreatePersistsACCExecutionDigest(t *testing.T) {
 	}
 	f := &fakeCreate{}
 	ctx := WithActor(WithTenantID(gpubiz.WithGovernanceIdentity(context.Background()), tenant.String()), "user:42")
-	if _, err := NewInferenceServer(f).CreateInferenceService(ctx, req); err != nil {
+	server := NewInferenceServer(f)
+	server.SetManagedGPUClusterID(cluster.String())
+	if _, err := server.CreateInferenceService(ctx, req); err != nil {
 		t.Fatal(err)
 	}
 	if f.in.GPUSnapshotDigest != execution.ExecutionDigest {
 		t.Fatalf("persisted GPU plan digest=%q, want ACC execution digest %q", f.in.GPUSnapshotDigest, execution.ExecutionDigest)
+	}
+}
+
+func TestManagedCreateRejectsClusterOutsideProcessFence(t *testing.T) {
+	const (
+		tenantID    = "10000000-0000-4000-8000-000000000001"
+		requestID   = "10000000-0000-4000-8000-000000000002"
+		operationID = "10000000-0000-4000-8000-000000000003"
+		clusterID   = "10000000-0000-4000-8000-000000000004"
+		processID   = "10000000-0000-4000-8000-000000000005"
+	)
+	req := &inferencev1.CreateInferenceServiceRequest{
+		RequestId: requestID, Name: "managed-cluster-fence", ModelVersionId: requestID, Replicas: 1,
+		Engine: validEngine(),
+		Resource: &inferencev1.ResourceSpec{Gpu: &inferencev1.GpuRequest{
+			ClusterId: clusterID, PoolId: requestID, ProfileId: operationID, ProfileVersion: 1,
+			Replicas: 1, DevicesPerReplica: 1, ContainerName: "kserve-container",
+		}},
+		Context:   &inferencev1.CommandContext{TenantId: tenantID, ResourceId: requestID, OperationId: operationID},
+		ClusterId: clusterID,
+	}
+	server := NewInferenceServer(&fakeCreate{})
+	server.SetManagedGPUClusterID(processID)
+	ctx := WithActor(WithTenantID(gpubiz.WithGovernanceIdentity(context.Background()), tenantID), "user:42")
+	if _, err := server.CreateInferenceService(ctx, req); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("code=%v err=%v, want InvalidArgument for cluster fence", status.Code(err), err)
+	}
+}
+
+func TestManagedUpdateRejectsClusterOutsideProcessFence(t *testing.T) {
+	const (
+		tenantID    = "10000000-0000-4000-8000-000000000001"
+		resourceID  = "10000000-0000-4000-8000-000000000002"
+		operationID = "10000000-0000-4000-8000-000000000003"
+		clusterID   = "10000000-0000-4000-8000-000000000004"
+		processID   = "10000000-0000-4000-8000-000000000005"
+	)
+	req := &inferencev1.UpdateInferenceServiceRequest{
+		RequestId: "cluster-fence-update", ResourceId: resourceID, ExpectedGeneration: 1,
+		Context:   &inferencev1.CommandContext{TenantId: tenantID, ResourceId: resourceID, OperationId: operationID},
+		ClusterId: clusterID,
+	}
+	server := NewInferenceServerWithAll(nil, nil, nil, &fakeUpdate{})
+	server.SetManagedGPUClusterID(processID)
+	ctx := WithActor(WithTenantID(gpubiz.WithGovernanceIdentity(context.Background()), tenantID), "user:42")
+	if _, err := server.UpdateInferenceService(ctx, req); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("code=%v err=%v, want InvalidArgument for cluster fence", status.Code(err), err)
 	}
 }
 
@@ -630,8 +679,10 @@ func TestManagedUpdateValidatesFrozenExecutionAndDigest(t *testing.T) {
 		t.Fatal(err)
 	}
 	f := &fakeUpdate{}
+	server := NewInferenceServerWithAll(nil, nil, nil, f)
+	server.SetManagedGPUClusterID(cluster.String())
 	ctx := WithActor(WithTenantID(gpubiz.WithGovernanceIdentity(context.Background()), tenant.String()), "user:42")
-	if _, err := NewInferenceServerWithAll(nil, nil, nil, f).UpdateInferenceService(ctx, req); err != nil {
+	if _, err := server.UpdateInferenceService(ctx, req); err != nil {
 		t.Fatal(err)
 	}
 	if f.in.GPUSnapshot == nil || f.in.GPUSnapshotDigest != execution.ExecutionDigest || f.in.ManagedGPUOperationID != operation.String() {
@@ -643,7 +694,9 @@ func TestManagedUpdateValidatesFrozenExecutionAndDigest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewInferenceServerWithAll(nil, nil, nil, &fakeUpdate{}).UpdateInferenceService(ctx, req); status.Code(err) != codes.InvalidArgument {
+	tamperedServer := NewInferenceServerWithAll(nil, nil, nil, &fakeUpdate{})
+	tamperedServer.SetManagedGPUClusterID(cluster.String())
+	if _, err := tamperedServer.UpdateInferenceService(ctx, req); status.Code(err) != codes.InvalidArgument {
 		t.Fatalf("malformed managed execution code=%v err=%v, want InvalidArgument", status.Code(err), err)
 	}
 }

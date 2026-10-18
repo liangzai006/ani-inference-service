@@ -31,7 +31,7 @@ func managedSnapshot(req *inferencev1.CreateInferenceServiceRequest) (*gpu.Snaps
 	return snapshot, nil
 }
 
-func managedCreate(ctx context.Context, req *inferencev1.CreateInferenceServiceRequest) (*inferencebiz.ManagedGPUCommand, error) {
+func (s *InferenceServer) managedCreate(ctx context.Context, req *inferencev1.CreateInferenceServiceRequest) (*inferencebiz.ManagedGPUCommand, error) {
 	if !gpu.GovernanceIdentity(ctx) {
 		return nil, status.Error(codes.PermissionDenied, "GPU commands require the authenticated Governance service")
 	}
@@ -42,6 +42,9 @@ func managedCreate(ctx context.Context, req *inferencev1.CreateInferenceServiceR
 	tenant, ok := TenantID(ctx)
 	if !ok || tenant != context.GetTenantId() {
 		return nil, status.Error(codes.PermissionDenied, "GPU command tenant does not match authenticated scope")
+	}
+	if err := s.validateManagedGPUClusterID(req.GetClusterId()); err != nil {
+		return nil, err
 	}
 	snapshot, err := managedSnapshot(req)
 	if err != nil {

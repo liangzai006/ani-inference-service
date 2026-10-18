@@ -139,7 +139,8 @@ func run(logger *slog.Logger) error {
 		background = servers
 		managedGPUReady = ready
 	}
-	app, err := buildAppWithAllDependenciesAndManagedGPU(&bc, logger, create, read, command, update, refund, managedGPUReady, background...)
+	managedGPUClusterID := strings.TrimSpace(os.Getenv("ANI_ACCELERATOR_CLUSTER_ID"))
+	app, err := buildAppWithAllDependenciesAndManagedGPU(&bc, logger, create, read, command, update, refund, managedGPUReady, managedGPUClusterID, background...)
 	if err != nil {
 		return fmt.Errorf("build app: %w", err)
 	}
