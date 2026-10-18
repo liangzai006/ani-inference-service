@@ -73,13 +73,18 @@ func ValidateBusinessPayload(req *CreateInferenceServiceRequest) error {
 			return fmt.Errorf("unsupported endpoint protocol")
 		}
 	}
+	if context := req.GetContext(); context != nil {
+		if err := ValidateCommandContext(context); err != nil {
+			return err
+		}
+	}
 	spec := req.GetResource()
 	gpu := spec.GetGpu()
 	if req.GetGpuExecution() != nil || req.GetGpuDisplay() != nil || req.GetClusterId() != "" {
 		if gpu == nil {
 			return fmt.Errorf("frozen GPU execution requires resource.gpu")
 		}
-		if err := ValidateFrozenGPU(req.GetClusterId(), req.GetGpuExecution(), req.GetGpuDisplay()); err != nil {
+		if err := ValidateFrozenGPU(req.GetClusterId(), req.GetGpuExecution(), req.GetGpuDisplay(), gpu); err != nil {
 			return err
 		}
 	}
@@ -107,7 +112,7 @@ func ValidateBusinessPayload(req *CreateInferenceServiceRequest) error {
 				return fmt.Errorf("invalid resource name %q", key)
 			}
 			lowered := strings.ToLower(key)
-			if gpu != nil && strings.Contains(key, "/") || gpu == nil && (strings.Contains(lowered, "gpu") || strings.Contains(lowered, "gaudi")) {
+			if strings.Contains(lowered, "gpu") || strings.Contains(lowered, "gaudi") {
 				return fmt.Errorf("GPU quantities must use resource.gpu")
 			}
 			parsed, err := resource.ParseQuantity(strings.TrimSpace(raw))
@@ -154,7 +159,7 @@ func ValidateCommandContext(context *CommandContext) error {
 
 // ValidateFrozenGPU validates the exact ACC execution snapshot. Inference
 // never reconstructs scheduler fields or resource quantities from a profile.
-func ValidateFrozenGPU(clusterID string, execution *acceleratorv1.GpuExecution, display *acceleratorv1.GpuDisplay) error {
+func ValidateFrozenGPU(clusterID string, execution *acceleratorv1.GpuExecution, display *acceleratorv1.GpuDisplay, resourceGPU ...*GpuRequest) error {
 	parsed, err := uuid.Parse(clusterID)
 	if err != nil || parsed == uuid.Nil || parsed.String() != clusterID {
 		return fmt.Errorf("cluster_id must be a canonical UUID")
@@ -162,8 +167,46 @@ func ValidateFrozenGPU(clusterID string, execution *acceleratorv1.GpuExecution, 
 	if display == nil {
 		return fmt.Errorf("gpu_display is required with frozen GPU execution")
 	}
+	if len(display.ProtoReflect().GetUnknown()) != 0 {
+		return fmt.Errorf("gpu_display contains unknown fields")
+	}
+	if len(resourceGPU) > 1 {
+		return fmt.Errorf("only one resource.gpu snapshot is allowed")
+	}
+	if len(resourceGPU) == 1 && resourceGPU[0] != nil {
+		gpu := resourceGPU[0]
+		if gpu.GetClusterId() != clusterID {
+			return fmt.Errorf("frozen GPU cluster_id must match resource.gpu.cluster_id")
+		}
+		if gpu.GetProfileId() != display.GetProfileId() || gpu.GetProfileVersion() != display.GetProfileVersion() {
+			return fmt.Errorf("GPU profile differs between resource.gpu and gpu_display")
+		}
+	}
+	profileID, err := uuid.Parse(display.GetProfileId())
+	if err != nil || profileID == uuid.Nil || profileID.String() != display.GetProfileId() {
+		return fmt.Errorf("gpu_display.profile_id must be a canonical UUID")
+	}
+	if display.GetProfileVersion() == 0 || strings.TrimSpace(display.GetProfileName()) == "" || strings.TrimSpace(display.GetModelKey()) == "" {
+		return fmt.Errorf("gpu_display profile_version, profile_name and model_key are required")
+	}
+	if display.GetMode() != acceleratorv1.SupplyMode_SHARED_FIXED && display.GetMode() != acceleratorv1.SupplyMode_WHOLE_EXCLUSIVE {
+		return fmt.Errorf("gpu_display.mode is required")
+	}
 	if err := gpuprotocol.ValidateGpuExecution(execution); err != nil {
 		return fmt.Errorf("gpu_execution: %w", err)
+	}
+	if execution.GetNodeSelector()["accelerator.ani.io/model-key"] != display.GetModelKey() {
+		return fmt.Errorf("gpu_display.model_key differs from gpu_execution selector")
+	}
+	switch display.GetMode() {
+	case acceleratorv1.SupplyMode_SHARED_FIXED:
+		if execution.GetResources()["volcano.sh/vgpu-number"] != "1" || execution.GetResources()["volcano.sh/vgpu-cores"] == "100" {
+			return fmt.Errorf("shared GPU display differs from gpu_execution resources")
+		}
+	case acceleratorv1.SupplyMode_WHOLE_EXCLUSIVE:
+		if execution.GetResources()["volcano.sh/vgpu-cores"] != "100" {
+			return fmt.Errorf("whole GPU display differs from gpu_execution resources")
+		}
 	}
 	return nil
 }

@@ -53,7 +53,7 @@ func TestBusinessCanonicalFixedVectorAndRoundtrip(t *testing.T) {
 
 func TestFrozenGPUValidationRejectsDigestAndClusterMismatches(t *testing.T) {
 	const id = "11111111-1111-4111-8111-111111111111"
-	execution := &acceleratorv1.GpuExecution{SchedulerName: "volcano", QueueName: "default", RuntimeClassName: "nvidia", NodeSelector: map[string]string{"accelerator.ani.io/supply-group": "group", "accelerator.ani.io/model-key": "t4", "accelerator.ani.io/baseline-id": "baseline"}, PodAnnotations: map[string]string{"volcano.sh/vgpu-mode": "hami-core"}, Resources: map[string]string{"volcano.sh/vgpu-number": "1", "volcano.sh/vgpu-memory": "8192", "volcano.sh/vgpu-cores": "100"}}
+	execution := &acceleratorv1.GpuExecution{SchedulerName: "volcano", QueueName: "default", RuntimeClassName: "nvidia", NodeSelector: map[string]string{"accelerator.ani.io/supply-group": "group", "accelerator.ani.io/model-key": "t4", "accelerator.ani.io/baseline-id": "baseline"}, PodAnnotations: map[string]string{"volcano.sh/vgpu-mode": "hami-core"}, Resources: map[string]string{"volcano.sh/vgpu-number": "1", "volcano.sh/vgpu-memory": "8192", "volcano.sh/vgpu-cores": "50"}}
 	digest, err := gpuprotocol.GpuExecutionDigest(execution)
 	if err != nil {
 		t.Fatal(err)
@@ -77,6 +77,33 @@ func TestFrozenGPUValidationRejectsDigestAndClusterMismatches(t *testing.T) {
 	}
 }
 
+func TestFrozenGPUValidationRequiresDisplayExecutionConsistency(t *testing.T) {
+	const id = "11111111-1111-4111-8111-111111111111"
+	execution := validGPUExecution(t)
+	display := &acceleratorv1.GpuDisplay{ProfileId: id, ProfileVersion: 1, ProfileName: "t4", ModelKey: "t4", Mode: acceleratorv1.SupplyMode_SHARED_FIXED}
+	if err := ValidateFrozenGPU(id, execution, display, &GpuRequest{ClusterId: "22222222-2222-4222-8222-222222222222", ProfileId: id, ProfileVersion: 1}); err == nil {
+		t.Fatal("resource GPU cluster mismatch accepted")
+	}
+	display.ModelKey = "a100"
+	if err := ValidateFrozenGPU(id, execution, display); err == nil {
+		t.Fatal("display model key mismatch accepted")
+	}
+	display.ModelKey = "t4"
+	execution.Resources["volcano.sh/vgpu-cores"] = "100"
+	digest, err := gpuprotocol.GpuExecutionDigest(execution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	execution.ExecutionDigest = digest
+	if err := ValidateFrozenGPU(id, execution, display); err == nil {
+		t.Fatal("shared display with whole-device execution accepted")
+	}
+	display.Mode = acceleratorv1.SupplyMode_WHOLE_EXCLUSIVE
+	if err := ValidateFrozenGPU(id, execution, display); err != nil {
+		t.Fatalf("whole display with whole-device execution rejected: %v", err)
+	}
+}
+
 func TestCommandContextValidationRequiresCanonicalIdentityAndDigest(t *testing.T) {
 	context := &CommandContext{TenantId: "11111111-1111-4111-8111-111111111111", ResourceId: "22222222-2222-4222-8222-222222222222", OperationId: "33333333-3333-4333-8333-333333333333", RequestDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
 	if err := ValidateCommandContext(context); err != nil {
@@ -86,6 +113,60 @@ func TestCommandContextValidationRequiresCanonicalIdentityAndDigest(t *testing.T
 	if err := ValidateCommandContext(context); err == nil {
 		t.Fatal("noncanonical request digest accepted")
 	}
+}
+
+func TestBusinessValidationChecksOptionalCommandContext(t *testing.T) {
+	req := validBusinessRequest()
+	if err := ValidateBusinessPayload(req); err != nil {
+		t.Fatalf("direct request without command context rejected: %v", err)
+	}
+	req.Context = &CommandContext{TenantId: "bad", ResourceId: "22222222-2222-4222-8222-222222222222", OperationId: "33333333-3333-4333-8333-333333333333", RequestDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+	if err := ValidateBusinessPayload(req); err == nil {
+		t.Fatal("invalid command context accepted when explicitly supplied")
+	}
+}
+
+func TestBusinessValidationAllowsNonGPUExtendedResourceWithGPUSelection(t *testing.T) {
+	const id = "11111111-1111-4111-8111-111111111111"
+	req := validBusinessRequest()
+	req.Resource = &ResourceSpec{
+		Requests: map[string]string{"example.com/fpga": "1"},
+		Limits:   map[string]string{"example.com/fpga": "1"},
+		Gpu:      &GpuRequest{ClusterId: id, PoolId: id, ProfileId: id, ProfileVersion: 1, Replicas: 1, DevicesPerReplica: 1, ContainerName: "kserve-container"},
+	}
+	if err := ValidateBusinessPayload(req); err != nil {
+		t.Fatalf("ordinary extended resource rejected: %v", err)
+	}
+}
+
+func TestBusinessValidationFencesFrozenGPUToResourceCluster(t *testing.T) {
+	const id = "11111111-1111-4111-8111-111111111111"
+	req := validBusinessRequest()
+	req.ClusterId = id
+	req.Resource = &ResourceSpec{Gpu: &GpuRequest{ClusterId: "22222222-2222-4222-8222-222222222222", PoolId: id, ProfileId: id, ProfileVersion: 1, Replicas: 1, DevicesPerReplica: 1, ContainerName: "kserve-container"}}
+	req.GpuExecution = validGPUExecution(t)
+	req.GpuDisplay = &acceleratorv1.GpuDisplay{ProfileId: id, ProfileVersion: 1, ProfileName: "t4", ModelKey: "t4", Mode: acceleratorv1.SupplyMode_SHARED_FIXED}
+	if err := ValidateBusinessPayload(req); err == nil {
+		t.Fatal("frozen GPU with mismatched resource cluster accepted")
+	}
+}
+
+func validBusinessRequest() *CreateInferenceServiceRequest {
+	return &CreateInferenceServiceRequest{
+		Name: "valid", ModelVersionId: "11111111-1111-4111-8111-111111111111", Replicas: 1,
+		Engine: &EngineSpec{Type: "vllm", Image: "engine:v1", Command: "serve"}, Resource: &ResourceSpec{},
+	}
+}
+
+func validGPUExecution(t *testing.T) *acceleratorv1.GpuExecution {
+	t.Helper()
+	e := &acceleratorv1.GpuExecution{SchedulerName: "volcano", QueueName: "default", RuntimeClassName: "nvidia", NodeSelector: map[string]string{"accelerator.ani.io/supply-group": "group", "accelerator.ani.io/model-key": "t4", "accelerator.ani.io/baseline-id": "baseline"}, PodAnnotations: map[string]string{"volcano.sh/vgpu-mode": "hami-core"}, Resources: map[string]string{"volcano.sh/vgpu-number": "1", "volcano.sh/vgpu-memory": "8192", "volcano.sh/vgpu-cores": "50"}}
+	digest, err := gpuprotocol.GpuExecutionDigest(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.ExecutionDigest = digest
+	return e
 }
 
 func TestBusinessRejectsUnknownAndNoncanonicalPayload(t *testing.T) {
