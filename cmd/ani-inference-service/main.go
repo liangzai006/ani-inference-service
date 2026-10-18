@@ -86,6 +86,7 @@ func run(logger *slog.Logger) error {
 	var command inferencebiz.CommandUseCase
 	var update inferencebiz.UpdateUseCase
 	var refund gpu.RefundReporter
+	managedGPUReady := false
 	if strings.TrimSpace(os.Getenv("ANI_DATABASE_DSN")) == "" {
 		return errors.New("ANI_DATABASE_DSN is required")
 	}
@@ -131,13 +132,14 @@ func run(logger *slog.Logger) error {
 		if modelClient != nil {
 			update = modeldata.NewUpdateUseCase(modelClient, update)
 		}
-		servers, err := configureKubernetesRuntime(pool, modelClient, refund)
+		servers, ready, err := configureKubernetesRuntime(pool, modelClient, refund)
 		if err != nil {
 			return err
 		}
 		background = servers
+		managedGPUReady = ready
 	}
-	app, err := buildAppWithAllDependenciesAndManagedGPU(&bc, logger, create, read, command, update, refund, background...)
+	app, err := buildAppWithAllDependenciesAndManagedGPU(&bc, logger, create, read, command, update, refund, managedGPUReady, background...)
 	if err != nil {
 		return fmt.Errorf("build app: %w", err)
 	}
@@ -147,29 +149,29 @@ func run(logger *slog.Logger) error {
 	return nil
 }
 
-func configureKubernetesRuntime(pool *pgxpool.Pool, modelClient *modeldata.Client, reporters ...gpu.RefundReporter) ([]kratosTransport.Server, error) {
+func configureKubernetesRuntime(pool *pgxpool.Pool, modelClient *modeldata.Client, reporters ...gpu.RefundReporter) ([]kratosTransport.Server, bool, error) {
 	return buildKubernetesServers(pool, modelClient, reporters...)
 }
 
-func buildKubernetesServers(pool *pgxpool.Pool, modelClient *modeldata.Client, reporters ...gpu.RefundReporter) ([]kratosTransport.Server, error) {
+func buildKubernetesServers(pool *pgxpool.Pool, modelClient *modeldata.Client, reporters ...gpu.RefundReporter) ([]kratosTransport.Server, bool, error) {
 	namespace := os.Getenv("ANI_INFERENCE_NAMESPACE")
 	if namespace == "" {
-		return nil, errors.New("ANI_INFERENCE_NAMESPACE is required for Kubernetes runtime")
+		return nil, false, errors.New("ANI_INFERENCE_NAMESPACE is required for Kubernetes runtime")
 	}
 	publicBaseURL, err := requiredEnv("ANI_HIGRESS_PUBLIC_BASE_URL")
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	config, err := inferenceRESTConfig()
 	if err != nil {
-		return nil, fmt.Errorf("load Kubernetes config: %w", err)
+		return nil, false, fmt.Errorf("load Kubernetes config: %w", err)
 	}
 	if modelClient == nil {
-		return nil, errors.New("ANI_MODEL_GRPC_ADDR is required for Kubernetes runtime")
+		return nil, false, errors.New("ANI_MODEL_GRPC_ADDR is required for Kubernetes runtime")
 	}
 	materializerSettings, err := configuredModelMaterializerSettings()
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	workStore := postgres.NewWorkStore(pool, postgres.WorkStoreOptions{})
 	reconcileStore := postgres.NewReconcileStore(pool)
@@ -189,7 +191,7 @@ func buildKubernetesServers(pool *pgxpool.Pool, modelClient *modeldata.Client, r
 	controller := &kubernetes.Controller{Work: workStore}
 	mgr, err := kubernetes.NewManager(config, controller, ctrlmanager.Options{Cache: ctrlcache.Options{DefaultNamespaces: map[string]ctrlcache.Config{namespace: {}}}})
 	if err != nil {
-		return nil, fmt.Errorf("build Kubernetes manager: %w", err)
+		return nil, false, fmt.Errorf("build Kubernetes manager: %w", err)
 	}
 	runtimeExecutor.Client = mgr.GetClient()
 	runtimeExecutor.APIReader = mgr.GetAPIReader()
@@ -224,7 +226,7 @@ func buildKubernetesServers(pool *pgxpool.Pool, modelClient *modeldata.Client, r
 	operationStore := postgres.NewOperationStore(pool)
 	gpuResolver, err := configuredGPUResolver()
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	var managedGPURelease inferencebiz.ManagedGPUReleasePort
 	if len(reporters) > 0 && reporters[0] != nil {
@@ -246,7 +248,7 @@ func buildKubernetesServers(pool *pgxpool.Pool, modelClient *modeldata.Client, r
 		return (&durableExecutor{Operations: operationRunner, Store: operationStore, Observation: domain}).Execute(ctx, item)
 	}, 5*time.Second, nil)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	loopServer.WaitReady = func(ctx context.Context) error {
 		if !mgr.GetCache().WaitForCacheSync(ctx) {
@@ -262,9 +264,10 @@ func buildKubernetesServers(pool *pgxpool.Pool, modelClient *modeldata.Client, r
 			operationRunner.Model != nil &&
 			operationRunner.Publication != nil &&
 			operationRunner.Runtime != nil &&
-			(operationRunner.Audit != nil || operationStoreSupportsAtomicAudit(operationRunner.Store))
+			(operationRunner.Audit != nil || operationStoreSupportsAtomicAudit(operationRunner.Store)) &&
+			managedGPURelease != nil
 	}
-	return []kratosTransport.Server{loopServer, &server.ManagerServer{Manager: mgr}}, nil
+	return []kratosTransport.Server{loopServer, &server.ManagerServer{Manager: mgr}}, managedGPURelease != nil, nil
 }
 
 // configuredGPUResolver is optional. An omitted endpoint leaves CPU-only

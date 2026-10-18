@@ -10,7 +10,7 @@ import (
 func TestKubernetesRuntimeConfigurationIsMandatory(t *testing.T) {
 	t.Setenv("ANI_INFERENCE_NAMESPACE", "")
 
-	_, err := configureKubernetesRuntime(nil, nil)
+	_, _, err := configureKubernetesRuntime(nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "ANI_INFERENCE_NAMESPACE") {
 		t.Fatalf("configureKubernetesRuntime() error = %v, want missing namespace", err)
 	}

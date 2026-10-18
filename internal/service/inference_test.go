@@ -154,6 +154,23 @@ func TestCreateRejectsNestedGpuRequestWithoutGovernanceAttachment(t *testing.T) 
 	}
 }
 
+func TestManagedGPUReadinessGateFailsClosedForCommands(t *testing.T) {
+	const id = "10000000-0000-4000-8000-000000000001"
+	create := &inferencev1.CreateInferenceServiceRequest{RequestId: "gpu-gate", Name: "gpu-gate", ModelVersionId: "10000000-0000-4000-8000-000000000002", Replicas: 1, Engine: validEngine(), Resource: &inferencev1.ResourceSpec{Gpu: &inferencev1.GpuRequest{ClusterId: id, PoolId: id, ProfileId: id, ProfileVersion: 1, Replicas: 1, DevicesPerReplica: 1, ContainerName: "kserve-container"}}, Context: &inferencev1.CommandContext{TenantId: id, ResourceId: id, OperationId: "10000000-0000-4000-8000-000000000003"}}
+	server := NewInferenceServer(&fakeCreate{})
+	server.SetManagedGPUReady(false)
+	if _, err := server.CreateInferenceService(WithTenantID(context.Background(), id), create); status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("create gate code=%v err=%v, want FailedPrecondition", status.Code(err), err)
+	}
+	update := &inferencev1.UpdateInferenceServiceRequest{RequestId: "update-gate", ResourceId: id, ExpectedGeneration: 1, Context: &inferencev1.CommandContext{TenantId: id, ResourceId: id, OperationId: "10000000-0000-4000-8000-000000000004"}}
+	if _, err := server.UpdateInferenceService(WithTenantID(context.Background(), id), update); status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("update gate code=%v err=%v, want FailedPrecondition", status.Code(err), err)
+	}
+	if _, err := server.DeleteInferenceService(context.Background(), &inferencev1.DeleteInferenceServiceRequest{ResourceId: id, Context: &inferencev1.CommandContext{}}); status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("delete gate code=%v err=%v, want FailedPrecondition", status.Code(err), err)
+	}
+}
+
 func TestManagedCreatePersistsACCExecutionDigest(t *testing.T) {
 	tenant, resource, operation := uuid.New(), uuid.New(), uuid.New()
 	cluster, pool, profile := uuid.New(), uuid.New(), uuid.New()

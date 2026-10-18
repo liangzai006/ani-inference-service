@@ -6,6 +6,11 @@ The three-party API authority remains Accelerator's
 `docs/contracts/accelerator-consumer-contract.md` and Governance's
 `docs/contracts/gpu-owner-integration-guide.md`.
 
+> **Archive notice:** `managed-gpu-owner-examples.json` is retained as a
+> historical pre-`gpu-execution-v1` snapshot. Its old attachment and charge
+> fields are not a current wire contract; current managed records freeze ACC
+> execution/display data and release evidence uses the four-field Pod identity.
+
 ## Trusted command acceptance
 
 Governance sends the existing `CreateInferenceService` business message with

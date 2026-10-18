@@ -177,6 +177,9 @@ type InferenceServer struct {
 	command inferencebiz.CommandUseCase
 	update  inferencebiz.UpdateUseCase
 	refund  gpubiz.RefundReporter
+	// nil retains the permissive isolated-test default. Production composition
+	// sets this explicitly to fail closed when managed GPU release wiring is absent.
+	managedGPUReady *bool
 }
 
 // SetManagedGPURefundReporter wires the completion reporter into the real
@@ -184,6 +187,17 @@ type InferenceServer struct {
 // notification; no public RPC or normal lifecycle step calls this method.
 func (s *InferenceServer) SetManagedGPURefundReporter(reporter gpubiz.RefundReporter) {
 	s.refund = reporter
+}
+
+func (s *InferenceServer) SetManagedGPUReady(ready bool) {
+	if s == nil {
+		return
+	}
+	s.managedGPUReady = &ready
+}
+
+func (s *InferenceServer) managedGPUConfigured() bool {
+	return s == nil || s.managedGPUReady == nil || *s.managedGPUReady
 }
 func (s *InferenceServer) ReportManagedGPUCompletion(ctx context.Context, notification gpubiz.ReleaseNotification) (gpubiz.ReleaseReceipt, error) {
 	if s == nil || s.refund == nil {
@@ -229,6 +243,9 @@ func (s *InferenceServer) UpdateInferenceService(ctx context.Context, req *infer
 	managedUpdate := req.GetContext() != nil || req.GetResource().GetGpu() != nil || req.GetClusterId() != "" || req.GetGpuExecution() != nil || req.GetGpuDisplay() != nil
 	var managedSnapshot *gpubiz.Snapshot
 	if managedUpdate {
+		if req.GetContext() != nil && !s.managedGPUConfigured() {
+			return nil, status.Error(codes.FailedPrecondition, "managed GPU dependencies are not ready")
+		}
 		if !gpubiz.GovernanceIdentity(ctx) {
 			return nil, status.Error(codes.PermissionDenied, "managed GPU updates require Governance")
 		}
@@ -566,6 +583,9 @@ func (s *InferenceServer) CreateInferenceService(ctx context.Context, req *infer
 	}
 	var managed *inferencebiz.ManagedGPUCommand
 	if normalized.GPU != nil {
+		if req.GetContext() != nil && !s.managedGPUConfigured() {
+			return nil, status.Error(codes.FailedPrecondition, "managed GPU dependencies are not ready")
+		}
 		managed, err = managedCreate(ctx, req)
 		if err != nil {
 			return nil, err

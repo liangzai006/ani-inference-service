@@ -21,10 +21,10 @@ import (
 )
 
 func buildAppWithAllDependenciesAndBackground(bc *inferencev1.Bootstrap, logger *slog.Logger, create service.CreateUseCase, read inferencebiz.ReadUseCase, command inferencebiz.CommandUseCase, update inferencebiz.UpdateUseCase, background ...kratosTransport.Server) (*kratos.App, error) {
-	return buildAppWithAllDependenciesAndManagedGPU(bc, logger, create, read, command, update, nil, background...)
+	return buildAppWithAllDependenciesAndManagedGPU(bc, logger, create, read, command, update, nil, false, background...)
 }
 
-func buildAppWithAllDependenciesAndManagedGPU(bc *inferencev1.Bootstrap, logger *slog.Logger, create service.CreateUseCase, read inferencebiz.ReadUseCase, command inferencebiz.CommandUseCase, update inferencebiz.UpdateUseCase, refund gpu.RefundReporter, background ...kratosTransport.Server) (*kratos.App, error) {
+func buildAppWithAllDependenciesAndManagedGPU(bc *inferencev1.Bootstrap, logger *slog.Logger, create service.CreateUseCase, read inferencebiz.ReadUseCase, command inferencebiz.CommandUseCase, update inferencebiz.UpdateUseCase, refund gpu.RefundReporter, managedGPUReady bool, background ...kratosTransport.Server) (*kratos.App, error) {
 	if err := bc.Validate(); err != nil {
 		return nil, err
 	}
@@ -56,6 +56,7 @@ func buildAppWithAllDependenciesAndManagedGPU(bc *inferencev1.Bootstrap, logger 
 	}
 	owner := service.NewInferenceServerWithAll(create, read, command, update)
 	owner.SetManagedGPURefundReporter(refund)
+	owner.SetManagedGPUReady(managedGPUReady)
 	grpcServer, err := configuredInferenceGRPCServer(bc.Server.Grpc, middlewares...)
 	if err != nil {
 		_ = observability.Shutdown(context.Background())

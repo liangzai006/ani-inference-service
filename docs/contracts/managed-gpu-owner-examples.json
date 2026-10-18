@@ -1,5 +1,6 @@
 {
-  "scope": "actual joint software-only command snapshots; model/workload execution held",
+  "scope": "HISTORICAL ARCHIVE: pre-execution/display-v1 software-only snapshots; do not use as a current wire contract",
+  "contract_status": "archived-example-pre-execution-display-v1",
   "commands": [
     {
       "kind": "create",

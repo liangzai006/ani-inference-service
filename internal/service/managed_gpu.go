@@ -107,6 +107,9 @@ func (s *InferenceServer) DeleteInferenceService(ctx context.Context, req *infer
 	if req.GetContext() == nil {
 		return s.acceptCommand(ctx, "delete", &inferencev1.ServiceCommandRequest{RequestId: req.GetRequestId(), ResourceId: req.GetResourceId(), ExpectedGeneration: req.GetExpectedGeneration()})
 	}
+	if !s.managedGPUConfigured() {
+		return nil, status.Error(codes.FailedPrecondition, "managed GPU dependencies are not ready")
+	}
 	if err := inferencev1.ValidateCommandContext(req.GetContext()); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
