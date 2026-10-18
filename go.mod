@@ -3,10 +3,10 @@ module github.com/liangzai006/ani-inference-service
 go 1.26.9
 
 require (
-	github.com/liangzai006/ani-inference-service/api v0.0.0
 	github.com/go-kratos/kratos/contrib/otel/v3 v3.0.0-20260515082355-1ddb58e407c5
 	github.com/go-kratos/kratos/v3 v3.0.0
 	github.com/jackc/pgx/v5 v5.11.0
+	github.com/liangzai006/ani-inference-service/api v0.0.0
 	github.com/prometheus/client_golang v1.24.1
 	github.com/zhangzhe-ctrl/ani-accelerator-service v0.0.0-20261018033121-4f084c9f5f25
 	go.opentelemetry.io/otel v1.45.0
@@ -74,7 +74,7 @@ require (
 	github.com/prometheus/otlptranslator v1.0.0 // indirect
 	github.com/prometheus/procfs v0.21.1 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
-	github.com/zhangzhe-ctrl/ani-governance/api/quota v0.0.0-20261009133356-1ab461604c74
+	github.com/zhangzhe-ctrl/ani-governance/api/quota v0.0.0-20261017184327-1c605c793b88
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel/trace v1.45.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.4 // indirect

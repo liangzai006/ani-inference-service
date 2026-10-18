@@ -126,7 +126,7 @@ func Dial(ctx context.Context, cfg Config) (*Client, func() error, error) {
 // makes the adapter safe to keep in a composition root when a service is CPU
 // only. A non-nil request with no catalog is an error and is never downgraded
 // to CPU placement.
-func (c *Client) Resolve(ctx context.Context, input gpu.ResolveInput) (*gpu.Plan, error) {
+func (c *Client) Resolve(ctx context.Context, input gpu.ResolveInput) (*gpu.Snapshot, error) {
 	if input.Request == nil {
 		return nil, nil
 	}
@@ -169,12 +169,9 @@ func (c *Client) Resolve(ctx context.Context, input gpu.ResolveInput) (*gpu.Plan
 	if err != nil {
 		return nil, err
 	}
-	plan, err := fromProtoPlan(response)
+	plan, err := fromProtoSnapshot(response, input.Request)
 	if err != nil {
 		return nil, err
-	}
-	if err := gpu.ValidatePlan(plan, input.Request); err != nil {
-		return nil, fmt.Errorf("validate resolved GPU plan: %w", err)
 	}
 	return plan, nil
 }
@@ -218,7 +215,8 @@ func (c *Client) ObserveRelease(ctx context.Context, input gpu.ReleaseObservatio
 			ResourceId: input.ResourceID, CreateOperationId: input.CreateOperationID,
 		},
 		DeleteOperationId: input.DeleteOperationID,
-		Pods:              pods,
+		ClusterId:         input.ClusterID, SealedAt: input.SealedAt,
+		Pods: pods,
 	})
 	if err != nil {
 		return gpu.ReleaseObservation{}, err

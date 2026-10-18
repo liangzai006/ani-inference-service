@@ -10,8 +10,6 @@ import (
 	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
 	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
 	"github.com/liangzai006/ani-inference-service/internal/service"
-	integrationv1 "github.com/zhangzhe-ctrl/ani-accelerator-service/api/gen/go/accelerator/integration/v1"
-	acceleratorv1 "github.com/zhangzhe-ctrl/ani-accelerator-service/api/gen/go/accelerator/v1"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
@@ -70,42 +68,32 @@ func TestTrustedTenantMiddlewareBindsGovernanceMetadata(t *testing.T) {
 
 func TestTrustedTenantMiddlewareMarksGPUCommandsOnTheOrdinaryListener(t *testing.T) {
 	const tenant = "10000000-0000-4000-8000-000000000001"
-	request := &inferencev1.CreateInferenceServiceRequest{
-		Resource: &inferencev1.ResourceSpec{Gpu: &inferencev1.GpuRequest{}},
-		GpuOwnerAttachment: &integrationv1.GpuOwnerCreateAttachment{
-			Ref: &acceleratorv1.GpuUsageRef{TenantId: tenant},
-		},
-	}
+	request := &inferencev1.CreateInferenceServiceRequest{Resource: &inferencev1.ResourceSpec{Gpu: &inferencev1.GpuRequest{}}, Context: &inferencev1.CommandContext{TenantId: tenant, ResourceId: "10000000-0000-4000-8000-000000000002", OperationId: "10000000-0000-4000-8000-000000000003", RequestDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}
 	ctx := governancePeerContext(tls.VersionTLS13, "ani-governance", true)
 	ctx = metadata.NewIncomingContext(ctx, metadata.Pairs("x-ani-tenant-id", tenant, "x-ani-actor", "governance:user:7"))
-	var marked bool
+	marked := false
 	handler := trustedTenantMiddleware()(func(ctx context.Context, _ interface{}) (interface{}, error) {
 		marked = gpu.GovernanceIdentity(ctx)
 		return nil, nil
 	})
 	if _, err := handler(ctx, request); err != nil {
-		t.Fatalf("GPU command rejected on ordinary listener: %v", err)
+		t.Fatal(err)
 	}
 	if !marked {
-		t.Fatal("GPU command did not receive Governance identity on ordinary listener")
+		t.Fatal("GPU command was not marked")
 	}
 }
 
-func TestTrustedTenantMiddlewareRejectsGPUAttachmentTenantMismatch(t *testing.T) {
-	request := &inferencev1.CreateInferenceServiceRequest{
-		Resource: &inferencev1.ResourceSpec{Gpu: &inferencev1.GpuRequest{}},
-		GpuOwnerAttachment: &integrationv1.GpuOwnerCreateAttachment{
-			Ref: &acceleratorv1.GpuUsageRef{TenantId: "10000000-0000-4000-8000-000000000001"},
-		},
-	}
+func TestTrustedTenantMiddlewareRejectsGPUContextTenantMismatch(t *testing.T) {
+	request := &inferencev1.CreateInferenceServiceRequest{Resource: &inferencev1.ResourceSpec{Gpu: &inferencev1.GpuRequest{}}, Context: &inferencev1.CommandContext{TenantId: "10000000-0000-4000-8000-000000000001", ResourceId: "10000000-0000-4000-8000-000000000002", OperationId: "10000000-0000-4000-8000-000000000003", RequestDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}
 	ctx := governancePeerContext(tls.VersionTLS13, "ani-governance", true)
-	ctx = metadata.NewIncomingContext(ctx, metadata.Pairs("x-ani-tenant-id", "10000000-0000-4000-8000-000000000002", "x-ani-actor", "governance:user:7"))
+	ctx = metadata.NewIncomingContext(ctx, metadata.Pairs("x-ani-tenant-id", "10000000-0000-4000-8000-000000000004", "x-ani-actor", "governance:user:7"))
 	handler := trustedTenantMiddleware()(func(context.Context, interface{}) (interface{}, error) {
-		t.Fatal("mismatched GPU attachment reached handler")
+		t.Fatal("mismatched context reached handler")
 		return nil, nil
 	})
 	if _, err := handler(ctx, request); status.Code(err) != 7 {
-		t.Fatalf("code=%v err=%v want PermissionDenied", status.Code(err), err)
+		t.Fatalf("code=%v err=%v", status.Code(err), err)
 	}
 }
 

@@ -9,7 +9,7 @@ import (
 	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
 	gpubiz "github.com/liangzai006/ani-inference-service/internal/biz/gpu"
 	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
-	integrationv1 "github.com/zhangzhe-ctrl/ani-accelerator-service/api/gen/go/accelerator/integration/v1"
+	commandv1 "github.com/zhangzhe-ctrl/ani-accelerator-service/api/gen/go/accelerator/command/v1"
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
@@ -43,16 +43,16 @@ func (u *CreateUseCase) Create(ctx context.Context, in inferencebiz.CreateInput)
 	if err != nil {
 		return nil, err
 	}
-	gpuPlanJSON, err := json.Marshal(in.GPUPlan)
-	if in.GPUPlan == nil {
+	gpuPlanJSON, err := json.Marshal(in.GPUSnapshot)
+	if in.GPUSnapshot == nil {
 		gpuPlanJSON = nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	gpuPlanDigest := in.GPUPlanDigest
-	if gpuPlanDigest == "" && in.GPUPlan != nil {
-		gpuPlanDigest = in.GPUPlan.ResolutionDigest
+	gpuSnapshotDigest := in.GPUSnapshotDigest
+	if gpuSnapshotDigest == "" && in.GPUSnapshot != nil {
+		gpuSnapshotDigest = in.GPUSnapshot.ExecutionDigest
 	}
 	engineJSON, err := marshalEngineSpec(in.EngineCommand)
 	if err != nil {
@@ -87,8 +87,8 @@ func (u *CreateUseCase) Create(ctx context.Context, in inferencebiz.CreateInput)
 		ImageRef: in.ImageRef, ServedModelName: in.ServedModelName, EngineRuntime: in.EngineRuntime, EngineJSON: engineJSON,
 		Replicas: in.Replicas, RequestHash: in.RequestHash, Method: "CreateInferenceService",
 		RuntimeMode: in.RuntimeMode, WorkerReplicas: in.WorkerReplicas, RuntimeProvider: in.RuntimeProvider,
-		GPURequest: gpuRequestJSON,
-		GPUPlan:    gpuPlanJSON, GPUPlanDigest: gpuPlanDigest,
+		GPURequest:  gpuRequestJSON,
+		GPUSnapshot: gpuPlanJSON, GPUSnapshotDigest: gpuSnapshotDigest,
 		SpecJSON:   specJSON,
 		ManagedGPU: in.ManagedGPU, ResponseSnapshot: responseSnapshot,
 		EndpointEnabled:       in.Endpoint != nil,
@@ -123,7 +123,7 @@ func createResponse(in inferencebiz.CreateInput, result CreateAggregateResult) *
 		Operation: &inferencev1.Operation{Id: result.OperationID, ServiceId: result.ServiceID, Kind: "create", Phase: "pending", Step: "admission", TargetGeneration: 1},
 	}
 	if in.ManagedGPU != nil {
-		out.DurableOwnerAck = &integrationv1.DurableOwnerAck{OperationId: result.OperationID, ResourceId: result.ServiceID, Accepted: true}
+		out.DurableOwnerAck = &commandv1.DurableOwnerAck{OperationId: result.OperationID, ResourceId: result.ServiceID, Accepted: true}
 	}
 	return out
 }

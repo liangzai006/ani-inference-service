@@ -21,24 +21,11 @@ import (
 	lwsv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 )
 
-func testGPUPlan(t *testing.T, container string) (*gpu.Request, *gpu.Plan) {
+func testGPUPlan(t *testing.T, container string) (*gpu.Request, *gpu.Snapshot) {
 	t.Helper()
-	request := &gpu.Request{
-		ClusterID: "11111111-1111-4111-8111-111111111111", PoolID: "22222222-2222-4222-8222-222222222222",
-		ProfileID: "33333333-3333-4333-8333-333333333333", ProfileVersion: 1,
-		Replicas: 1, DevicesPerReplica: 1, ContainerName: container,
-	}
-	plan := &gpu.Plan{SchemaVersion: 1, Request: request, Profile: &gpu.Profile{}, Runtime: &gpu.RuntimeFragment{
-		SchedulerName: "volcano", QueueName: "inference", NodeLabels: []gpu.KeyValue{{Key: "accelerator.ani.io/baseline-id", Value: "baseline-a"}},
-		PodAnnotations:     []gpu.KeyValue{{Key: "volcano.sh/vgpu-mode", Value: "hami-core"}},
-		LimitsPerContainer: []gpu.KeyValue{{Key: "volcano.sh/vgpu-number", Value: "1"}}, RuntimeClassName: "gpu-runtime", RecipeVersion: "r1",
-	}}
-	digest, err := gpu.PlanDigest(plan)
-	if err != nil {
-		t.Fatalf("GPU plan digest: %v", err)
-	}
-	plan.ResolutionDigest = digest
-	return request, plan
+	request := &gpu.Request{ClusterID: "11111111-1111-4111-8111-111111111111", PoolID: "22222222-2222-4222-8222-222222222222", ProfileID: "33333333-3333-4333-8333-333333333333", ProfileVersion: 1, Replicas: 1, DevicesPerReplica: 1, ContainerName: container}
+	snapshot := &gpu.Snapshot{Request: request, Execution: &gpu.Execution{SchedulerName: "volcano", QueueName: "inference", NodeSelector: map[string]string{"accelerator.ani.io/baseline-id": "baseline-a", "accelerator.ani.io/model-key": "model"}, PodAnnotations: map[string]string{"volcano.sh/vgpu-mode": "hami-core"}, Resources: map[string]string{"volcano.sh/vgpu-number": "1"}, RuntimeClassName: "gpu-runtime", ExecutionDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, Display: &gpu.Display{ProfileID: request.ProfileID, ProfileVersion: 1, ProfileName: "shared", ModelKey: "model", Mode: 2}, ExecutionDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+	return request, snapshot
 }
 
 func TestRenderKServeWrapsRawEngineCommandAndModelMount(t *testing.T) {
@@ -154,7 +141,7 @@ func TestRenderKServeAppliesFrozenGPUPlan(t *testing.T) {
 	obj, err := renderKServeInferenceService(RuntimeSpec{
 		TenantID: "tenant", ServiceID: "service", Name: "gpu-model", Namespace: "models", Image: "registry/vllm:1",
 		ArtifactProvider: "model", ModelClaim: "ani-model-claim", Generation: 4, Replicas: 1,
-		Resources: resources.Normalized{GPU: request}, GPUPlan: plan,
+		Resources: resources.Normalized{GPU: request}, GPUSnapshot: plan,
 		Endpoint: &EndpointSpec{ContainerPort: 8080, ServicePort: 80, Protocol: corev1.ProtocolTCP},
 	})
 	if err != nil {
@@ -204,15 +191,15 @@ func TestRenderKServeLLMRejectsGPUUntilSynchronousProjectionExists(t *testing.T)
 	request, plan := testGPUPlan(t, "main")
 	request.Replicas = 2 // one leader plus one worker in the single LWS group
 	plan.Request.Replicas = request.Replicas
-	digest, err := gpu.PlanDigest(plan)
+	digest, err := gpu.SnapshotDigest(plan)
 	if err != nil {
 		t.Fatalf("GPU plan digest: %v", err)
 	}
-	plan.ResolutionDigest = digest
+	plan.ExecutionDigest = digest
 	_, err = renderKServeLLMInferenceService(RuntimeSpec{
 		TenantID: "tenant", ServiceID: "service", Name: "gpu-distributed", Namespace: "models", Image: "registry/vllm:1",
 		ArtifactProvider: "model", ModelClaim: "ani-model-claim", Generation: 4, Replicas: 1, WorkerReplicas: 1,
-		RuntimeMode: "leader_worker_set", Resources: resources.Normalized{GPU: request}, GPUPlan: plan,
+		RuntimeMode: "leader_worker_set", Resources: resources.Normalized{GPU: request}, GPUSnapshot: plan,
 		Endpoint: &EndpointSpec{ContainerPort: KServeLLMWorkloadServicePort, ServicePort: KServeLLMWorkloadServicePort, TargetPort: intstr.FromInt32(KServeLLMWorkloadServicePort), Protocol: corev1.ProtocolTCP},
 	})
 	if err == nil {

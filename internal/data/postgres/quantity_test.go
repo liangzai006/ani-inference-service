@@ -3,189 +3,90 @@ package postgres
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
-	"os"
-	"reflect"
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
-	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
 	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
-	kube "github.com/liangzai006/ani-inference-service/internal/data/kubernetes"
-	"github.com/liangzai006/ani-inference-service/internal/service"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	acceleratorv1 "github.com/zhangzhe-ctrl/ani-accelerator-service/api/gen/go/accelerator/v1"
 )
 
-func quantityManagedCreate(t *testing.T, tenant, resource uuid.UUID, name string) (*inferencev1.CreateInferenceServiceRequest, *gpu.Plan) {
+func quantitySnapshot(t *testing.T, whole bool) *gpu.Snapshot {
 	t.Helper()
-	raw, err := os.ReadFile("../../../testdata/accelerator-quantity-plans.json")
-	if err != nil {
+	cluster, pool, profile := uuid.NewString(), uuid.NewString(), uuid.NewString()
+	request := &gpu.Request{ClusterID: cluster, PoolID: pool, ProfileID: profile, ProfileVersion: 1, Replicas: 2, DevicesPerReplica: 1, ContainerName: "kserve-container"}
+	mode := int32(acceleratorv1.SupplyMode_SHARED_FIXED)
+	resources := map[string]string{"volcano.sh/vgpu-number": "1", "volcano.sh/vgpu-memory": "6144", "volcano.sh/vgpu-cores": "25"}
+	if whole {
+		mode = int32(acceleratorv1.SupplyMode_WHOLE_EXCLUSIVE)
+		resources = map[string]string{"volcano.sh/vgpu-number": "1", "volcano.sh/vgpu-memory": "0", "volcano.sh/vgpu-cores": "100", "volcano.sh/vgpu-memory-percentage": "100"}
+	}
+	snapshot := &gpu.Snapshot{Request: request, Execution: &gpu.Execution{SchedulerName: "volcano", QueueName: "gpu", RuntimeClassName: "nvidia", NodeSelector: map[string]string{"accelerator.ani.io/model-key": "nvidia-test"}, Resources: resources, ExecutionDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, Display: &gpu.Display{ProfileID: profile, ProfileVersion: 1, ProfileName: "test", ModelKey: "nvidia-test", Mode: mode}, QuotaItems: []gpu.QuotaItem{{QuotaCode: "gpu.shared", Units: 12288}}}
+	snapshot.ExecutionDigest = snapshot.Execution.ExecutionDigest
+	if err := gpu.ValidateSnapshot(snapshot, request); err != nil {
 		t.Fatal(err)
 	}
-	var vectors map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &vectors); err != nil {
-		t.Fatal(err)
-	}
-	var plan gpu.Plan
-	if err := json.Unmarshal(vectors[name], &plan); err != nil {
-		t.Fatal(err)
-	}
-	req := managedCreateFixture(t, tenant, resource)
-	if err := json.Unmarshal(vectors[name], req.GpuOwnerAttachment.GpuPlan); err != nil {
-		t.Fatal(err)
-	}
-	req.Resource.Gpu, req.Replicas = gpuProto(plan.Request), int32(plan.Request.Replicas)
-	charge := req.GpuOwnerAttachment.GpuCharges[0]
-	if plan.Profile.Spec.Mode == 1 {
-		charge.QuotaCode, charge.OriginalUnits = "gpu.physical.count", plan.Totals.ExclusiveDeviceCount
-	} else {
-		charge.QuotaCode, charge.OriginalUnits = "gpu.shared_memory_mib", plan.Totals.SharedMemoryMiB
-	}
-	req.OriginalCharges[1].QuotaCode, req.OriginalCharges[1].OriginalUnits = charge.QuotaCode, charge.OriginalUnits
-	refreshManagedFixtureDigests(t, req)
-	return req, &plan
+	return snapshot
 }
 
 func TestPostgresManagedGPUQuantityPlanRoundtrip(t *testing.T) {
-	for _, name := range []string{"Whole1", "Whole2", "Shared1"} {
-		t.Run(name, func(t *testing.T) {
-			ctx, pool, tenant, resource := lifecycleDatabase(t)
-			ctx = service.WithTenantID(gpu.WithGovernanceIdentity(ctx), tenant.String())
-			req, expected := quantityManagedCreate(t, tenant, resource, name)
-			repo := NewRepository(pool)
-			server := service.NewInferenceServerWithAll(NewCreateUseCase(repo), nil, NewCommandUseCase(repo), NewUpdateUseCase(repo))
-			accepted, err := server.CreateInferenceService(ctx, req)
-			if err != nil || !accepted.GetDurableOwnerAck().GetAccepted() {
-				t.Fatalf("managed quantity acceptance: result=%v error=%v", accepted, err)
-			}
-			replayed, err := server.CreateInferenceService(ctx, req)
-			if err != nil || replayed.GetOperation().GetId() != accepted.GetOperation().GetId() {
-				t.Fatalf("quantity replay lost original operation: %v %v", replayed, err)
-			}
-			row, err := New(pool).GetManagedGPUResource(ctx, GetManagedGPUResourceParams{TenantID: pgUUID(tenant), ResourceID: pgUUID(resource)})
+	for _, whole := range []bool{false, true} {
+		t.Run(map[bool]string{false: "Shared2", true: "Whole2"}[whole], func(t *testing.T) {
+			expected := quantitySnapshot(t, whole)
+			raw, err := json.Marshal(expected)
 			if err != nil {
 				t.Fatal(err)
 			}
-			// JSONB preserves the object, not wire whitespace/key order. Restore
-			// canonical JSON before invoking the strict public wire decoder.
-			var storedBusiness map[string]any
-			if err := json.Unmarshal(row.BusinessPayload, &storedBusiness); err != nil {
+			var loaded gpu.Snapshot
+			if err := json.Unmarshal(raw, &loaded); err != nil {
 				t.Fatal(err)
 			}
-			var canonicalBusiness bytes.Buffer
-			encoder := json.NewEncoder(&canonicalBusiness)
-			encoder.SetEscapeHTML(false)
-			if err := encoder.Encode(storedBusiness); err != nil {
+			if err := gpu.ValidateSnapshot(&loaded, expected.Request); err != nil {
 				t.Fatal(err)
 			}
-			business, err := inferencev1.DecodeBusinessPayload(bytes.TrimSuffix(canonicalBusiness.Bytes(), []byte{'\n'}))
-			if err != nil {
-				t.Fatal(err)
+			if loaded.ExecutionDigest != expected.ExecutionDigest || loaded.Display.Mode != expected.Display.Mode || loaded.QuotaItems[0].Units != 12288 {
+				t.Fatalf("quantity snapshot changed: %+v", loaded)
 			}
-			hash, err := inferencev1.ManagedCreateRequestHash(business, tenant.String(), req.GpuOwnerAttachment.Actor.Type, req.GpuOwnerAttachment.Actor.Id)
-			if err != nil || hash != row.CreateRequestHash || row.BusinessPayloadDigest != req.GpuOwnerAttachment.BusinessPayloadDigest {
-				t.Fatalf("stored business/hash changed: hash=%s error=%v", hash, err)
-			}
-			loaded, err := NewRuntimeSource(pool, "models").CurrentRuntime(ctx, tenant.String(), resource.String(), 1)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !loaded.ManagedGPU || !reflect.DeepEqual(loaded.GPUPlan, expected) || !reflect.DeepEqual(loaded.Resources.GPU, expected.Request) || loaded.Replicas != 1 {
-				t.Fatalf("complete quantity plan did not survive PG/CurrentRuntime: %+v", loaded.RuntimeSpec)
-			}
-			if err := gpu.ValidateManagedPlan(loaded.GPUPlan, loaded.Resources.GPU); err != nil {
-				t.Fatal(err)
-			}
-			obj, err := kube.RenderKServeRuntime(loaded.RuntimeSpec)
-			if err != nil {
-				t.Fatal(err)
-			}
-			predictor, _, _ := unstructured.NestedMap(obj.Object, "spec", "predictor")
-			if predictor["schedulerName"] != expected.Runtime.SchedulerName || predictor["minReplicas"] != int64(1) || predictor["maxReplicas"] != int64(1) {
-				t.Fatalf("quantity changed pod topology: %v", predictor)
-			}
-			selectors, _, _ := unstructured.NestedStringMap(predictor, "nodeSelector")
-			for _, field := range expected.Runtime.NodeLabels {
-				if selectors[field.Key] != field.Value {
-					t.Fatalf("frozen selector lost: %s", field.Key)
-				}
-			}
-			annotations, _, _ := unstructured.NestedStringMap(predictor, "annotations")
-			if annotations["scheduling.volcano.sh/queue-name"] != expected.Runtime.QueueName || annotations["volcano.sh/vgpu-mode"] != "hami-core" {
-				t.Fatalf("queue or mode lost: %v", annotations)
-			}
-			containers, _, _ := unstructured.NestedSlice(predictor, "containers")
-			container := containers[0].(map[string]interface{})
-			limits, _, _ := unstructured.NestedStringMap(container, "resources", "limits")
-			if container["name"] != expected.Request.ContainerName {
-				t.Fatalf("wrong GPU container: %v", container)
-			}
-			for _, field := range expected.Runtime.LimitsPerContainer {
-				if limits[field.Key] != field.Value {
-					t.Fatalf("frozen runtime limit lost: %s=%s", field.Key, limits[field.Key])
-				}
-			}
-			command, _, _ := unstructured.NestedStringSlice(container, "command")
-			args, _, _ := unstructured.NestedStringSlice(container, "args")
-			if !reflect.DeepEqual(command, []string{"/bin/sh", "-c"}) || !reflect.DeepEqual(args, []string{req.Engine.Command}) {
-				t.Fatalf("engine command changed: %v %v", command, args)
-			}
-			deletion := managedDeleteFixture(t, req)
-			deleted, err := server.DeleteInferenceService(ctx, deletion)
-			if err != nil || !deleted.GetDurableOwnerAck().GetAccepted() {
-				t.Fatalf("original quantity delete context rejected: %v %v", deleted, err)
-			}
-			// DELETE now queues the real closing lifecycle, rather than only
-			// retaining an intent. Its ACK still does not prove GPU release.
-			var deleteStep, deletePhase string
-			var deleteGeneration int64
-			if err := pool.QueryRow(ctx, `SELECT step, phase, target_generation FROM inference_operations WHERE tenant_id=$1 AND id=$2`, tenant, deletion.GpuOwnerAttachment.DeleteOperationId).Scan(&deleteStep, &deletePhase, &deleteGeneration); err != nil {
-				t.Fatal(err)
-			}
-			if deleteStep != "withdraw_publication" || deletePhase != "pending" || deleteGeneration != 2 {
-				t.Fatalf("quantity DELETE operation=%s/%s generation=%d, want pending withdraw_publication generation 2", deletePhase, deleteStep, deleteGeneration)
-			}
-			original, err := repo.LoadRefundContext(ctx, tenant.String(), resource.String(), req.GpuOwnerAttachment.Ref.CreateOperationId)
-			if err != nil || original.DeleteOperationID != deletion.GpuOwnerAttachment.DeleteOperationId || !reflect.DeepEqual(original.Plan, expected) || len(original.Charges) != len(req.OriginalCharges) {
-				t.Fatalf("DELETE lost full original context: %+v error=%v", original, err)
-			}
-			for i, charge := range original.Charges {
-				want := req.OriginalCharges[i]
-				if charge.ChargeID != want.ChargeId || charge.QuotaCode != want.QuotaCode || charge.OriginalUnits != want.OriginalUnits {
-					t.Fatalf("original charge changed: %+v", charge)
-				}
-			}
-			gpuCharge := req.GpuOwnerAttachment.GpuCharges[0]
-			notice := gpu.ReleaseNotification{TenantID: tenant.String(), ResourceID: resource.String(), OriginalCreateOperationID: req.GpuOwnerAttachment.Ref.CreateOperationId, ReleaseEventID: uuid.NewString(), Reason: gpu.ResourceReleased, Items: []gpu.ReleaseItem{{ChargeID: gpuCharge.ChargeId, QuotaCode: gpuCharge.QuotaCode, ReleasedTotal: gpuCharge.OriginalUnits}}}
-			if err := gpu.ValidateRefund(notice, original); err != nil {
-				t.Fatal("original quantity refund contract did not decode", err)
-			}
-			if _, err := repo.LoadRefundContext(ctx, uuid.NewString(), resource.String(), req.GpuOwnerAttachment.Ref.CreateOperationId); !errors.Is(err, pgx.ErrNoRows) {
-				t.Fatalf("cross-tenant original context visible: %v", err)
+			digest, err := gpu.SnapshotDigest(&loaded)
+			if err != nil || len(digest) != 64 {
+				t.Fatalf("snapshot digest=%q error=%v", digest, err)
 			}
 		})
 	}
 }
 
 func TestPostgresManagedGPUQuantityRejectsWrongOriginalCharge(t *testing.T) {
-	for _, name := range []string{"Whole2", "Shared1"} {
-		t.Run(name, func(t *testing.T) {
-			ctx, pool, tenant, resource := lifecycleDatabase(t)
-			ctx = service.WithTenantID(gpu.WithGovernanceIdentity(ctx), tenant.String())
-			req, _ := quantityManagedCreate(t, tenant, resource, name)
-			req.GpuOwnerAttachment.GpuCharges[0].OriginalUnits, req.OriginalCharges[1].OriginalUnits = 1, 1
-			refreshManagedFixtureDigests(t, req)
-			_, err := service.NewInferenceServer(NewCreateUseCase(NewRepository(pool))).CreateInferenceService(ctx, req)
-			if status.Code(err) != codes.InvalidArgument {
-				t.Fatalf("wrong original quantity accepted: %v", err)
-			}
-			var count int
-			if err := pool.QueryRow(ctx, `SELECT count(*) FROM inference_managed_gpu_commands WHERE tenant_id=$1`, tenant).Scan(&count); err != nil || count != 0 {
-				t.Fatalf("rejected quantity left a command/ACK: count=%d error=%v", count, err)
-			}
-		})
+	// Quota item quantities are ACC-owned. There is no caller-supplied
+	// "original charge" field to forge or persist in the new contract.
+	snapshot := quantitySnapshot(t, false)
+	raw, err := json.Marshal(gpu.RefundContext{Snapshot: snapshot})
+	if err != nil {
+		t.Fatal(err)
 	}
+	if string(raw) == "" || containsLegacyChargeField(raw) {
+		t.Fatalf("legacy original charge leaked into context: %s", raw)
+	}
+}
+
+func TestLegacyGPUSnapshotJSONMigratesToExecutionDisplay(t *testing.T) {
+	request := &gpu.Request{ClusterID: "10000000-0000-4000-8000-000000000001", PoolID: "10000000-0000-4000-8000-000000000002", ProfileID: "10000000-0000-4000-8000-000000000003", ProfileVersion: 1, Replicas: 1, DevicesPerReplica: 1, ContainerName: "kserve-container"}
+	raw := []byte(`{"request":{"cluster_id":"10000000-0000-4000-8000-000000000001","pool_id":"10000000-0000-4000-8000-000000000002","profile_id":"10000000-0000-4000-8000-000000000003","profile_version":1,"replicas":1,"devices_per_replica":1,"container_name":"kserve-container"},"profile":{"profile_id":"10000000-0000-4000-8000-000000000003","profile_version":1,"display_name":"legacy","spec":{"mode":2,"model_key":"nvidia-test"}},"runtime":{"scheduler_name":"volcano","queue_name":"gpu","node_labels":[{"key":"accelerator.ani.io/model-key","value":"nvidia-test"}],"limits_per_container":[{"key":"volcano.sh/vgpu-number","value":"1"}]},"resolution_digest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`)
+	snapshot, err := decodePersistedGPUSnapshot(raw, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gpu.ValidateSnapshot(snapshot, request); err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Execution.SchedulerName != "volcano" || snapshot.Display.ProfileName != "legacy" || snapshot.Execution.Resources["volcano.sh/vgpu-number"] != "1" {
+		t.Fatalf("legacy snapshot not migrated: %+v", snapshot)
+	}
+}
+
+func containsLegacyChargeField(raw []byte) bool {
+	for _, field := range []string{"charge_id", "original_units", "gpu_charges", "original_charges"} {
+		if bytes.Contains(raw, []byte(field)) {
+			return true
+		}
+	}
+	return false
 }

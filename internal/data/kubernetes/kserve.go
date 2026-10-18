@@ -337,117 +337,107 @@ func RenderKServeRuntime(spec RuntimeSpec) (*unstructured.Unstructured, error) {
 	}
 }
 
-// validateGPUPlan enforces the accelerator boundary at the rendering edge.
+// validateGPUSnapshot enforces the accelerator boundary at the rendering edge.
 // The request is selected during admission and the plan is immutable after
 // resolution; a renderer must never infer GPU settings from a raw quantity or
 // silently fall back to a CPU pod when the plan is missing.
-func validateGPUPlan(spec RuntimeSpec) error {
+func validateGPUSnapshot(spec RuntimeSpec) error {
 	request := spec.Resources.GPU
-	if spec.ManagedGPU {
-		if err := gpu.ValidateManagedPlan(spec.GPUPlan, request); err != nil {
-			return fmt.Errorf("invalid accepted Governance GPU plan: %w", err)
-		}
-	}
 	if request == nil {
-		if spec.GPUPlan != nil {
-			return errors.New("GPU plan requires a GPU request")
+		if spec.GPUSnapshot != nil {
+			return errors.New("GPU execution requires a GPU request")
 		}
 		return nil
 	}
-	if spec.GPUPlan == nil {
-		return errors.New("GPU request requires a frozen GPU plan")
+	if spec.GPUSnapshot == nil {
+		return errors.New("GPU request requires a frozen GPU execution")
 	}
-	if err := gpu.ValidatePlan(spec.GPUPlan, request); err != nil {
-		return fmt.Errorf("invalid GPU plan: %w", err)
+	if err := gpu.ValidateSnapshot(spec.GPUSnapshot, request); err != nil {
+		return fmt.Errorf("invalid GPU execution: %w", err)
 	}
 	if err := gpu.ValidateTopology(request, spec.Replicas, spec.RuntimeMode, spec.WorkerReplicas); err != nil {
 		return fmt.Errorf("invalid GPU topology: %w", err)
 	}
-	if spec.GPUPlan.Runtime == nil {
-		return errors.New("GPU plan runtime fragment is required")
+	if spec.RuntimeMode == "leader_worker_set" {
+		return errors.New("GPU LeaderWorkerSet is explicitly unsupported")
 	}
 	return nil
 }
 
-// applyGPUPlanToPod projects only the frozen runtime fragment. It deliberately
-// does not add a command, args, model flag, or any other engine setting.
-func applyGPUPlanToPod(spec RuntimeSpec, pod *corev1.PodSpec, expectedContainer string) (map[string]string, error) {
-	if err := validateGPUPlan(spec); err != nil {
+// applyGPUSnapshotToPod projects ACC Execution fields without recalculating
+// profile, memory or quota values.
+func applyGPUSnapshotToPod(spec RuntimeSpec, pod *corev1.PodSpec, expectedContainer string) (map[string]string, error) {
+	if err := validateGPUSnapshot(spec); err != nil {
 		return nil, err
 	}
 	if spec.Resources.GPU == nil {
 		return nil, nil
 	}
 	if pod == nil || len(pod.Containers) != 1 || pod.Containers[0].Name != expectedContainer {
-		return nil, fmt.Errorf("GPU plan container must be %q", expectedContainer)
+		return nil, fmt.Errorf("GPU execution container must be %q", expectedContainer)
 	}
-	runtimeFragment := spec.GPUPlan.Runtime
-	if pod.SchedulerName != "" && pod.SchedulerName != runtimeFragment.SchedulerName {
-		return nil, errors.New("GPU plan conflicts with pod scheduler")
+	e := spec.GPUSnapshot.Execution
+	if pod.SchedulerName != "" && pod.SchedulerName != e.SchedulerName {
+		return nil, errors.New("GPU execution conflicts with pod scheduler")
 	}
-	pod.SchedulerName = runtimeFragment.SchedulerName
-	if pod.NodeSelector == nil && len(runtimeFragment.NodeLabels) > 0 {
-		pod.NodeSelector = make(map[string]string, len(runtimeFragment.NodeLabels))
+	pod.SchedulerName = e.SchedulerName
+	if pod.NodeSelector == nil && len(e.NodeSelector) > 0 {
+		pod.NodeSelector = map[string]string{}
 	}
-	for _, item := range runtimeFragment.NodeLabels {
-		if strings.TrimSpace(item.Key) == "" || strings.TrimSpace(item.Value) == "" {
-			return nil, errors.New("GPU plan node label key and value are required")
+	for key, value := range e.NodeSelector {
+		if strings.TrimSpace(key) == "" || strings.TrimSpace(value) == "" {
+			return nil, errors.New("GPU execution selector key and value are required")
 		}
-		if previous, exists := pod.NodeSelector[item.Key]; exists && previous != item.Value {
-			return nil, fmt.Errorf("GPU plan node label %q has conflicting values", item.Key)
+		if previous, exists := pod.NodeSelector[key]; exists && previous != value {
+			return nil, fmt.Errorf("GPU execution selector %q conflicts", key)
 		}
-		pod.NodeSelector[item.Key] = item.Value
+		pod.NodeSelector[key] = value
 	}
-	if runtimeFragment.RuntimeClassName != "" {
-		if pod.RuntimeClassName != nil && *pod.RuntimeClassName != runtimeFragment.RuntimeClassName {
-			return nil, errors.New("GPU plan conflicts with pod runtime class")
+	if e.RuntimeClassName != "" {
+		if pod.RuntimeClassName != nil && *pod.RuntimeClassName != e.RuntimeClassName {
+			return nil, errors.New("GPU execution conflicts with pod runtime class")
 		}
-		pod.RuntimeClassName = &runtimeFragment.RuntimeClassName
+		pod.RuntimeClassName = &e.RuntimeClassName
 	}
 	container := &pod.Containers[0]
 	if container.Resources.Limits == nil {
 		container.Resources.Limits = corev1.ResourceList{}
 	}
-	for _, item := range runtimeFragment.LimitsPerContainer {
-		if strings.TrimSpace(item.Key) == "" || strings.TrimSpace(item.Value) == "" {
-			return nil, errors.New("GPU plan container limit key and value are required")
-		}
-		quantity, err := resource.ParseQuantity(item.Value)
+	if container.Resources.Requests == nil {
+		container.Resources.Requests = corev1.ResourceList{}
+	}
+	for key, raw := range e.Resources {
+		quantity, err := resource.ParseQuantity(raw)
 		if err != nil {
-			return nil, fmt.Errorf("invalid GPU plan limit %q for %s: %w", item.Value, item.Key, err)
+			return nil, fmt.Errorf("invalid GPU execution resource %q for %s: %w", raw, key, err)
 		}
-		key := corev1.ResourceName(item.Key)
-		if current, ok := container.Resources.Limits[key]; ok && current.Cmp(quantity) != 0 {
-			return nil, fmt.Errorf("GPU plan conflicts with existing container limit %q", item.Key)
+		name := corev1.ResourceName(key)
+		if current, ok := container.Resources.Limits[name]; ok && current.Cmp(quantity) != 0 {
+			return nil, fmt.Errorf("GPU execution conflicts with container limit %q", key)
 		}
-		if current, ok := container.Resources.Requests[key]; ok && current.Cmp(quantity) != 0 {
-			return nil, fmt.Errorf("GPU plan conflicts with existing container request %q", item.Key)
+		if current, ok := container.Resources.Requests[name]; ok && current.Cmp(quantity) != 0 {
+			return nil, fmt.Errorf("GPU execution conflicts with container request %q", key)
 		}
-		container.Resources.Limits[key] = quantity
+		container.Resources.Limits[name], container.Resources.Requests[name] = quantity, quantity
 	}
-	annotations := make(map[string]string, len(runtimeFragment.PodAnnotations))
-	for _, item := range runtimeFragment.PodAnnotations {
-		if strings.TrimSpace(item.Key) == "" || strings.TrimSpace(item.Value) == "" {
-			return nil, errors.New("GPU plan pod annotation key and value are required")
+	annotations := map[string]string{}
+	for key, value := range e.PodAnnotations {
+		if strings.TrimSpace(key) == "" || strings.TrimSpace(value) == "" {
+			return nil, errors.New("GPU execution annotation key and value are required")
 		}
-		if previous, exists := annotations[item.Key]; exists && previous != item.Value {
-			return nil, fmt.Errorf("GPU plan pod annotation %q has conflicting values", item.Key)
-		}
-		annotations[item.Key] = item.Value
+		annotations[key] = value
 	}
-	// Volcano v1.12.1's normal-Pod PodGroup controller reads this exact pod
-	// annotation into PodGroup.spec.queue. Queue is frozen in the same plan.
-	if runtimeFragment.QueueName == "" {
-		return nil, errors.New("GPU plan queue is required")
+	if e.QueueName == "" {
+		return nil, errors.New("GPU execution queue is required")
 	}
-	if value, exists := annotations[volcanov1.QueueNameAnnotationKey]; exists && value != runtimeFragment.QueueName {
-		return nil, errors.New("GPU queue annotation conflicts with frozen plan")
+	if value, exists := annotations[volcanov1.QueueNameAnnotationKey]; exists && value != e.QueueName {
+		return nil, errors.New("GPU queue annotation conflicts with execution")
 	}
-	annotations[volcanov1.QueueNameAnnotationKey] = runtimeFragment.QueueName
+	annotations[volcanov1.QueueNameAnnotationKey] = e.QueueName
 	return annotations, nil
 }
 
-func applyGPUPlanToPredictor(predictor map[string]interface{}, pod *corev1.PodSpec, annotations map[string]string) {
+func applyGPUSnapshotToPredictor(predictor map[string]interface{}, pod *corev1.PodSpec, annotations map[string]string) {
 	if pod.SchedulerName != "" {
 		predictor["schedulerName"] = pod.SchedulerName
 	}
@@ -490,7 +480,7 @@ func renderKServeInferenceService(spec RuntimeSpec) (*unstructured.Unstructured,
 	if spec.Generation < 1 || spec.Replicas < 1 {
 		return nil, errors.New("generation and replicas must be positive")
 	}
-	if err := validateGPUPlan(spec); err != nil {
+	if err := validateGPUSnapshot(spec); err != nil {
 		return nil, err
 	}
 	requirements, err := kserveResourceRequirements(spec.Resources)
@@ -521,7 +511,7 @@ func renderKServeInferenceService(spec RuntimeSpec) (*unstructured.Unstructured,
 			return nil, err
 		}
 	}
-	gpuAnnotations, err := applyGPUPlanToPod(spec, &pod, "kserve-container")
+	gpuAnnotations, err := applyGPUSnapshotToPod(spec, &pod, "kserve-container")
 	if err != nil {
 		return nil, err
 	}
@@ -530,7 +520,7 @@ func renderKServeInferenceService(spec RuntimeSpec) (*unstructured.Unstructured,
 		return nil, fmt.Errorf("convert KServe container: %w", err)
 	}
 	predictor := map[string]interface{}{"containers": []interface{}{containerMap}, "minReplicas": int64(spec.Replicas), "maxReplicas": int64(spec.Replicas)}
-	applyGPUPlanToPredictor(predictor, &pod, gpuAnnotations)
+	applyGPUSnapshotToPredictor(predictor, &pod, gpuAnnotations)
 	if len(pod.Volumes) > 0 {
 		volumes := make([]interface{}, 0, len(pod.Volumes))
 		for i := range pod.Volumes {
@@ -584,7 +574,7 @@ func renderKServeLLMInferenceService(spec RuntimeSpec) (*unstructured.Unstructur
 	if spec.Generation < 1 || spec.Replicas < 1 {
 		return nil, errors.New("generation and replicas must be positive")
 	}
-	if err := validateGPUPlan(spec); err != nil {
+	if err := validateGPUSnapshot(spec); err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(spec.ModelClaim) == "" {
@@ -622,7 +612,7 @@ func renderKServeLLMInferenceService(spec RuntimeSpec) (*unstructured.Unstructur
 			return nil, err
 		}
 	}
-	_, err = applyGPUPlanToPod(spec, &pod, "main")
+	_, err = applyGPUSnapshotToPod(spec, &pod, "main")
 	if err != nil {
 		return nil, err
 	}
@@ -664,8 +654,8 @@ func renderKServeLLMInferenceService(spec RuntimeSpec) (*unstructured.Unstructur
 		serviceSpec["template"].(map[string]interface{})["serviceAccountName"] = serviceAccountName
 		serviceSpec["worker"].(map[string]interface{})["serviceAccountName"] = serviceAccountName
 	}
-	applyGPUPlanToPredictor(serviceSpec["template"].(map[string]interface{}), &pod, nil)
-	applyGPUPlanToPredictor(serviceSpec["worker"].(map[string]interface{}), &pod, nil)
+	applyGPUSnapshotToPredictor(serviceSpec["template"].(map[string]interface{}), &pod, nil)
+	applyGPUSnapshotToPredictor(serviceSpec["worker"].(map[string]interface{}), &pod, nil)
 	// KServe v0.16 requires parallelism whenever worker is present. The
 	// existing API models WorkerReplicas as workers excluding the leader, so a
 	// pipeline-parallel group of worker+leader pods preserves that topology.

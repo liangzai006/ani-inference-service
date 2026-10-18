@@ -17,8 +17,8 @@ type CreateInput struct {
 	RuntimeProvider                                  string
 	EngineCommand                                    string
 	Resources                                        resources.Normalized
-	GPUPlan                                          *gpu.Plan
-	GPUPlanDigest                                    string
+	GPUSnapshot                                      *gpu.Snapshot
+	GPUSnapshotDigest                                string
 	Replicas, WorkerReplicas                         int32
 	RuntimeMode                                      string
 	Endpoint                                         *EndpointSpec

@@ -123,18 +123,18 @@ func validateManagedGPUReleasePods(pods []gpu.PodRef) error {
 	return nil
 }
 
-// SaveGPUPlan persists one validated accelerator result while the worker still
+// SaveGPUSnapshot persists one validated accelerator result while the worker still
 // owns the resolve_gpu operation lease. The SQL predicate also permits an
 // idempotent retry to write the same bytes, but rejects replacing a different
 // plan for the same immutable generation.
-func (s *OperationStore) SaveGPUPlan(ctx context.Context, op inferencebiz.OperationContext, plan *gpu.Plan) error {
+func (s *OperationStore) SaveGPUSnapshot(ctx context.Context, op inferencebiz.OperationContext, plan *gpu.Snapshot) error {
 	if s == nil || s.pool == nil {
 		return errors.New("nil postgres operation store")
 	}
 	if op.GPURequest == nil {
 		return errors.New("GPU request is required")
 	}
-	if err := gpu.ValidatePlan(plan, op.GPURequest); err != nil {
+	if err := gpu.ValidateSnapshot(plan, op.GPURequest); err != nil {
 		return err
 	}
 	payload, err := json.Marshal(plan)
@@ -160,7 +160,7 @@ func (s *OperationStore) SaveGPUPlan(ctx context.Context, op inferencebiz.Operat
 	rows, err := New(s.pool).SaveGPUPlanCAS(ctx, SaveGPUPlanCASParams{
 		TenantID: tenant, ServiceID: service, OperationID: operation,
 		TargetGeneration: op.TargetGeneration, LeaseToken: lease,
-		GpuPlan: payload, GpuPlanDigest: pgtype.Text{String: plan.ResolutionDigest, Valid: true},
+		GpuPlan: payload, GpuPlanDigest: pgtype.Text{String: plan.ExecutionDigest, Valid: true},
 	})
 	if err != nil {
 		return err
@@ -261,11 +261,11 @@ func (s *OperationStore) CurrentOperation(ctx context.Context, item work.Item) (
 			}
 		}
 		if len(spec.GpuPlan) > 0 {
-			op.GPUPlan = new(gpu.Plan)
-			if err := json.Unmarshal(spec.GpuPlan, op.GPUPlan); err != nil {
+			op.GPUSnapshot = new(gpu.Snapshot)
+			if err := json.Unmarshal(spec.GpuPlan, op.GPUSnapshot); err != nil {
 				return inferencebiz.OperationContext{}, fmt.Errorf("decode GPU plan: %w", err)
 			}
-			if spec.GpuPlanDigest.Valid && op.GPUPlan.ResolutionDigest != spec.GpuPlanDigest.String {
+			if spec.GpuPlanDigest.Valid && op.GPUSnapshot.ExecutionDigest != spec.GpuPlanDigest.String {
 				return inferencebiz.OperationContext{}, fmt.Errorf("GPU plan digest does not match persisted digest")
 			}
 		}

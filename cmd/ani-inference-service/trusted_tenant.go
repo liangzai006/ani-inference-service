@@ -73,12 +73,12 @@ func bindGovernanceGPUContext(ctx context.Context, req interface{}, tenant, iden
 	var attachmentTenant string
 	switch request := req.(type) {
 	case *inferencev1.CreateInferenceServiceRequest:
-		if request.GetGpuOwnerAttachment() != nil {
-			attachmentTenant = strings.TrimSpace(request.GetGpuOwnerAttachment().GetRef().GetTenantId())
+		if request.GetContext() != nil {
+			attachmentTenant = strings.TrimSpace(request.GetContext().GetTenantId())
 		}
 	case *inferencev1.DeleteInferenceServiceRequest:
-		if request.GetGpuOwnerAttachment() != nil {
-			attachmentTenant = strings.TrimSpace(request.GetGpuOwnerAttachment().GetRef().GetTenantId())
+		if request.GetContext() != nil {
+			attachmentTenant = strings.TrimSpace(request.GetContext().GetTenantId())
 		}
 	}
 	if attachmentTenant == "" {

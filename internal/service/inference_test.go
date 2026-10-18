@@ -145,8 +145,8 @@ func TestCreateRejectsNestedGpuRequestWithoutGovernanceAttachment(t *testing.T) 
 		ClusterId: "10000000-0000-4000-8000-000000000001", PoolId: "10000000-0000-4000-8000-000000000002", ProfileId: "10000000-0000-4000-8000-000000000003", ProfileVersion: 1, Replicas: 1, DevicesPerReplica: 1, ContainerName: "kserve-container",
 	}}}
 	_, err := NewInferenceServer(f).CreateInferenceService(WithTenantID(context.Background(), "tenant-a"), req)
-	if status.Code(err) != codes.InvalidArgument || f.in.Resources.GPU != nil {
-		t.Fatalf("unmanaged GPU accepted: input=%+v error=%v", f.in, err)
+	if status.Code(err) != codes.PermissionDenied || f.in.Resources.GPU != nil {
+		t.Fatalf("GPU without Governance command context accepted: input=%+v error=%v", f.in, err)
 	}
 }
 

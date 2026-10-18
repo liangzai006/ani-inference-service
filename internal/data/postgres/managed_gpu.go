@@ -14,7 +14,7 @@ import (
 	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
 	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
 	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
-	integrationv1 "github.com/zhangzhe-ctrl/ani-accelerator-service/api/gen/go/accelerator/integration/v1"
+	commandv1 "github.com/zhangzhe-ctrl/ani-accelerator-service/api/gen/go/accelerator/command/v1"
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
@@ -72,9 +72,31 @@ func prepareManagedGPU(ctx context.Context, tx pgx.Tx, command *inferencebiz.Man
 		if err := json.Unmarshal(savedResource.OriginalContext, &saved); err != nil {
 			return managedIntake{}, err
 		}
-		saved.DeleteOperationID, original.DeleteOperationID = "", ""
-		if savedResource.CreateOperationID != createID || !reflect.DeepEqual(saved, original) {
+		if savedResource.CreateOperationID != createID {
 			return managedIntake{}, inferencebiz.ErrIdempotencyConflict
+		}
+		if kind == "create" && savedResource.DeleteOperationID.Valid {
+			// DELETE-first closes the immutable resource association. A later
+			// CREATE is acknowledged as blocked_by_delete after the command is
+			// durably recorded; it must not be allowed to mutate the snapshot.
+			return managedIntake{closing: true}, nil
+		}
+		// DELETE commands intentionally carry only tenant/resource/create/delete
+		// identity. Restore the immutable CREATE snapshot from PostgreSQL rather
+		// than asking callers to resend (or forge) cluster/execution data.
+		if kind == "delete" {
+			requestedDelete := original.DeleteOperationID
+			original.DeleteOperationID = ""
+			if original.OwnerService != "" && original.OwnerService != saved.OwnerService || original.ClusterID != "" && original.ClusterID != saved.ClusterID || original.Snapshot != nil && !reflect.DeepEqual(original.Snapshot, saved.Snapshot) {
+				return managedIntake{}, inferencebiz.ErrIdempotencyConflict
+			}
+			original.OwnerService, original.ClusterID, original.Snapshot = saved.OwnerService, saved.ClusterID, saved.Snapshot
+			original.DeleteOperationID = requestedDelete
+		} else {
+			saved.DeleteOperationID, original.DeleteOperationID = "", ""
+			if !reflect.DeepEqual(saved, original) {
+				return managedIntake{}, inferencebiz.ErrIdempotencyConflict
+			}
 		}
 		if kind == "delete" && savedResource.DeleteOperationID.Valid && savedResource.DeleteOperationID != operation {
 			return managedIntake{}, inferencebiz.ErrIdempotencyConflict
@@ -101,7 +123,7 @@ func prepareManagedGPU(ctx context.Context, tx pgx.Tx, command *inferencebiz.Man
 	if err != nil {
 		return managedIntake{}, err
 	}
-	err = q.InsertManagedGPUResource(ctx, InsertManagedGPUResourceParams{TenantID: tenant, ResourceID: resourceID, CreateOperationID: createID, OwnerService: original.OwnerService, MeteringVersion: original.MeteringVersion, OriginalContext: payload})
+	err = q.InsertManagedGPUResource(ctx, InsertManagedGPUResourceParams{TenantID: tenant, ResourceID: resourceID, CreateOperationID: createID, OwnerService: original.OwnerService, MeteringVersion: "gpu-execution-v1", OriginalContext: payload})
 	return managedIntake{}, err
 }
 
@@ -155,7 +177,7 @@ func managedIntentResponse(original gpu.RefundContext, operationID, kind, intent
 	return &inferencev1.OperationResponse{
 		Resource:        &inferencev1.InferenceService{Id: original.ResourceID, DesiredState: "deleted"},
 		Operation:       &inferencev1.Operation{Id: operationID, ServiceId: original.ResourceID, Kind: kind, Phase: "pending", Step: intent},
-		DurableOwnerAck: &integrationv1.DurableOwnerAck{OperationId: operationID, ResourceId: original.ResourceID, Accepted: true},
+		DurableOwnerAck: &commandv1.DurableOwnerAck{OperationId: operationID, ResourceId: original.ResourceID, Accepted: true},
 	}
 }
 
@@ -240,7 +262,7 @@ func (u *CommandUseCase) acceptManagedGPUDelete(ctx context.Context, in inferenc
 		return nil, err
 	}
 	response := commandResponse(service.ID.String(), original.DeleteOperationID, targetGeneration, "delete", "withdraw_publication")
-	response.DurableOwnerAck = &integrationv1.DurableOwnerAck{OperationId: original.DeleteOperationID, ResourceId: original.ResourceID, Accepted: true}
+	response.DurableOwnerAck = &commandv1.DurableOwnerAck{OperationId: original.DeleteOperationID, ResourceId: original.ResourceID, Accepted: true}
 	snapshot, err := protojson.Marshal(response)
 	if err != nil {
 		return nil, err

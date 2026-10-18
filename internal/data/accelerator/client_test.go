@@ -2,181 +2,108 @@ package accelerator
 
 import (
 	"context"
-	"net"
-	"strings"
-	"testing"
-
 	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
 	acceleratorv1 "github.com/zhangzhe-ctrl/ani-accelerator-service/api/gen/go/accelerator/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/test/bufconn"
+	"net"
+	"strings"
+	"testing"
 )
 
 func validGPURequest() *gpu.Request {
-	return &gpu.Request{
-		ClusterID:         "10000000-0000-4000-8000-000000000001",
-		PoolID:            "10000000-0000-4000-8000-000000000002",
-		ProfileID:         "10000000-0000-4000-8000-000000000003",
-		ProfileVersion:    1,
-		Replicas:          1,
-		DevicesPerReplica: 1,
-		ContainerName:     "kserve-container",
-	}
+	return &gpu.Request{ClusterID: "10000000-0000-4000-8000-000000000001", PoolID: "10000000-0000-4000-8000-000000000002", ProfileID: "10000000-0000-4000-8000-000000000003", ProfileVersion: 1, Replicas: 1, DevicesPerReplica: 1, ContainerName: "kserve-container"}
 }
-
 func TestClientDoesNotContactResolverWithoutGPU(t *testing.T) {
 	var c *Client
-	plan, err := c.Resolve(context.Background(), gpu.ResolveInput{TenantID: "tenant", RequestID: "request"})
-	if err != nil || plan != nil {
-		t.Fatalf("nil GPU request: plan=%v err=%v", plan, err)
+	got, err := c.Resolve(context.Background(), gpu.ResolveInput{})
+	if err != nil || got != nil {
+		t.Fatalf("got=%v err=%v", got, err)
 	}
 }
 
 func TestClientRequiresResolverForGPU(t *testing.T) {
 	request := validGPURequest()
 	var c *Client
-	_, err := c.Resolve(context.Background(), gpu.ResolveInput{TenantID: "tenant", RequestID: "request", Actor: "workload:caller", Request: request})
-	if err != ErrResolverNotConfigured {
-		t.Fatalf("error=%v, want ErrResolverNotConfigured", err)
+	got, err := c.Resolve(context.Background(), gpu.ResolveInput{TenantID: "tenant", RequestID: "request", Request: request})
+	if got != nil || err == nil || !strings.Contains(err.Error(), "resolver") {
+		t.Fatalf("nil resolver accepted: snapshot=%v err=%v", got, err)
 	}
 }
-
 func TestClientRejectsDifferentConfiguredCluster(t *testing.T) {
-	client := NewClientForCluster(nil, "10000000-0000-4000-8000-000000000099")
-	_, err := client.Resolve(context.Background(), gpu.ResolveInput{TenantID: "tenant", RequestID: "request", Actor: "workload:caller", Request: validGPURequest()})
+	c := NewClientForCluster(nil, "10000000-0000-4000-8000-000000000099")
+	_, err := c.Resolve(context.Background(), gpu.ResolveInput{TenantID: "tenant", RequestID: "request", Actor: "workload:caller", Request: validGPURequest()})
 	if err == nil || !strings.Contains(err.Error(), "does not match configured cluster") {
-		t.Fatalf("error=%v, want configured-cluster rejection", err)
+		t.Fatal(err)
 	}
 }
 
 type catalogServer struct {
 	acceleratorv1.UnimplementedAcceleratorCatalogServiceServer
-	plan *acceleratorv1.ResolvedGpuPlan
-	got  *acceleratorv1.ResolveGpuRequestRequest
-	md   metadata.MD
+	reply *acceleratorv1.ResolvedGpuRequest
+	got   *acceleratorv1.ResolveGpuRequestRequest
+	md    metadata.MD
 }
 
-func (s *catalogServer) ResolveGpuRequest(ctx context.Context, req *acceleratorv1.ResolveGpuRequestRequest) (*acceleratorv1.ResolvedGpuPlan, error) {
+func (s *catalogServer) ResolveGpuRequest(ctx context.Context, req *acceleratorv1.ResolveGpuRequestRequest) (*acceleratorv1.ResolvedGpuRequest, error) {
 	s.got = req
 	s.md, _ = metadata.FromIncomingContext(ctx)
-	return s.plan, nil
+	return s.reply, nil
 }
-
-func TestClientMapsRequestPlanAndIdentity(t *testing.T) {
-	request := validGPURequest()
-	plan := &gpu.Plan{
-		SchemaVersion: 1,
-		Request:       request,
-		Profile: &gpu.Profile{
-			ProfileID: request.ProfileID, ProfileVersion: 1,
-			Spec: &gpu.ProfileSpec{GroupID: "10000000-0000-4000-8000-000000000004"},
-		},
-		Encoding: &gpu.MemoryEncoding{MemoryPercentage: 100, Policy: "EXACT"},
-		Totals:   &gpu.ResourceTotals{ExclusiveDeviceCount: 1},
-		Runtime:  &gpu.RuntimeFragment{SchedulerName: "volcano", NodeLabels: []gpu.KeyValue{{Key: "z", Value: "1"}, {Key: "a", Value: "2"}}},
-	}
-	digest, err := gpu.PlanDigest(plan)
+func TestClientMapsExecutionAndIdentity(t *testing.T) {
+	r := validGPURequest()
+	reply := &acceleratorv1.ResolvedGpuRequest{Execution: &acceleratorv1.GpuExecution{SchedulerName: "volcano", QueueName: "queue", NodeSelector: map[string]string{"a": "b"}, Resources: map[string]string{"nvidia.com/gpu": "1"}, ExecutionDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, Selection: &acceleratorv1.GpuDisplay{ProfileId: r.ProfileID, ProfileVersion: 1, ProfileName: "shared", ModelKey: "model", Mode: acceleratorv1.SupplyMode_SHARED_FIXED}, QuotaItems: []*acceleratorv1.GpuQuotaItem{{QuotaCode: "gpu.shared", Units: 1}}}
+	srv := &catalogServer{reply: reply}
+	lis := bufconn.Listen(1 << 20)
+	gs := grpc.NewServer()
+	acceleratorv1.RegisterAcceleratorCatalogServiceServer(gs, srv)
+	go gs.Serve(lis)
+	defer gs.Stop()
+	conn, err := grpc.DialContext(context.Background(), "passthrough:///acc", grpc.WithInsecure(), grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return lis.Dial() }))
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan.ResolutionDigest = digest
-	server := &catalogServer{plan: toProtoPlanForTest(plan)}
-	listener := bufconn.Listen(1 << 20)
-	grpcServer := grpc.NewServer()
-	acceleratorv1.RegisterAcceleratorCatalogServiceServer(grpcServer, server)
-	go func() { _ = grpcServer.Serve(listener) }()
-	t.Cleanup(func() { grpcServer.Stop(); _ = listener.Close() })
-	conn, err := grpc.DialContext(context.Background(), "passthrough:///accelerator", grpc.WithInsecure(), grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }))
+	defer conn.Close()
+	c := NewClientForCluster(acceleratorv1.NewAcceleratorCatalogServiceClient(conn), r.ClusterID)
+	got, err := c.Resolve(context.Background(), gpu.ResolveInput{TenantID: "tenant-1", RequestID: "request-1", Actor: "workload:caller", Request: r})
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = conn.Close() })
-	client := NewClientForCluster(acceleratorv1.NewAcceleratorCatalogServiceClient(conn), request.ClusterID)
-	got, err := client.Resolve(context.Background(), gpu.ResolveInput{TenantID: "tenant-1", RequestID: "request-1", Actor: "workload:caller", Request: request})
-	if err != nil {
-		t.Fatal(err)
+	if got.Execution.QueueName != "queue" || got.Display.ProfileID != r.ProfileID || srv.got.GetContext().GetTenantId() != "tenant-1" {
+		t.Fatalf("got=%+v req=%v", got, srv.got)
 	}
-	if got.ResolutionDigest != digest || got.Request.ClusterID != request.ClusterID {
-		t.Fatalf("mapped plan=%+v", got)
-	}
-	if server.got == nil || server.got.Context.GetTenantId() != "tenant-1" || server.got.Context.GetRequestId() != "request-1" || server.got.Context.GetActor().GetType() != "workload" || server.got.Context.GetActor().GetId() != "caller" {
-		t.Fatalf("request context=%v", server.got.GetContext())
-	}
-	if gotMD := server.md.Get("x-ani-action"); len(gotMD) != 1 || gotMD[0] != "ResolveGpuRequest" {
-		t.Fatalf("metadata=%v", server.md)
+	if srv.md.Get("x-ani-action")[0] != "ResolveGpuRequest" {
+		t.Fatal(srv.md)
 	}
 }
 
 type usageServer struct {
 	acceleratorv1.UnimplementedAcceleratorUsageServiceServer
 	got *acceleratorv1.ObserveReleaseRequest
-	md  metadata.MD
 }
 
-func (s *usageServer) ObserveRelease(ctx context.Context, req *acceleratorv1.ObserveReleaseRequest) (*acceleratorv1.ReleaseObservation, error) {
+func (s *usageServer) ObserveRelease(_ context.Context, req *acceleratorv1.ObserveReleaseRequest) (*acceleratorv1.ReleaseObservation, error) {
 	s.got = req
-	s.md, _ = metadata.FromIncomingContext(ctx)
-	return &acceleratorv1.ReleaseObservation{
-		EvidenceId:     "10000000-0000-4000-8000-000000000010",
-		Ref:            req.GetRef(),
-		Finding:        acceleratorv1.ReleaseFinding_ALLOCATION_RELEASED,
-		EvidenceDigest: "release-digest",
-	}, nil
+	return &acceleratorv1.ReleaseObservation{EvidenceId: "10000000-0000-4000-8000-000000000010", Finding: acceleratorv1.ReleaseFinding_ALLOCATION_RELEASED, EvidenceDigest: "release-digest"}, nil
 }
-
-func TestClientObservesGPUReleaseWithCompleteScopeAndIdentity(t *testing.T) {
-	server := &usageServer{}
-	listener := bufconn.Listen(1 << 20)
-	grpcServer := grpc.NewServer()
-	acceleratorv1.RegisterAcceleratorUsageServiceServer(grpcServer, server)
-	go func() { _ = grpcServer.Serve(listener) }()
-	t.Cleanup(func() { grpcServer.Stop(); _ = listener.Close() })
-	conn, err := grpc.DialContext(context.Background(), "passthrough:///accelerator", grpc.WithInsecure(), grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }))
+func TestClientObservesReleaseWithClusterAndSeal(t *testing.T) {
+	srv := &usageServer{}
+	lis := bufconn.Listen(1 << 20)
+	gs := grpc.NewServer()
+	acceleratorv1.RegisterAcceleratorUsageServiceServer(gs, srv)
+	go gs.Serve(lis)
+	defer gs.Stop()
+	conn, _ := grpc.DialContext(context.Background(), "passthrough:///acc", grpc.WithInsecure(), grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return lis.Dial() }))
+	defer conn.Close()
+	c := NewClientForCluster(acceleratorv1.NewAcceleratorCatalogServiceClient(conn), validGPURequest().ClusterID)
+	c.usage = acceleratorv1.NewAcceleratorUsageServiceClient(conn)
+	in := gpu.ReleaseObservationInput{TenantID: "tenant", RequestID: "request", Actor: "ani-inference:owner", ResourceID: "10000000-0000-4000-8000-000000000011", CreateOperationID: "10000000-0000-4000-8000-000000000012", OwnerService: "ani-inference", DeleteOperationID: "10000000-0000-4000-8000-000000000013", ClusterID: validGPURequest().ClusterID, SealedAt: "2026-10-18T00:00:00.000000000Z", Pods: []gpu.PodRef{{ClusterID: validGPURequest().ClusterID, Namespace: "ani-system", Name: "model-0", UID: "10000000-0000-4000-8000-000000000014", ContainerName: "kserve-container"}}}
+	got, err := c.ObserveRelease(context.Background(), in)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = conn.Close() })
-	client := NewClientForCluster(acceleratorv1.NewAcceleratorCatalogServiceClient(conn), validGPURequest().ClusterID)
-	client.usage = acceleratorv1.NewAcceleratorUsageServiceClient(conn)
-	got, err := client.ObserveRelease(context.Background(), gpu.ReleaseObservationInput{
-		TenantID: "tenant-1", RequestID: "request-1", Actor: "ani-inference:owner",
-		ResourceID: "10000000-0000-4000-8000-000000000011", CreateOperationID: "10000000-0000-4000-8000-000000000012",
-		OwnerService: "ani-inference", DeleteOperationID: "10000000-0000-4000-8000-000000000013",
-		ClusterID: validGPURequest().ClusterID,
-		Pods:      []gpu.PodRef{{ClusterID: validGPURequest().ClusterID, Namespace: "ani-system", Name: "model-0", UID: "10000000-0000-4000-8000-000000000014", ContainerName: "kserve-container"}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Finding != gpu.ReleaseFindingReleased || got.EvidenceID == "" || got.EvidenceDigest != "release-digest" {
-		t.Fatalf("observation=%+v", got)
-	}
-	if server.got == nil || server.got.GetRef().GetTenantId() != "tenant-1" || server.got.GetRef().GetOwnerService() != "ani-inference" || len(server.got.GetPods()) != 1 || server.got.GetPods()[0].GetUid() == "" {
-		t.Fatalf("request=%v", server.got)
-	}
-	if gotMD := server.md.Get("x-ani-action"); len(gotMD) != 1 || gotMD[0] != "ObserveRelease" {
-		t.Fatalf("metadata=%v", server.md)
-	}
-}
-
-func toProtoPlanForTest(plan *gpu.Plan) *acceleratorv1.ResolvedGpuPlan {
-	profileSpec := plan.Profile.Spec
-	labels := func(in []gpu.KeyValue) []*acceleratorv1.KeyValue {
-		out := make([]*acceleratorv1.KeyValue, 0, len(in))
-		for _, item := range in {
-			item := item
-			out = append(out, &acceleratorv1.KeyValue{Key: item.Key, Value: item.Value})
-		}
-		return out
-	}
-	return &acceleratorv1.ResolvedGpuPlan{
-		SchemaVersion:  plan.SchemaVersion,
-		Request:        toProtoRequest(plan.Request),
-		Profile:        &acceleratorv1.GpuProfile{ProfileId: plan.Profile.ProfileID, ProfileVersion: plan.Profile.ProfileVersion, Spec: &acceleratorv1.ProfileSpec{GroupId: profileSpec.GroupID, Mode: acceleratorv1.SupplyMode(profileSpec.Mode), ModelKey: profileSpec.ModelKey, SharedMemoryMib: profileSpec.SharedMemoryMiB, CoreLimitPercent: profileSpec.CoreLimitPercent, MaxDevicesPerReplica: profileSpec.MaxDevicesPerReplica, IsolationClass: profileSpec.IsolationClass}, BaselineId: plan.Profile.BaselineID, SpecDigest: plan.Profile.SpecDigest, Published: plan.Profile.Published},
-		Encoding:       &acceleratorv1.MemoryEncoding{MemoryBlockMib: plan.Encoding.MemoryBlockMiB, MemoryBlocksPerDevice: plan.Encoding.MemoryBlocksPerDevice, SharedMemoryMib: plan.Encoding.SharedMemoryMiB, MemoryPercentage: plan.Encoding.MemoryPercentage, Policy: plan.Encoding.Policy},
-		Totals:         &acceleratorv1.ResourceTotals{LogicalDeviceCount: plan.Totals.LogicalDeviceCount, ExclusiveDeviceCount: plan.Totals.ExclusiveDeviceCount, SharedMemoryMib: plan.Totals.SharedMemoryMiB},
-		Runtime:        &acceleratorv1.RuntimeFragment{SchedulerName: plan.Runtime.SchedulerName, QueueName: plan.Runtime.QueueName, NodeLabels: labels(plan.Runtime.NodeLabels), PodAnnotations: labels(plan.Runtime.PodAnnotations), LimitsPerContainer: labels(plan.Runtime.LimitsPerContainer), RuntimeClassName: plan.Runtime.RuntimeClassName, RecipeVersion: plan.Runtime.RecipeVersion},
-		BaselineDigest: plan.BaselineDigest, ResolutionDigest: plan.ResolutionDigest,
+	if got.Finding != gpu.ReleaseFindingReleased || srv.got.GetClusterId() != in.ClusterID || srv.got.GetSealedAt() != in.SealedAt {
+		t.Fatalf("got=%+v req=%v", got, srv.got)
 	}
 }

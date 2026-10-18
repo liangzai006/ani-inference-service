@@ -27,9 +27,9 @@ type releaseReporterFake struct {
 	notification gpu.ReleaseNotification
 }
 
-func (f *releaseReporterFake) ReportQuotaRelease(_ context.Context, notification gpu.ReleaseNotification) (gpu.ReleaseReceipt, error) {
+func (f *releaseReporterFake) ReportResourceReleased(_ context.Context, notification gpu.ReleaseNotification) error {
 	f.notification = notification
-	return gpu.ReleaseReceipt{}, nil
+	return nil
 }
 
 func TestManagedGPUReleaseRequiresAcceleratorEvidenceBeforeGovernance(t *testing.T) {
@@ -40,9 +40,7 @@ func TestManagedGPUReleaseRequiresAcceleratorEvidenceBeforeGovernance(t *testing
 		Contexts: &releaseContextStoreFake{original: gpu.RefundContext{
 			TenantID: "10000000-0000-4000-8000-000000000001", ResourceID: "10000000-0000-4000-8000-000000000002",
 			OriginalCreateOperationID: "10000000-0000-4000-8000-000000000003", DeleteOperationID: "10000000-0000-4000-8000-000000000004",
-			OwnerService: "ani-inference", MeteringVersion: "gpu-metering-v1",
-			GPUCharges: []gpu.OriginalCharge{{ChargeID: "10000000-0000-4000-8000-000000000005", QuotaCode: "gpu.physical.count", OriginalUnits: 1}},
-			Charges:    []gpu.OriginalCharge{{ChargeID: "10000000-0000-4000-8000-000000000005", QuotaCode: "gpu.physical.count", OriginalUnits: 1}},
+			OwnerService: "ani-inference", ClusterID: "10000000-0000-4000-8000-000000000006",
 		}},
 		Reporter: reporter,
 	}
@@ -58,7 +56,7 @@ func TestManagedGPUReleaseRequiresAcceleratorEvidenceBeforeGovernance(t *testing
 	if observer.input.DeleteOperationID != op.ID || len(observer.input.Pods) != 1 || reporter.notification.ReleaseEventID == "" {
 		t.Fatalf("observer=%+v notification=%+v", observer.input, reporter.notification)
 	}
-	if reporter.notification.Items[0].ReleasedTotal != 1 || reporter.notification.Reason != gpu.ResourceReleased {
+	if reporter.notification.CreateOperationID != op.ManagedGPUCreateOperationID || reporter.notification.ResourceID != op.ServiceID || reporter.notification.Reason != gpu.ResourceReleased {
 		t.Fatalf("notification=%+v", reporter.notification)
 	}
 }

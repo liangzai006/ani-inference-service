@@ -17,8 +17,8 @@ import (
 	"testing"
 	"time"
 
-	quotav1 "github.com/zhangzhe-ctrl/ani-governance/api/quota/gen/go/quota/service/v1"
 	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
+	quotav1 "github.com/zhangzhe-ctrl/ani-governance/api/quota/gen/go/quota/service/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -27,45 +27,23 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-type originalStore struct {
-	original gpu.RefundContext
-	err      error
-}
-
-func (s originalStore) LoadRefundContext(_ context.Context, tenant, resource, create string) (gpu.RefundContext, error) {
-	if s.err != nil {
-		return gpu.RefundContext{}, s.err
-	}
-	return s.original, nil
-}
-
-func refundInput(t *testing.T) (gpu.ReleaseNotification, gpu.RefundContext) {
-	t.Helper()
-	const tenant = "10000000-0000-4000-8000-000000000001"
-	const resource = "10000000-0000-4000-8000-000000000002"
-	const create = "10000000-0000-4000-8000-000000000003"
-	request := &gpu.Request{ClusterID: tenant, PoolID: resource, ProfileID: create, ProfileVersion: 1, Replicas: 1, DevicesPerReplica: 1, ContainerName: "kserve-container"}
-	plan := &gpu.Plan{SchemaVersion: 1, Request: request, Profile: &gpu.Profile{ProfileID: create, ProfileVersion: 1, Spec: &gpu.ProfileSpec{Mode: 2, SharedMemoryMiB: 1024}}, Encoding: &gpu.MemoryEncoding{MemoryBlockMiB: 256, MemoryBlocksPerDevice: 4, SharedMemoryMiB: 1024}, Totals: &gpu.ResourceTotals{LogicalDeviceCount: 1, SharedMemoryMiB: 1024}, Runtime: &gpu.RuntimeFragment{SchedulerName: "volcano"}}
-	digest, err := gpu.PlanDigest(plan)
-	if err != nil {
-		t.Fatal(err)
-	}
-	plan.ResolutionDigest = digest
-	charge := gpu.OriginalCharge{ChargeID: "10000000-0000-4000-8000-000000000004", QuotaCode: "gpu.shared_memory_mib", OriginalUnits: 1024}
-	original := gpu.RefundContext{TenantID: tenant, ResourceID: resource, OriginalCreateOperationID: create, DeleteOperationID: "10000000-0000-4000-8000-000000000005", OwnerService: "ani-inference", MeteringVersion: "gpu-metering-v1", Plan: plan, GPUCharges: []gpu.OriginalCharge{charge}, Charges: []gpu.OriginalCharge{charge}}
-	n := gpu.ReleaseNotification{TenantID: tenant, ResourceID: resource, OriginalCreateOperationID: create, ReleaseEventID: "10000000-0000-4000-8000-000000000006", Reason: gpu.ResourceReleased, Items: []gpu.ReleaseItem{{ChargeID: charge.ChargeID, QuotaCode: charge.QuotaCode, ReleasedTotal: 1024}}, ResourceRefs: []string{resource}}
-	return n, original
-}
-
 type releaseStub struct {
-	requests []*quotav1.ReportQuotaReleaseRequest
-	reply    *quotav1.ReportQuotaReleaseResponse
+	requests []*quotav1.ReportResourceReleasedRequest
+	reply    *quotav1.ReportResourceReleasedResponse
 	err      error
 	wait     bool
 }
 
 func (s *releaseStub) ReportQuotaRelease(ctx context.Context, req *quotav1.ReportQuotaReleaseRequest, _ ...grpc.CallOption) (*quotav1.ReportQuotaReleaseResponse, error) {
-	s.requests = append(s.requests, proto.Clone(req).(*quotav1.ReportQuotaReleaseRequest))
+	if s.wait {
+		<-ctx.Done()
+		return nil, status.FromContextError(ctx.Err()).Err()
+	}
+	return nil, s.err
+}
+
+func (s *releaseStub) ReportResourceReleased(ctx context.Context, req *quotav1.ReportResourceReleasedRequest, _ ...grpc.CallOption) (*quotav1.ReportResourceReleasedResponse, error) {
+	s.requests = append(s.requests, proto.Clone(req).(*quotav1.ReportResourceReleasedRequest))
 	if s.wait {
 		<-ctx.Done()
 		return nil, status.FromContextError(ctx.Err()).Err()
@@ -73,49 +51,45 @@ func (s *releaseStub) ReportQuotaRelease(ctx context.Context, req *quotav1.Repor
 	return s.reply, s.err
 }
 
-func TestClientValidatesContextAndStableRetryWithoutChangingEvent(t *testing.T) {
-	n, original := refundInput(t)
-	rpc := &releaseStub{reply: &quotav1.ReportQuotaReleaseResponse{Items: []*quotav1.QuotaReleaseResult{{ChargeId: n.Items[0].ChargeID, AppliedDelta: 1024, ReleasedTotal: 1024}}}}
-	client, err := NewClient(rpc, originalStore{original: original}, time.Second)
+func releaseNotification() gpu.ReleaseNotification {
+	return gpu.ReleaseNotification{ReleaseEventID: "10000000-0000-4000-8000-000000000001", CreateOperationID: "10000000-0000-4000-8000-000000000002", ResourceID: "10000000-0000-4000-8000-000000000003", Reason: gpu.ResourceReleased}
+}
+
+func TestClientReportsOnlyReleaseIdentityAndStableRetry(t *testing.T) {
+	n := releaseNotification()
+	rpc := &releaseStub{reply: &quotav1.ReportResourceReleasedResponse{}}
+	client, err := NewClient(rpc, nil, time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.ReportQuotaRelease(context.Background(), n); err != nil {
+	if err := client.ReportResourceReleased(context.Background(), n); err != nil {
 		t.Fatal(err)
 	}
-	rpc.reply.Items[0].AppliedDelta = 0
-	if _, err := client.ReportQuotaRelease(context.Background(), n); err != nil {
+	if err := client.ReportResourceReleased(context.Background(), n); err != nil {
 		t.Fatal(err)
 	}
-	if len(rpc.requests) != 2 || !proto.Equal(rpc.requests[0], rpc.requests[1]) || rpc.requests[0].OperationId != original.OriginalCreateOperationID || rpc.requests[0].Items[0].ReleasedTotal != 1024 {
-		t.Fatalf("retry changed original notification: %v", rpc.requests)
+	if len(rpc.requests) != 2 || !proto.Equal(rpc.requests[0], rpc.requests[1]) || rpc.requests[0].CreateOperationId != n.CreateOperationID || rpc.requests[0].ReleaseEventId != n.ReleaseEventID || rpc.requests[0].ResourceId != n.ResourceID {
+		t.Fatalf("retry changed release identity: %v", rpc.requests)
 	}
-	n.Items[0].ReleasedTotal = original.Plan.Encoding.MemoryBlocksPerDevice
-	if _, err := client.ReportQuotaRelease(context.Background(), n); !errors.Is(err, gpu.ErrInvalidRefund) || len(rpc.requests) != 2 {
-		t.Fatalf("invalid units reached Governance: %v", err)
+	bad := n
+	bad.ResourceID = ""
+	if err := client.ReportResourceReleased(context.Background(), bad); !errors.Is(err, gpu.ErrInvalidRefund) || len(rpc.requests) != 2 {
+		t.Fatalf("invalid identity reached Governance: %v", err)
 	}
 }
 
-func TestClientPropagatesLookupRPCAndIncompleteResponseErrors(t *testing.T) {
-	n, original := refundInput(t)
-	lookupErr := errors.New("persistent snapshot unavailable")
-	client, _ := NewClient(&releaseStub{}, originalStore{err: lookupErr}, time.Second)
-	if _, err := client.ReportQuotaRelease(context.Background(), n); !errors.Is(err, lookupErr) {
-		t.Fatalf("lookup error lost: %v", err)
-	}
+func TestClientPropagatesRPCAndTimeoutErrors(t *testing.T) {
+	n := releaseNotification()
 	rpc := &releaseStub{err: status.Error(codes.Unavailable, "receiver unavailable")}
-	client, _ = NewClient(rpc, originalStore{original: original}, time.Second)
-	if _, err := client.ReportQuotaRelease(context.Background(), n); status.Code(err) != codes.Unavailable {
+	client, _ := NewClient(rpc, nil, time.Second)
+	if err := client.ReportResourceReleased(context.Background(), n); status.Code(err) != codes.Unavailable {
 		t.Fatalf("RPC error lost: %v", err)
 	}
 	rpc.err = nil
-	rpc.reply = &quotav1.ReportQuotaReleaseResponse{}
-	if _, err := client.ReportQuotaRelease(context.Background(), n); !errors.Is(err, gpu.ErrInvalidRefund) {
-		t.Fatalf("missing result accepted: %v", err)
-	}
+	rpc.reply = &quotav1.ReportResourceReleasedResponse{}
 	rpc.wait = true
 	client.timeout = 10 * time.Millisecond
-	if _, err := client.ReportQuotaRelease(context.Background(), n); status.Code(err) != codes.DeadlineExceeded {
+	if err := client.ReportResourceReleased(context.Background(), n); status.Code(err) != codes.DeadlineExceeded {
 		t.Fatalf("fixed timeout not enforced: %v", err)
 	}
 }
@@ -123,37 +97,41 @@ func TestClientPropagatesLookupRPCAndIncompleteResponseErrors(t *testing.T) {
 type mtlsReleaseServer struct {
 	quotav1.UnimplementedQuotaReleaseServiceServer
 	mu       sync.Mutex
-	requests []*quotav1.ReportQuotaReleaseRequest
+	requests []*quotav1.ReportResourceReleasedRequest
 }
 
 func (s *mtlsReleaseServer) ReportQuotaRelease(ctx context.Context, req *quotav1.ReportQuotaReleaseRequest) (*quotav1.ReportQuotaReleaseResponse, error) {
-	p, ok := peer.FromContext(ctx)
-	if !ok {
-		return nil, status.Error(codes.Unauthenticated, "missing TLS")
+	if err := s.checkTLS(ctx); err != nil {
+		return nil, err
 	}
-	info, ok := p.AuthInfo.(credentials.TLSInfo)
-	if !ok || info.State.Version != tls.VersionTLS13 || len(info.State.VerifiedChains) == 0 {
-		return nil, status.Error(codes.Unauthenticated, "verified TLS1.3 required")
-	}
-	if names := info.State.PeerCertificates[0].DNSNames; len(names) != 1 || names[0] != "inference.refund.test.invalid" {
-		return nil, status.Error(codes.PermissionDenied, "wrong owner DNS SAN")
+	return &quotav1.ReportQuotaReleaseResponse{}, nil
+}
+
+func (s *mtlsReleaseServer) ReportResourceReleased(ctx context.Context, req *quotav1.ReportResourceReleasedRequest) (*quotav1.ReportResourceReleasedResponse, error) {
+	if err := s.checkTLS(ctx); err != nil {
+		return nil, err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.requests = append(s.requests, proto.Clone(req).(*quotav1.ReportQuotaReleaseRequest))
-	out := &quotav1.ReportQuotaReleaseResponse{}
-	for _, it := range req.Items {
-		delta := it.ReleasedTotal
-		if len(s.requests) > 1 {
-			delta = 0
-		}
-		out.Items = append(out.Items, &quotav1.QuotaReleaseResult{ChargeId: it.ChargeId, AppliedDelta: delta, ReleasedTotal: it.ReleasedTotal})
-	}
-	return out, nil
+	s.requests = append(s.requests, proto.Clone(req).(*quotav1.ReportResourceReleasedRequest))
+	return &quotav1.ReportResourceReleasedResponse{ReleaseEventId: req.ReleaseEventId, CreateOperationId: req.CreateOperationId, ResourceId: req.ResourceId, Status: quotav1.ResourceReleaseStatus_APPLIED}, nil
 }
 
-// These isolated certificates exercise the real TLS-only adapter transport.
-// The root suite separately calls the actual Governance receiver and PG ledger.
+func (s *mtlsReleaseServer) checkTLS(ctx context.Context) error {
+	p, ok := peer.FromContext(ctx)
+	if !ok {
+		return status.Error(codes.Unauthenticated, "missing TLS")
+	}
+	info, ok := p.AuthInfo.(credentials.TLSInfo)
+	if !ok || info.State.Version != tls.VersionTLS13 || len(info.State.VerifiedChains) == 0 {
+		return status.Error(codes.Unauthenticated, "verified TLS1.3 required")
+	}
+	if names := info.State.PeerCertificates[0].DNSNames; len(names) != 1 || names[0] != "inference.refund.test.invalid" {
+		return status.Error(codes.PermissionDenied, "wrong owner DNS SAN")
+	}
+	return nil
+}
+
 func testCertificate(t *testing.T, directory, name string, serial int64, ca *x509.Certificate, caKey ed25519.PrivateKey, server bool) (tls.Certificate, *x509.Certificate, ed25519.PrivateKey, string, string) {
 	t.Helper()
 	pub, key, err := ed25519.GenerateKey(rand.Reader)
@@ -214,25 +192,20 @@ func TestDialUsesRealMutualTLSAndRejectsWrongCANameAndOwner(t *testing.T) {
 	quotav1.RegisterQuotaReleaseServiceServer(srv, rpc)
 	go func() { _ = srv.Serve(listener) }()
 	t.Cleanup(func() { srv.Stop(); _ = listener.Close() })
-	n, original := refundInput(t)
+	n := releaseNotification()
 	cfg := Config{Endpoint: listener.Addr().String(), Timeout: time.Second, TLS: TLSConfig{CAFile: caFile, CertFile: clientCert, KeyFile: clientKey, ServerName: "quota.refund.test.invalid"}}
-	client, closeClient, err := Dial(context.Background(), cfg, originalStore{original: original})
+	client, closeClient, err := Dial(context.Background(), cfg, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = closeClient() })
-	first, err := client.ReportQuotaRelease(context.Background(), n)
-	if err != nil || first.Items[0].AppliedDelta != 1024 {
-		t.Fatalf("mTLS first receipt=%v err=%v", first, err)
-	}
-	replay, err := client.ReportQuotaRelease(context.Background(), n)
-	if err != nil || replay.Items[0].AppliedDelta != 0 {
-		t.Fatalf("mTLS replay=%v err=%v", replay, err)
+	if err := client.ReportResourceReleased(context.Background(), n); err != nil {
+		t.Fatalf("mTLS release report: %v", err)
 	}
 	bad := cfg
 	bad.Timeout = 50 * time.Millisecond
 	bad.TLS.ServerName = "wrong.refund.test.invalid"
-	if c, closeBad, err := Dial(context.Background(), bad, originalStore{original: original}); err == nil {
+	if c, closeBad, err := Dial(context.Background(), bad, nil); err == nil {
 		_ = closeBad()
 		_ = c
 		t.Fatal("wrong server name accepted")
@@ -241,7 +214,7 @@ func TestDialUsesRealMutualTLSAndRejectsWrongCANameAndOwner(t *testing.T) {
 	bad = cfg
 	bad.Timeout = 50 * time.Millisecond
 	bad.TLS.CAFile = otherCA
-	if _, closeBad, err := Dial(context.Background(), bad, originalStore{original: original}); err == nil {
+	if _, closeBad, err := Dial(context.Background(), bad, nil); err == nil {
 		_ = closeBad()
 		t.Fatal("wrong CA accepted")
 	}
@@ -249,12 +222,12 @@ func TestDialUsesRealMutualTLSAndRejectsWrongCANameAndOwner(t *testing.T) {
 	bad = cfg
 	bad.TLS.CertFile = wrongCert
 	bad.TLS.KeyFile = wrongKey
-	wrong, closeWrong, err := Dial(context.Background(), bad, originalStore{original: original})
+	wrong, closeWrong, err := Dial(context.Background(), bad, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer closeWrong()
-	if _, err := wrong.ReportQuotaRelease(context.Background(), n); status.Code(err) != codes.PermissionDenied {
+	if err := wrong.ReportResourceReleased(context.Background(), n); status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("wrong owner accepted: %v", err)
 	}
 }

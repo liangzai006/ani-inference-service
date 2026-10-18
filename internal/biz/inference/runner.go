@@ -39,10 +39,10 @@ type OperationContext struct {
 	Reservation         quota.Reservation
 	PreviousReservation quota.Reservation
 	Publication         publication.Publication
-	// GPURequest and GPUPlan are loaded from the immutable target generation.
+	// GPURequest and GPUSnapshot are loaded from the immutable target generation.
 	// A plan is only present after StepResolveGPU has durably saved it.
 	GPURequest                  *gpu.Request
-	GPUPlan                     *gpu.Plan
+	GPUSnapshot                 *gpu.Snapshot
 	ManagedGPU                  bool
 	ManagedGPUCreateOperationID string
 	ManagedGPUReleasePods       []gpu.PodRef
@@ -109,11 +109,11 @@ type ModelObservationStore interface {
 	SaveModelObservation(context.Context, OperationContext, ModelObservation) error
 }
 
-// GPUPlanStore durably saves the accelerator result behind the operation
+// GPUSnapshotStore durably saves the accelerator result behind the operation
 // lease/generation fence. It is only needed when resource.gpu is present; a
 // requested GPU operation fails closed when the store does not implement it.
-type GPUPlanStore interface {
-	SaveGPUPlan(context.Context, OperationContext, *gpu.Plan) error
+type GPUSnapshotStore interface {
+	SaveGPUSnapshot(context.Context, OperationContext, *gpu.Snapshot) error
 }
 
 // AtomicStepStore is an optional stronger adapter. Production PostgreSQL
@@ -152,7 +152,7 @@ type ModelPort interface {
 // GPUResolver resolves the request through the accelerator service. The
 // resolver is never contacted for an operation without resource.gpu.
 type GPUResolver interface {
-	ResolveGPU(context.Context, OperationContext) (*gpu.Plan, error)
+	ResolveGPU(context.Context, OperationContext) (*gpu.Snapshot, error)
 }
 
 type RuntimePort interface {
@@ -349,12 +349,12 @@ func (r *Runner) runStep(ctx context.Context, op OperationContext) (stepResult, 
 		if err := gpu.ValidateTopology(op.GPURequest, op.Replicas, op.RuntimeMode, op.WorkerReplicas); err != nil {
 			return stepResult{}, fmt.Errorf("validate GPU request: %w", err)
 		}
-		if op.GPUPlan != nil {
-			validate := gpu.ValidatePlan
+		if op.GPUSnapshot != nil {
+			validate := gpu.ValidateSnapshot
 			if op.ManagedGPU {
-				validate = gpu.ValidateManagedPlan
+				validate = gpu.ValidateSnapshot
 			}
-			if err := validate(op.GPUPlan, op.GPURequest); err != nil {
+			if err := validate(op.GPUSnapshot, op.GPURequest); err != nil {
 				return stepResult{}, fmt.Errorf("validate persisted GPU plan: %w", err)
 			}
 			return stepResult{phase: OperationRunning, step: string(StepApplyCR), event: "gpu.reused"}, nil
@@ -365,7 +365,7 @@ func (r *Runner) runStep(ctx context.Context, op OperationContext) (stepResult, 
 		if r.GPU == nil {
 			return stepResult{}, fmt.Errorf("%w: GPU resolver", ErrOperationProviderMissing)
 		}
-		store, ok := r.Store.(GPUPlanStore)
+		store, ok := r.Store.(GPUSnapshotStore)
 		if !ok {
 			return stepResult{}, fmt.Errorf("%w: GPU plan store", ErrOperationProviderMissing)
 		}
@@ -376,10 +376,10 @@ func (r *Runner) runStep(ctx context.Context, op OperationContext) (stepResult, 
 		if err := gpu.ValidateTopology(op.GPURequest, op.Replicas, op.RuntimeMode, op.WorkerReplicas); err != nil {
 			return stepResult{}, fmt.Errorf("validate GPU request: %w", err)
 		}
-		if err := gpu.ValidatePlan(plan, op.GPURequest); err != nil {
+		if err := gpu.ValidateSnapshot(plan, op.GPURequest); err != nil {
 			return stepResult{}, fmt.Errorf("validate resolved GPU plan: %w", err)
 		}
-		if err := store.SaveGPUPlan(ctx, op, plan); err != nil {
+		if err := store.SaveGPUSnapshot(ctx, op, plan); err != nil {
 			return stepResult{}, err
 		}
 		return stepResult{phase: OperationRunning, step: string(StepApplyCR), event: "gpu.resolved"}, nil

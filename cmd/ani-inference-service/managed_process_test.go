@@ -148,7 +148,7 @@ func TestInspectManagedOwnerProjection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !desired.ManagedGPU || desired.GPUPlan == nil || desired.Resources.GPU == nil {
+	if !desired.ManagedGPU || desired.GPUSnapshot == nil || desired.Resources.GPU == nil {
 		t.Fatal("projection requires an actual accepted managed GPU generation")
 	}
 	var tenantUUID, resourceUUID pgtype.UUID
@@ -166,7 +166,7 @@ func TestInspectManagedOwnerProjection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(original.Plan, desired.GPUPlan) {
+	if !reflect.DeepEqual(original.Snapshot, desired.GPUSnapshot) {
 		t.Fatal("runtime GPU plan differs from the accepted original command context")
 	}
 	object, err := kubernetes.RenderKServeRuntime(desired.RuntimeSpec)

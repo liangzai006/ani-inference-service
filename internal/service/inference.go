@@ -189,7 +189,10 @@ func (s *InferenceServer) ReportManagedGPUCompletion(ctx context.Context, notifi
 	if s == nil || s.refund == nil {
 		return gpubiz.ReleaseReceipt{}, errors.New("managed GPU refund reporter is not configured")
 	}
-	return s.refund.ReportQuotaRelease(ctx, notification)
+	if err := s.refund.ReportResourceReleased(ctx, notification); err != nil {
+		return gpubiz.ReleaseReceipt{}, err
+	}
+	return gpubiz.ReleaseReceipt{}, nil
 }
 
 func NewInferenceServer(create ...CreateUseCase) *InferenceServer {
@@ -530,8 +533,8 @@ func (s *InferenceServer) CreateInferenceService(ctx context.Context, req *infer
 		if err != nil {
 			return nil, err
 		}
-	} else if req.GetGpuOwnerAttachment() != nil || len(req.GetOriginalCharges()) != 0 {
-		return nil, status.Error(codes.InvalidArgument, "GPU attachment requires resource.gpu")
+	} else if req.GetContext() != nil || req.GetGpuExecution() != nil || req.GetGpuDisplay() != nil || req.GetClusterId() != "" {
+		return nil, status.Error(codes.InvalidArgument, "frozen GPU context requires resource.gpu")
 	}
 	canonical := proto.Clone(req).(*inferencev1.CreateInferenceServiceRequest)
 	canonical.Resource = &inferencev1.ResourceSpec{Requests: normalized.Requests, Limits: normalized.Limits, Gpu: gpuProto(normalized.GPU)}
@@ -557,9 +560,11 @@ func (s *InferenceServer) CreateInferenceService(ctx context.Context, req *infer
 	}
 	in := CreateInput{TenantID: tenantID, RequestID: req.GetRequestId(), Actor: Actor(ctx), Name: req.GetName(), ModelVersionID: req.GetModelVersionId(), ArtifactProvider: artifactProvider, ArtifactRef: artifactRef, ArtifactSHA256: artifactSHA, ImageRef: image, ServedModelName: req.GetServedModelName(), EngineRuntime: engineRuntime, RuntimeProvider: provider, EngineCommand: engineCommand, Resources: normalized, Replicas: req.GetReplicas(), WorkerReplicas: workers, RuntimeMode: mode, Endpoint: endpointInput(req.GetRuntime().GetEndpoint()), RequestHash: hashBytes(encoded), ManagedGPU: managed}
 	if managed != nil {
-		in.GPUPlan, in.GPUPlanDigest = managed.Context.Plan, managed.Context.Plan.ResolutionDigest
+		in.GPUSnapshot = managed.Context.Snapshot
+		if managed.Context.Snapshot != nil {
+			in.GPUSnapshotDigest, _ = gpubiz.SnapshotDigest(managed.Context.Snapshot)
+		}
 		in.RequestHash = hashBytes(managed.Payload)
-		in.Actor = req.GetGpuOwnerAttachment().GetActor().GetType() + ":" + req.GetGpuOwnerAttachment().GetActor().GetId()
 	}
 	out, err := s.create.Create(ctx, in)
 	if err != nil {

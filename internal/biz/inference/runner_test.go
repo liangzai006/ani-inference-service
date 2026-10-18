@@ -23,7 +23,7 @@ type runnerStore struct {
 	observations []RuntimeObservation
 	models       []ModelObservation
 	modelStarted int
-	gpuPlans     []*gpu.Plan
+	gpuPlans     []*gpu.Snapshot
 }
 
 type sequencedRunnerStore struct{ runnerStore }
@@ -74,9 +74,9 @@ func (s *runnerStore) MarkModelMaterializing(context.Context, OperationContext) 
 	s.modelStarted++
 	return nil
 }
-func (s *runnerStore) SaveGPUPlan(_ context.Context, op OperationContext, plan *gpu.Plan) error {
+func (s *runnerStore) SaveGPUSnapshot(_ context.Context, op OperationContext, plan *gpu.Snapshot) error {
 	s.gpuPlans = append(s.gpuPlans, plan)
-	s.op.GPUPlan = plan
+	s.op.GPUSnapshot = plan
 	return nil
 }
 
@@ -152,11 +152,11 @@ type runnerModel struct {
 }
 
 type runnerGPU struct {
-	plan  *gpu.Plan
+	plan  *gpu.Snapshot
 	calls int
 }
 
-func (r *runnerGPU) ResolveGPU(context.Context, OperationContext) (*gpu.Plan, error) {
+func (r *runnerGPU) ResolveGPU(context.Context, OperationContext) (*gpu.Snapshot, error) {
 	r.calls++
 	return r.plan, nil
 }
@@ -210,18 +210,9 @@ func validGPURequest() *gpu.Request {
 	}
 }
 
-func validGPUPlan(t *testing.T, request *gpu.Request) *gpu.Plan {
+func validGPUPlan(t *testing.T, request *gpu.Request) *gpu.Snapshot {
 	t.Helper()
-	plan := &gpu.Plan{SchemaVersion: 1, Request: request,
-		Profile:  &gpu.Profile{ProfileID: request.ProfileID, ProfileVersion: request.ProfileVersion, Spec: &gpu.ProfileSpec{}},
-		Encoding: &gpu.MemoryEncoding{}, Totals: &gpu.ResourceTotals{},
-		Runtime: &gpu.RuntimeFragment{SchedulerName: "volcano", QueueName: "queue"}}
-	digest, err := gpu.PlanDigest(plan)
-	if err != nil {
-		t.Fatal(err)
-	}
-	plan.ResolutionDigest = digest
-	return plan
+	return &gpu.Snapshot{Request: request, Execution: &gpu.Execution{SchedulerName: "volcano", QueueName: "queue", ExecutionDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, Display: &gpu.Display{ProfileID: request.ProfileID, ProfileVersion: request.ProfileVersion, ProfileName: "shared", ModelKey: "model", Mode: 2}, ExecutionDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
 }
 
 func TestRunnerSkipsGPUResolverWhenRequestOmitted(t *testing.T) {
@@ -254,7 +245,7 @@ func TestRunnerPersistsAndReusesGPUPlanAcrossRetry(t *testing.T) {
 	}
 	// Simulate a worker crash after the immutable save and before the step CAS.
 	store.op.Step = string(StepResolveGPU)
-	store.op.GPUPlan = plan
+	store.op.GPUSnapshot = plan
 	store.advanced = nil
 	if _, err := runner.Execute(context.Background(), item()); err != nil {
 		t.Fatalf("retry Execute error=%v", err)

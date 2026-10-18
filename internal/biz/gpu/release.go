@@ -24,7 +24,7 @@ type PodRef struct {
 type ReleaseObservationInput struct {
 	TenantID, RequestID, Actor                                     string
 	ResourceID, CreateOperationID, OwnerService, DeleteOperationID string
-	ClusterID                                                      string
+	ClusterID, SealedAt                                            string
 	Pods                                                           []PodRef
 }
 
@@ -55,14 +55,11 @@ func ValidateReleaseObservationInput(in ReleaseObservationInput) error {
 		"tenant_id": in.TenantID, "request_id": in.RequestID, "actor": in.Actor,
 		"resource_id": in.ResourceID, "create_operation_id": in.CreateOperationID,
 		"owner_service": in.OwnerService, "delete_operation_id": in.DeleteOperationID,
-		"cluster_id": in.ClusterID,
+		"cluster_id": in.ClusterID, "sealed_at": in.SealedAt,
 	} {
 		if strings.TrimSpace(value) == "" {
 			return fmt.Errorf("%s is required", name)
 		}
-	}
-	if len(in.Pods) == 0 {
-		return fmt.Errorf("at least one GPU Pod reference is required")
 	}
 	seen := make(map[string]struct{}, len(in.Pods))
 	for _, pod := range in.Pods {

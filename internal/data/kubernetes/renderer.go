@@ -44,9 +44,9 @@ type RuntimeSpec struct {
 	Endpoint                   *EndpointSpec
 	// ModelClaim names a PVC populated and verified by the materializer.
 	ModelClaim string
-	// GPUPlan is an immutable accelerator resolution. GPU requests are invalid
+	// GPUSnapshot is an immutable accelerator resolution. GPU requests are invalid
 	// unless this plan is present and validated before rendering.
-	GPUPlan *gpu.Plan
+	GPUSnapshot *gpu.Snapshot
 	// ManagedGPU is read from the accepted Governance command, never inferred
 	// from a GPU quantity or an unsigned runtime request.
 	ManagedGPU bool

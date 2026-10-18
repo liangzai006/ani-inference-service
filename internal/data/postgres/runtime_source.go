@@ -98,24 +98,25 @@ func (s *RuntimeSource) CurrentRuntime(ctx context.Context, tenantID, serviceID 
 	if err != nil {
 		return kube.DesiredRuntime{}, err
 	}
-	var gpuPlan *gpu.Plan
+	var gpuPlan *gpu.Snapshot
 	if len(row.GpuPlan) > 0 {
-		gpuPlan = new(gpu.Plan)
-		if err := json.Unmarshal(row.GpuPlan, gpuPlan); err != nil {
-			return kube.DesiredRuntime{}, fmt.Errorf("decode gpu plan: %w", err)
+		var err error
+		gpuPlan, err = decodePersistedGPUSnapshot(row.GpuPlan, resourceSpec.GPU)
+		if err != nil {
+			return kube.DesiredRuntime{}, fmt.Errorf("decode gpu snapshot: %w", err)
 		}
-		if row.GpuPlanDigest.Valid && gpuPlan.ResolutionDigest != row.GpuPlanDigest.String {
+		if row.GpuPlanDigest.Valid && gpuPlan.ExecutionDigest != row.GpuPlanDigest.String {
 			return kube.DesiredRuntime{}, fmt.Errorf("GPU plan digest does not match persisted digest")
 		}
 		if resourceSpec.GPU == nil {
 			return kube.DesiredRuntime{}, fmt.Errorf("GPU plan has no GPU request")
 		}
-		if err := gpu.ValidatePlan(gpuPlan, resourceSpec.GPU); err != nil {
+		if err := gpu.ValidateSnapshot(gpuPlan, resourceSpec.GPU); err != nil {
 			return kube.DesiredRuntime{}, err
 		}
 	}
 	if managed.Managed {
-		if err := gpu.ValidateManagedPlan(gpuPlan, resourceSpec.GPU); err != nil {
+		if err := gpu.ValidateSnapshot(gpuPlan, resourceSpec.GPU); err != nil {
 			return kube.DesiredRuntime{}, fmt.Errorf("invalid accepted Governance GPU snapshot: %w", err)
 		}
 	}
@@ -190,7 +191,7 @@ func (s *RuntimeSource) CurrentRuntime(ctx context.Context, tenantID, serviceID 
 			Namespace: s.Namespace, Image: row.ImageRef, ModelVersionID: row.ModelVersionID.String(), ArtifactProvider: row.ArtifactProvider, ArtifactRef: row.ArtifactRef, ArtifactSHA256: row.ArtifactSha256, ServedModelName: row.ServedModelName, EngineRuntime: row.EngineRuntime, Generation: generation,
 			EngineCommand: command, Resources: normalized, Replicas: row.Replicas,
 			WorkerReplicas: workers, RuntimeMode: mode,
-			GPUPlan: gpuPlan, ManagedGPU: managed.Managed,
+			GPUSnapshot: gpuPlan, ManagedGPU: managed.Managed,
 			Endpoint: endpoint,
 		},
 		Bindings:        owned,
@@ -205,4 +206,61 @@ func (s *RuntimeSource) CurrentRuntime(ctx context.Context, tenantID, serviceID 
 		result.ModelClaim = kube.ModelClaimName(result.RuntimeSpec)
 	}
 	return result, nil
+}
+
+// decodePersistedGPUSnapshot reads the current Execution/Display JSON and
+// performs a one-way compatibility conversion for rows written before Task 3.
+// The compatibility shape is local to the PostgreSQL adapter: no retired ACC
+// protobuf or domain type is imported, and all newly persisted rows use the
+// current Snapshot shape.
+func decodePersistedGPUSnapshot(raw []byte, request *gpu.Request) (*gpu.Snapshot, error) {
+	current := new(gpu.Snapshot)
+	if err := json.Unmarshal(raw, current); err == nil && current.Request != nil && current.Execution != nil && current.Display != nil {
+		return current, nil
+	}
+	var legacy struct {
+		Request *gpu.Request `json:"request"`
+		Profile struct {
+			ProfileID      string `json:"profile_id"`
+			ProfileVersion uint64 `json:"profile_version"`
+			DisplayName    string `json:"display_name"`
+			Spec           struct {
+				Mode     int32  `json:"mode"`
+				ModelKey string `json:"model_key"`
+			} `json:"spec"`
+		} `json:"profile"`
+		Runtime struct {
+			SchedulerName    string                        `json:"scheduler_name"`
+			QueueName        string                        `json:"queue_name"`
+			RuntimeClassName string                        `json:"runtime_class_name"`
+			NodeLabels       []struct{ Key, Value string } `json:"node_labels"`
+			PodAnnotations   []struct{ Key, Value string } `json:"pod_annotations"`
+			Limits           []struct{ Key, Value string } `json:"limits_per_container"`
+		} `json:"runtime"`
+		ResolutionDigest string `json:"resolution_digest"`
+	}
+	if err := json.Unmarshal(raw, &legacy); err != nil {
+		return nil, err
+	}
+	if legacy.Request == nil {
+		legacy.Request = request
+	}
+	if legacy.Request == nil || legacy.Profile.ProfileID == "" || legacy.Profile.Spec.ModelKey == "" || legacy.ResolutionDigest == "" {
+		return nil, errors.New("unsupported persisted GPU snapshot")
+	}
+	toMap := func(items []struct{ Key, Value string }) map[string]string {
+		out := make(map[string]string, len(items))
+		for _, item := range items {
+			if item.Key != "" {
+				out[item.Key] = item.Value
+			}
+		}
+		return out
+	}
+	return &gpu.Snapshot{
+		Request:         legacy.Request,
+		Execution:       &gpu.Execution{SchedulerName: legacy.Runtime.SchedulerName, QueueName: legacy.Runtime.QueueName, RuntimeClassName: legacy.Runtime.RuntimeClassName, NodeSelector: toMap(legacy.Runtime.NodeLabels), PodAnnotations: toMap(legacy.Runtime.PodAnnotations), Resources: toMap(legacy.Runtime.Limits), ExecutionDigest: legacy.ResolutionDigest},
+		Display:         &gpu.Display{ProfileID: legacy.Profile.ProfileID, ProfileVersion: legacy.Profile.ProfileVersion, ProfileName: legacy.Profile.DisplayName, ModelKey: legacy.Profile.Spec.ModelKey, Mode: legacy.Profile.Spec.Mode},
+		ExecutionDigest: legacy.ResolutionDigest,
+	}, nil
 }

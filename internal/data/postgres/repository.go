@@ -32,8 +32,8 @@ type CreateAggregateInput struct {
 	ServedModelName, EngineRuntime           string
 	RuntimeProvider                          string
 	EngineJSON, Resources, SpecJSON          []byte
-	GPURequest, GPUPlan                      []byte
-	GPUPlanDigest                            string
+	GPURequest, GPUSnapshot                  []byte
+	GPUSnapshotDigest                        string
 	Replicas, WorkerReplicas                 int32
 	RuntimeMode                              string
 	RequestHash                              string
@@ -160,7 +160,7 @@ func (r *Repository) CreateService(ctx context.Context, in CreateAggregateInput)
 	q := New(tx)
 	if in.ManagedGPU != nil {
 		original := in.ManagedGPU.Context
-		if original.TenantID != in.TenantID || original.ResourceID != serviceID.String() || original.OriginalCreateOperationID != opID.String() || len(in.ResponseSnapshot) == 0 || len(in.GPUPlan) == 0 {
+		if original.TenantID != in.TenantID || original.ResourceID != serviceID.String() || original.OriginalCreateOperationID != opID.String() || len(in.ResponseSnapshot) == 0 || len(in.GPUSnapshot) == 0 {
 			return CreateAggregateResult{}, inferencebiz.ErrInvalidState
 		}
 		accepted, e := prepareManagedGPU(ctx, tx, in.ManagedGPU, "create", opID.String())
@@ -218,7 +218,7 @@ func (r *Repository) CreateService(ctx context.Context, in CreateAggregateInput)
 		return CreateAggregateResult{}, err
 	}
 	endpointContainerPort, endpointServicePort, endpointTargetPort, endpointProtocol := endpointParams(&in)
-	if err = q.InsertSpec(ctx, InsertSpecParams{TenantID: tenant, ID: specID, ServiceID: serviceID, Generation: generation, ModelID: modelID, ModelVersionID: modelVersionID, ArtifactProvider: in.ArtifactProvider, ArtifactRef: in.ArtifactRef, ArtifactSha256: in.ArtifactSHA256, ImageRef: in.ImageRef, ServedModelName: in.ServedModelName, EngineRuntime: in.EngineRuntime, CommandArgv: jsonOrEmpty(in.EngineJSON, []byte(`{"command":""}`)), Resources: jsonOrEmpty(in.Resources, []byte("{}")), Replicas: replicas, RuntimeMode: runtimeMode, WorkerReplicas: workerReplicas, RuntimeProvider: runtimeProvider, SpecJson: jsonOrEmpty(in.SpecJSON, []byte("{}")), EndpointContainerPort: endpointContainerPort, EndpointServicePort: endpointServicePort, EndpointTargetPort: endpointTargetPort, EndpointProtocol: endpointProtocol, GpuRequest: in.GPURequest, GpuPlan: in.GPUPlan, GpuPlanDigest: pgtype.Text{String: in.GPUPlanDigest, Valid: in.GPUPlanDigest != ""}}); err != nil {
+	if err = q.InsertSpec(ctx, InsertSpecParams{TenantID: tenant, ID: specID, ServiceID: serviceID, Generation: generation, ModelID: modelID, ModelVersionID: modelVersionID, ArtifactProvider: in.ArtifactProvider, ArtifactRef: in.ArtifactRef, ArtifactSha256: in.ArtifactSHA256, ImageRef: in.ImageRef, ServedModelName: in.ServedModelName, EngineRuntime: in.EngineRuntime, CommandArgv: jsonOrEmpty(in.EngineJSON, []byte(`{"command":""}`)), Resources: jsonOrEmpty(in.Resources, []byte("{}")), Replicas: replicas, RuntimeMode: runtimeMode, WorkerReplicas: workerReplicas, RuntimeProvider: runtimeProvider, SpecJson: jsonOrEmpty(in.SpecJSON, []byte("{}")), EndpointContainerPort: endpointContainerPort, EndpointServicePort: endpointServicePort, EndpointTargetPort: endpointTargetPort, EndpointProtocol: endpointProtocol, GpuRequest: in.GPURequest, GpuPlan: in.GPUSnapshot, GpuPlanDigest: pgtype.Text{String: in.GPUSnapshotDigest, Valid: in.GPUSnapshotDigest != ""}}); err != nil {
 		return CreateAggregateResult{}, err
 	}
 	if err = q.InsertRuntime(ctx, InsertRuntimeParams{TenantID: tenant, ServiceID: serviceID, Generation: generation, RuntimeMode: runtimeMode}); err != nil {

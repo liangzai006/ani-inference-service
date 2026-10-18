@@ -34,16 +34,16 @@ func (u *UpdateUseCase) Update(ctx context.Context, in inferencebiz.UpdateInput)
 	if err != nil {
 		return nil, err
 	}
-	gpuPlanJSON, err := json.Marshal(in.GPUPlan)
-	if in.GPUPlan == nil {
+	gpuPlanJSON, err := json.Marshal(in.GPUSnapshot)
+	if in.GPUSnapshot == nil {
 		gpuPlanJSON = nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	gpuPlanDigest := in.GPUPlanDigest
-	if gpuPlanDigest == "" && in.GPUPlan != nil {
-		gpuPlanDigest = in.GPUPlan.ResolutionDigest
+	gpuSnapshotDigest := in.GPUSnapshotDigest
+	if gpuSnapshotDigest == "" && in.GPUSnapshot != nil {
+		gpuSnapshotDigest = in.GPUSnapshot.ExecutionDigest
 	}
 	var engineJSON []byte
 	if in.EngineCommand != "" {
@@ -138,10 +138,10 @@ func (u *UpdateUseCase) Update(ctx context.Context, in inferencebiz.UpdateInput)
 		if err := json.Unmarshal(managedResource.OriginalContext, &original); err != nil {
 			return nil, err
 		}
-		if original.Plan == nil || in.Resources.GPU == nil || *original.Plan.Request != *in.Resources.GPU {
+		if original.Snapshot == nil || in.Resources.GPU == nil || *original.Snapshot.Request != *in.Resources.GPU {
 			return nil, fmt.Errorf("%w: managed GPU selection changes require Governance admission", inferencebiz.ErrInvalidState)
 		}
-		if err := gpubiz.ValidateTopology(original.Plan.Request, in.Replicas, in.RuntimeMode, in.WorkerReplicas); err != nil {
+		if err := gpubiz.ValidateTopology(original.Snapshot.Request, in.Replicas, in.RuntimeMode, in.WorkerReplicas); err != nil {
 			return nil, fmt.Errorf("%w: %s", inferencebiz.ErrInvalidState, err)
 		}
 		currentSpec, err := q.GetSpec(ctx, GetSpecParams{TenantID: tenant, ServiceID: serviceID, Generation: current.DesiredGeneration})
@@ -151,11 +151,11 @@ func (u *UpdateUseCase) Update(ctx context.Context, in inferencebiz.UpdateInput)
 		if currentSpec.Replicas != in.Replicas || currentSpec.RuntimeMode != in.RuntimeMode || currentSpec.WorkerReplicas != in.WorkerReplicas {
 			return nil, fmt.Errorf("%w: managed GPU topology changes require Governance admission", inferencebiz.ErrInvalidState)
 		}
-		gpuPlanJSON, err = json.Marshal(original.Plan)
+		gpuPlanJSON, err = json.Marshal(original.Snapshot)
 		if err != nil {
 			return nil, err
 		}
-		gpuPlanDigest = original.Plan.ResolutionDigest
+		gpuSnapshotDigest = original.Snapshot.ExecutionDigest
 	}
 	// The nested resource.gpu object is the complete accelerator intent for a
 	// generation. An omitted object therefore means that this desired
@@ -180,7 +180,7 @@ func (u *UpdateUseCase) Update(ctx context.Context, in inferencebiz.UpdateInput)
 			return nil, err
 		}
 	}
-	rows, err := q.CloneSpecWithRuntimeUpdate(ctx, CloneSpecWithRuntimeUpdateParams{ID: pgUUID(uuid.New()), TargetGeneration: target, ModelVersionID: modelVersionID, ModelCapabilities: modelCapabilitiesJSON, Resources: resourcesJSON, Replicas: in.Replicas, RuntimeMode: mode, WorkerReplicas: workers, RuntimeProvider: provider, ArtifactProvider: in.ArtifactProvider, ArtifactRef: in.ArtifactRef, ArtifactSha256: in.ArtifactSHA256, ImageRef: in.ImageRef, ServedModelName: in.ServedModelName, EngineRuntime: in.EngineRuntime, CommandArgv: engineJSON, EndpointContainerPort: ec, EndpointServicePort: es, EndpointTargetPort: et, EndpointProtocol: ep, GpuRequest: gpuRequestJSON, GpuPlan: gpuPlanJSON, GpuPlanDigest: pgtype.Text{String: gpuPlanDigest, Valid: gpuPlanDigest != ""}, TenantID: tenant, ServiceID: serviceID, SourceGeneration: current.DesiredGeneration})
+	rows, err := q.CloneSpecWithRuntimeUpdate(ctx, CloneSpecWithRuntimeUpdateParams{ID: pgUUID(uuid.New()), TargetGeneration: target, ModelVersionID: modelVersionID, ModelCapabilities: modelCapabilitiesJSON, Resources: resourcesJSON, Replicas: in.Replicas, RuntimeMode: mode, WorkerReplicas: workers, RuntimeProvider: provider, ArtifactProvider: in.ArtifactProvider, ArtifactRef: in.ArtifactRef, ArtifactSha256: in.ArtifactSHA256, ImageRef: in.ImageRef, ServedModelName: in.ServedModelName, EngineRuntime: in.EngineRuntime, CommandArgv: engineJSON, EndpointContainerPort: ec, EndpointServicePort: es, EndpointTargetPort: et, EndpointProtocol: ep, GpuRequest: gpuRequestJSON, GpuPlan: gpuPlanJSON, GpuPlanDigest: pgtype.Text{String: gpuSnapshotDigest, Valid: gpuSnapshotDigest != ""}, TenantID: tenant, ServiceID: serviceID, SourceGeneration: current.DesiredGeneration})
 	if err != nil {
 		return nil, err
 	}
