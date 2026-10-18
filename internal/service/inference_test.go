@@ -166,7 +166,7 @@ func TestManagedGPUReadinessGateFailsClosedForCommands(t *testing.T) {
 	if _, err := server.UpdateInferenceService(WithTenantID(context.Background(), id), update); status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("update gate code=%v err=%v, want FailedPrecondition", status.Code(err), err)
 	}
-	if _, err := server.DeleteInferenceService(context.Background(), &inferencev1.DeleteInferenceServiceRequest{ResourceId: id, Context: &inferencev1.CommandContext{}}); status.Code(err) != codes.FailedPrecondition {
+	if _, err := server.DeleteInferenceService(context.Background(), &inferencev1.DeleteInferenceServiceRequest{RequestId: "delete-gate", ResourceId: id, Context: &inferencev1.CommandContext{}}); status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("delete gate code=%v err=%v, want FailedPrecondition", status.Code(err), err)
 	}
 }

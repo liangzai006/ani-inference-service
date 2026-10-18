@@ -104,6 +104,9 @@ func (s *InferenceServer) DeleteInferenceService(ctx context.Context, req *infer
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
+	if req.GetRequestId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "request_id is required")
+	}
 	if req.GetContext() == nil {
 		return s.acceptCommand(ctx, "delete", &inferencev1.ServiceCommandRequest{RequestId: req.GetRequestId(), ResourceId: req.GetResourceId(), ExpectedGeneration: req.GetExpectedGeneration()})
 	}
