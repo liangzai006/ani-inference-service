@@ -10,6 +10,8 @@ The three-party API authority remains Accelerator's
 > historical pre-`gpu-execution-v1` snapshot. Its old attachment and charge
 > fields are not a current wire contract; current managed records freeze ACC
 > execution/display data and release evidence uses the four-field Pod identity.
+> The historical attachment/charge descriptions below are retained for audit
+> context only and must not be copied into new Governance requests.
 
 ## Trusted command acceptance
 
