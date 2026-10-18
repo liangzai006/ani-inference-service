@@ -1,4 +1,6 @@
 version: v2
+# Generation is run from the staged api + Accelerator source tree created by
+# scripts/generate-api.sh; source-relative output keeps the public module path.
 inputs:
   - directory: api
 plugins:

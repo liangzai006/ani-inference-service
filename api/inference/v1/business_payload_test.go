@@ -4,14 +4,15 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	integrationv1 "github.com/zhangzhe-ctrl/ani-accelerator-service/api/gen/go/accelerator/integration/v1"
+	acceleratorv1 "github.com/zhangzhe-ctrl/ani-accelerator-service/api/gen/go/accelerator/v1"
+	"github.com/zhangzhe-ctrl/ani-accelerator-service/pkg/gpuprotocol"
 	"google.golang.org/protobuf/proto"
 	"testing"
 )
 
 func TestBusinessCanonicalFixedVectorAndRoundtrip(t *testing.T) {
 	req := &CreateInferenceServiceRequest{RequestId: "dynamic", Name: "<&中文>", ModelVersionId: "11111111-1111-4111-8111-111111111111", Replicas: 1, Resource: &ResourceSpec{Limits: map[string]string{"memory": "8Gi", "cpu": "2"}}, Engine: &EngineSpec{Type: "vllm", Image: "engine:v1", Command: "serve"}, Runtime: &RuntimeSpec{Mode: RuntimeMode_RUNTIME_MODE_LEADER_WORKER_SET, WorkerReplicas: 1}}
-	const expected = `{"engine":{"command":"serve","image":"engine:v1","type":"vllm"},"model_artifact":null,"model_version_id":"11111111-1111-4111-8111-111111111111","name":"<&中文>","replicas":"1","resource":{"gpu":null,"limits":{"cpu":"2","memory":"8Gi"},"requests":{}},"runtime":{"endpoint":null,"mode":"2","provider":"","worker_replicas":"1"},"served_model_name":""}`
+	const expected = `{"cluster_id":"","engine":{"command":"serve","image":"engine:v1","type":"vllm"},"gpu_display":null,"gpu_execution":null,"model_artifact":null,"model_version_id":"11111111-1111-4111-8111-111111111111","name":"<&中文>","replicas":"1","resource":{"gpu":null,"limits":{"cpu":"2","memory":"8Gi"},"requests":{}},"runtime":{"endpoint":null,"mode":"2","provider":"","worker_replicas":"1"},"served_model_name":""}`
 	raw, err := CanonicalBusinessPayload(req)
 	if err != nil || string(raw) != expected {
 		t.Fatalf("canonical=%s error=%v", raw, err)
@@ -31,16 +32,59 @@ func TestBusinessCanonicalFixedVectorAndRoundtrip(t *testing.T) {
 		t.Fatalf("decoded business differs: %+v", decoded)
 	}
 	req.RequestId = "another"
-	req.GpuOwnerAttachment = &integrationv1.GpuOwnerCreateAttachment{RequestHash: "irrelevant"}
-	req.OriginalCharges = []*OriginalQuotaCharge{{ChargeId: "dynamic", QuotaCode: "cpu", OriginalUnits: 5}}
+	req.ProtoReflect().SetUnknown([]byte{0x52, 0x01, 0x00}) // retired field 10
 	excluded, err := CanonicalBusinessPayload(req)
-	if err != nil || !bytes.Equal(raw, excluded) {
-		t.Fatalf("trusted context contaminated business digest: %s error=%v", excluded, err)
+	if err == nil || excluded != nil {
+		t.Fatalf("retired owner attachment was accepted: %s error=%v", excluded, err)
 	}
+	req.ProtoReflect().SetUnknown(nil)
+	req.Context = &CommandContext{TenantId: "11111111-1111-4111-8111-111111111111", ResourceId: "22222222-2222-4222-8222-222222222222", OperationId: "33333333-3333-4333-8333-333333333333", RequestDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+	contextDigest, err := CanonicalBusinessPayload(req)
+	if err != nil || !bytes.Equal(raw, contextDigest) {
+		t.Fatalf("command context contaminated business digest: %s error=%v", contextDigest, err)
+	}
+	req.Context = nil
 	req.Name = "changed"
 	changed, _ := BusinessPayloadDigest(req)
 	if changed == digest {
 		t.Fatal("business changes did not alter digest")
+	}
+}
+
+func TestFrozenGPUValidationRejectsDigestAndClusterMismatches(t *testing.T) {
+	const id = "11111111-1111-4111-8111-111111111111"
+	execution := &acceleratorv1.GpuExecution{SchedulerName: "volcano", QueueName: "default", RuntimeClassName: "nvidia", NodeSelector: map[string]string{"accelerator.ani.io/supply-group": "group", "accelerator.ani.io/model-key": "t4", "accelerator.ani.io/baseline-id": "baseline"}, PodAnnotations: map[string]string{"volcano.sh/vgpu-mode": "hami-core"}, Resources: map[string]string{"volcano.sh/vgpu-number": "1", "volcano.sh/vgpu-memory": "8192", "volcano.sh/vgpu-cores": "100"}}
+	digest, err := gpuprotocol.GpuExecutionDigest(execution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	execution.ExecutionDigest = digest
+	if err := ValidateFrozenGPU(id, execution, &acceleratorv1.GpuDisplay{ProfileId: id, ProfileVersion: 1, ProfileName: "t4", ModelKey: "t4", Mode: acceleratorv1.SupplyMode_SHARED_FIXED}); err != nil {
+		t.Fatal(err)
+	}
+	execution.Resources["cpu"] = "1"
+	if err := ValidateFrozenGPU(id, execution, &acceleratorv1.GpuDisplay{}); err == nil {
+		t.Fatal("non-GPU execution resource key accepted")
+	}
+	delete(execution.Resources, "cpu")
+	execution.ExecutionDigest = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	if err := ValidateFrozenGPU(id, execution, &acceleratorv1.GpuDisplay{}); err == nil {
+		t.Fatal("execution digest mismatch accepted")
+	}
+	execution.ExecutionDigest = digest
+	if err := ValidateFrozenGPU("cluster-not-a-uuid", execution, &acceleratorv1.GpuDisplay{}); err == nil {
+		t.Fatal("invalid cluster fence accepted")
+	}
+}
+
+func TestCommandContextValidationRequiresCanonicalIdentityAndDigest(t *testing.T) {
+	context := &CommandContext{TenantId: "11111111-1111-4111-8111-111111111111", ResourceId: "22222222-2222-4222-8222-222222222222", OperationId: "33333333-3333-4333-8333-333333333333", RequestDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+	if err := ValidateCommandContext(context); err != nil {
+		t.Fatal(err)
+	}
+	context.RequestDigest = "A"
+	if err := ValidateCommandContext(context); err == nil {
+		t.Fatal("noncanonical request digest accepted")
 	}
 }
 

@@ -6,7 +6,8 @@ option go_package = "github.com/liangzai006/ani-inference-service/api/inference/
 
 import "google/protobuf/field_mask.proto";
 import "google/protobuf/timestamp.proto";
-import "accelerator/integration/v1/owner_gpu_attachment.proto";
+import "accelerator/v1/accelerator.proto";
+import "accelerator/command/v1/command.proto";
 
 message ResourceSpec {
   map<string, string> requests = 1;
@@ -71,6 +72,16 @@ message EngineSpec {
   reserved "args";
 }
 
+// CommandContext binds a Governance command to one immutable owner resource.
+// It carries no transport credentials; the mTLS service identity is verified
+// by the receiver before this context is trusted.
+message CommandContext {
+  string tenant_id = 1;
+  string resource_id = 2;
+  string operation_id = 3;
+  string request_digest = 4;
+}
+
 message InferenceService {
   string id = 1;
   string name = 2;
@@ -115,15 +126,13 @@ message CreateInferenceServiceRequest {
   ModelArtifact model_artifact = 7;
   EngineSpec engine = 8;
   string served_model_name = 9;
-  // Internal Governance command only; never supplied by a public client.
-  accelerator.integration.v1.GpuOwnerCreateAttachment gpu_owner_attachment = 10;
-  // Entire original charge vector, including non-GPU business charges.
-  repeated OriginalQuotaCharge original_charges = 11;
-}
-message OriginalQuotaCharge {
-  string charge_id = 1;
-  string quota_code = 2;
-  int64 original_units = 3;
+  reserved 10, 11;
+  reserved "gpu_owner_attachment", "original_charges";
+  // Governance-only frozen command context and resolved GPU execution.
+  CommandContext context = 12;
+  string cluster_id = 13;
+  accelerator.v1.GpuExecution gpu_execution = 14;
+  accelerator.v1.GpuDisplay gpu_display = 15;
 }
 message UpdateInferenceServiceRequest {
   string request_id = 1;
@@ -137,6 +146,10 @@ message UpdateInferenceServiceRequest {
   EngineSpec engine = 9;
   string served_model_name = 10;
   string model_version_id = 11;
+  CommandContext context = 12;
+  string cluster_id = 13;
+  accelerator.v1.GpuExecution gpu_execution = 14;
+  accelerator.v1.GpuDisplay gpu_display = 15;
 }
 message ServiceCommandRequest { string request_id = 1; string resource_id = 2; int64 expected_generation = 3; }
 message DeleteInferenceServiceRequest {
@@ -144,8 +157,10 @@ message DeleteInferenceServiceRequest {
   string resource_id = 2;
   // Legacy direct records require generation. Governance commands do not.
   int64 expected_generation = 3;
-  accelerator.integration.v1.GpuOwnerDeleteAttachment gpu_owner_attachment = 4;
-  repeated OriginalQuotaCharge original_charges = 5;
+  reserved 4, 5;
+  reserved "gpu_owner_attachment", "original_charges";
+  CommandContext context = 6;
+  string create_operation_id = 7;
 }
 message GetInferenceServiceRequest { string resource_id = 1; }
 message ListInferenceServicesRequest {
@@ -166,7 +181,7 @@ message OperationResponse {
   Operation operation = 2;
   // Command accepted in the same transaction as its immutable context.
   // This is never evidence of workload readiness or physical release.
-  accelerator.integration.v1.DurableOwnerAck durable_owner_ack = 3;
+  accelerator.command.v1.DurableOwnerAck durable_owner_ack = 3;
 }
 message GetOperationRequest { string operation_id = 1; }
 message ListOperationsRequest {

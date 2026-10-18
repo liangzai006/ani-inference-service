@@ -1,4 +1,7 @@
 version: v2
+# The Accelerator module is mounted as upstream/accelerator by
+# scripts/generate-api.sh. Keeping it out of this repository prevents copied
+# generated contracts from drifting from the pinned API module.
 modules:
   - path: api
 lint:

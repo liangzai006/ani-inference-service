@@ -16,8 +16,9 @@ import (
 // CanonicalBusinessPayload is the public Gov/Inference business digest
 // contract. It uses all snake_case business fields, absent messages as null,
 // empty lists/maps, decimal strings for integers/enums, lexical object keys,
-// UTF-8 without HTML escaping or a trailing newline. Command IDs and trusted
-// attachments/charges are excluded. SHA256 has no additional prefix.
+// UTF-8 without HTML escaping or a trailing newline. Command metadata is
+// excluded; the frozen GPU execution is part of the accepted business
+// snapshot. SHA256 has no additional prefix.
 func CanonicalBusinessPayload(req *CreateInferenceServiceRequest) ([]byte, error) {
 	if req == nil {
 		return nil, fmt.Errorf("business request is required")
@@ -45,7 +46,7 @@ func BusinessPayloadDigest(req *CreateInferenceServiceRequest) (string, error) {
 }
 
 // ManagedCreateRequestHash verifies the Governance original acceptance digest
-// independently of the owner attachment. The action is the registered real
+// independently of the command context. The action is the registered real
 // Inference RPC, and the GPU shape is part of both business and admission.
 func ManagedCreateRequestHash(req *CreateInferenceServiceRequest, tenantID, actorType, actorID string) (string, error) {
 	if req == nil || req.GetResource().GetGpu() == nil {
@@ -86,7 +87,7 @@ func canonicalMessage(msg protoreflect.Message, business bool) (map[string]any, 
 	for i := 0; i < fields.Len(); i++ {
 		field := fields.Get(i)
 		name := string(field.Name())
-		if business && (name == "request_id" || name == "gpu_owner_attachment" || name == "original_charges") {
+		if business && (name == "request_id" || name == "context") {
 			continue
 		}
 		value := msg.Get(field)

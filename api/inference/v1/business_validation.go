@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	acceleratorv1 "github.com/zhangzhe-ctrl/ani-accelerator-service/api/gen/go/accelerator/v1"
+	"github.com/zhangzhe-ctrl/ani-accelerator-service/pkg/gpuprotocol"
 	"k8s.io/apimachinery/pkg/api/resource"
 	validation "k8s.io/apimachinery/pkg/util/validation"
 )
@@ -73,6 +75,14 @@ func ValidateBusinessPayload(req *CreateInferenceServiceRequest) error {
 	}
 	spec := req.GetResource()
 	gpu := spec.GetGpu()
+	if req.GetGpuExecution() != nil || req.GetGpuDisplay() != nil || req.GetClusterId() != "" {
+		if gpu == nil {
+			return fmt.Errorf("frozen GPU execution requires resource.gpu")
+		}
+		if err := ValidateFrozenGPU(req.GetClusterId(), req.GetGpuExecution(), req.GetGpuDisplay()); err != nil {
+			return err
+		}
+	}
 	if gpu != nil {
 		// KServe v0.16's WorkloadSpec cannot carry the Volcano/HAMI pod
 		// annotations, and its LWS metadata filter drops the queue annotation.
@@ -119,4 +129,53 @@ func ValidateBusinessPayload(req *CreateInferenceServiceRequest) error {
 		}
 	}
 	return nil
+}
+
+// ValidateCommandContext checks the stable identity and digest carried by a
+// Governance command. Credentials and tenant authorization are verified by
+// the transport layer and are deliberately not represented here.
+func ValidateCommandContext(context *CommandContext) error {
+	if context == nil {
+		return fmt.Errorf("command context is required")
+	}
+	for name, value := range map[string]string{
+		"tenant_id": context.GetTenantId(), "resource_id": context.GetResourceId(), "operation_id": context.GetOperationId(),
+	} {
+		parsed, err := uuid.Parse(value)
+		if err != nil || parsed == uuid.Nil || parsed.String() != value {
+			return fmt.Errorf("%s must be a canonical UUID", name)
+		}
+	}
+	if !validDigest(context.GetRequestDigest()) {
+		return fmt.Errorf("request_digest must be a lowercase SHA-256 digest")
+	}
+	return nil
+}
+
+// ValidateFrozenGPU validates the exact ACC execution snapshot. Inference
+// never reconstructs scheduler fields or resource quantities from a profile.
+func ValidateFrozenGPU(clusterID string, execution *acceleratorv1.GpuExecution, display *acceleratorv1.GpuDisplay) error {
+	parsed, err := uuid.Parse(clusterID)
+	if err != nil || parsed == uuid.Nil || parsed.String() != clusterID {
+		return fmt.Errorf("cluster_id must be a canonical UUID")
+	}
+	if display == nil {
+		return fmt.Errorf("gpu_display is required with frozen GPU execution")
+	}
+	if err := gpuprotocol.ValidateGpuExecution(execution); err != nil {
+		return fmt.Errorf("gpu_execution: %w", err)
+	}
+	return nil
+}
+
+func validDigest(value string) bool {
+	if len(value) != 64 {
+		return false
+	}
+	for _, char := range value {
+		if !(char >= '0' && char <= '9' || char >= 'a' && char <= 'f') {
+			return false
+		}
+	}
+	return true
 }
