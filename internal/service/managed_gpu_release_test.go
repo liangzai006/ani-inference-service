@@ -60,3 +60,33 @@ func TestManagedGPUReleaseRequiresAcceleratorEvidenceBeforeGovernance(t *testing
 		t.Fatalf("notification=%+v", reporter.notification)
 	}
 }
+
+func TestManagedGPUReleaseAllowsEmptyPodScopeAndReusesPersistedSeal(t *testing.T) {
+	observer := &releaseObserverFake{}
+	reporter := &releaseReporterFake{}
+	coordinator := &ManagedGPUReleaseCoordinator{
+		Observer: observer,
+		Contexts: &releaseContextStoreFake{original: gpu.RefundContext{
+			TenantID: "10000000-0000-4000-8000-000000000001", ResourceID: "10000000-0000-4000-8000-000000000002",
+			OriginalCreateOperationID: "10000000-0000-4000-8000-000000000003", DeleteOperationID: "10000000-0000-4000-8000-000000000004",
+			OwnerService: "ani-inference", ClusterID: "10000000-0000-4000-8000-000000000006",
+		}},
+		Reporter: reporter,
+	}
+	op := inferencebiz.OperationContext{
+		TenantID: "10000000-0000-4000-8000-000000000001", ServiceID: "10000000-0000-4000-8000-000000000002", ID: "10000000-0000-4000-8000-000000000004", Kind: "delete", ManagedGPU: true,
+		ManagedGPUCreateOperationID: "10000000-0000-4000-8000-000000000003", Actor: "ani-inference:owner", RequestID: "delete-request",
+		ManagedGPUReleaseSealedAt: "2026-10-18T00:00:00.000000000Z",
+		GPURequest:                &gpu.Request{ClusterID: "10000000-0000-4000-8000-000000000006"},
+	}
+	if err := coordinator.ReleaseManagedGPU(context.Background(), op); err != nil {
+		t.Fatal(err)
+	}
+	firstSeal := observer.input.SealedAt
+	if err := coordinator.ReleaseManagedGPU(context.Background(), op); err != nil {
+		t.Fatal(err)
+	}
+	if firstSeal != op.ManagedGPUReleaseSealedAt || observer.input.SealedAt != firstSeal || len(observer.input.Pods) != 0 {
+		t.Fatalf("observer input=%+v", observer.input)
+	}
+}

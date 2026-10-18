@@ -181,8 +181,8 @@ func TestGovernanceDNSIdentityThroughProductionReceivers(t *testing.T) {
 				t.Fatalf("GET did not reach production validation: %v", err)
 			}
 			_, err = rpc.UpdateInferenceService(ctx, &inferencev1.UpdateInferenceServiceRequest{})
-			if status.Code(err) != codes.PermissionDenied {
-				t.Fatalf("method outside RPC policy accepted: %v", err)
+			if status.Code(err) != codes.InvalidArgument {
+				t.Fatalf("UPDATE did not reach production validation: %v", err)
 			}
 		})
 	}

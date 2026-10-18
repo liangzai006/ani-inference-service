@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
 	acceleratorv1 "github.com/zhangzhe-ctrl/ani-accelerator-service/api/gen/go/accelerator/v1"
+	"github.com/zhangzhe-ctrl/ani-accelerator-service/pkg/gpuprotocol"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/test/bufconn"
@@ -53,7 +54,9 @@ func (s *catalogServer) ResolveGpuRequest(ctx context.Context, req *acceleratorv
 }
 func TestClientMapsExecutionAndIdentity(t *testing.T) {
 	r := validGPURequest()
-	reply := &acceleratorv1.ResolvedGpuRequest{Execution: &acceleratorv1.GpuExecution{SchedulerName: "volcano", QueueName: "queue", NodeSelector: map[string]string{"a": "b"}, Resources: map[string]string{"nvidia.com/gpu": "1"}, ExecutionDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, Selection: &acceleratorv1.GpuDisplay{ProfileId: r.ProfileID, ProfileVersion: 1, ProfileName: "shared", ModelKey: "model", Mode: acceleratorv1.SupplyMode_SHARED_FIXED}, QuotaItems: []*acceleratorv1.GpuQuotaItem{{QuotaCode: "gpu.shared", Units: 1}}}
+	execution := &acceleratorv1.GpuExecution{SchedulerName: "volcano", QueueName: "queue", RuntimeClassName: "nvidia", NodeSelector: map[string]string{"accelerator.ani.io/supply-group": "group", "accelerator.ani.io/model-key": "model", "accelerator.ani.io/baseline-id": "baseline"}, PodAnnotations: map[string]string{"volcano.sh/vgpu-mode": "hami-core"}, Resources: map[string]string{"volcano.sh/vgpu-number": "1", "volcano.sh/vgpu-memory": "1", "volcano.sh/vgpu-cores": "25"}}
+	execution.ExecutionDigest, _ = gpuprotocol.GpuExecutionDigest(execution)
+	reply := &acceleratorv1.ResolvedGpuRequest{Execution: execution, Selection: &acceleratorv1.GpuDisplay{ProfileId: r.ProfileID, ProfileVersion: 1, ProfileName: "shared", ModelKey: "model", Mode: acceleratorv1.SupplyMode_SHARED_FIXED}, QuotaItems: []*acceleratorv1.GpuQuotaItem{{QuotaCode: "gpu.shared", Units: 1}}}
 	srv := &catalogServer{reply: reply}
 	lis := bufconn.Listen(1 << 20)
 	gs := grpc.NewServer()

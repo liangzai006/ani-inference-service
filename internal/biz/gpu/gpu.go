@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"math"
 	"regexp"
-	"sort"
 	"strings"
 )
 
@@ -56,19 +55,13 @@ type Display struct {
 	Mode           int32  `json:"mode"`
 }
 
-type QuotaItem struct {
-	QuotaCode string `json:"quota_code"`
-	Units     int64  `json:"units"`
-}
-
 // Snapshot is the immutable result of ACC ResolveGpuRequest. Cluster and
 // tenant/operation identity remain in Inference-owned records around it.
 type Snapshot struct {
-	Request         *Request    `json:"request"`
-	Execution       *Execution  `json:"execution"`
-	Display         *Display    `json:"display"`
-	QuotaItems      []QuotaItem `json:"quota_items,omitempty"`
-	ExecutionDigest string      `json:"execution_digest"`
+	Request         *Request   `json:"request"`
+	Execution       *Execution `json:"execution"`
+	Display         *Display   `json:"display"`
+	ExecutionDigest string     `json:"execution_digest"`
 }
 
 var uuidPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
@@ -190,21 +183,14 @@ func SnapshotDigest(s *Snapshot) (string, error) {
 		return "", fmt.Errorf("invalid GPU execution snapshot")
 	}
 	canonical := struct {
-		Request    *Request    `json:"request"`
-		Execution  *Execution  `json:"execution"`
-		Display    *Display    `json:"display"`
-		QuotaItems []QuotaItem `json:"quota_items,omitempty"`
-	}{s.Request, s.Execution, s.Display, sortedQuota(s.QuotaItems)}
+		Request   *Request   `json:"request"`
+		Execution *Execution `json:"execution"`
+		Display   *Display   `json:"display"`
+	}{s.Request, s.Execution, s.Display}
 	b, err := json.Marshal(canonical)
 	if err != nil {
 		return "", err
 	}
 	sum := sha256.Sum256(append([]byte("ani-inference-gpu-execution-v1\n"), b...))
 	return hex.EncodeToString(sum[:]), nil
-}
-
-func sortedQuota(items []QuotaItem) []QuotaItem {
-	out := append([]QuotaItem(nil), items...)
-	sort.Slice(out, func(i, j int) bool { return out[i].QuotaCode < out[j].QuotaCode })
-	return out
 }

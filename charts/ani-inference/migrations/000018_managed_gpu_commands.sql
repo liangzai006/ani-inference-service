@@ -6,7 +6,9 @@ CREATE TABLE inference_managed_gpu_resources (
  resource_id UUID NOT NULL,
  create_operation_id UUID NOT NULL,
  owner_service TEXT NOT NULL CHECK (owner_service = 'ani-inference'),
- metering_version TEXT NOT NULL CHECK (metering_version = 'gpu-metering-v1'),
+	 -- Compatibility marker retained for the legacy column; execution details
+	 -- live in original_context and no charge vector is inferred here.
+	 metering_version TEXT NOT NULL CHECK (metering_version = 'gpu-metering-v1'),
  original_context JSONB NOT NULL,
  business_payload JSONB,
  business_payload_digest TEXT NOT NULL DEFAULT '',

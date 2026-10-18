@@ -13,8 +13,9 @@ CREATE TABLE inference_managed_gpu_release_scopes (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (tenant_id, service_id, operation_id),
-    CHECK (jsonb_typeof(pods) = 'array'),
-    CHECK (jsonb_array_length(pods) > 0)
+    -- New rows use an object containing sealed_at and the Pod list. Keep
+    -- accepting legacy array rows while permitting an empty Pod scope.
+    CHECK (jsonb_typeof(pods) IN ('array', 'object'))
 );
 
 CREATE INDEX inference_managed_gpu_release_scopes_lookup_idx

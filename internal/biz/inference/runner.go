@@ -46,9 +46,12 @@ type OperationContext struct {
 	ManagedGPU                  bool
 	ManagedGPUCreateOperationID string
 	ManagedGPUReleasePods       []gpu.PodRef
-	Replicas                    int32
-	WorkerReplicas              int32
-	RuntimeMode                 string
+	// ManagedGPUReleaseSealedAt is fixed when runtime absence is observed and
+	// persisted with the release scope so retries submit the same ACC fence.
+	ManagedGPUReleaseSealedAt string
+	Replicas                  int32
+	WorkerReplicas            int32
+	RuntimeMode               string
 }
 
 // RuntimeObservation contains facts returned by the runtime adapter. Ready
@@ -534,8 +537,11 @@ func (r *Runner) runStep(ctx context.Context, op OperationContext) (stepResult, 
 		if err := r.Store.SaveRuntimeObservation(ctx, op, observation); err != nil {
 			return stepResult{}, err
 		}
-		if op.ManagedGPU && len(observation.ReleasePods) > 0 {
+		if op.ManagedGPU && (len(observation.ReleasePods) > 0 || observation.Absent) {
 			if scopeStore, ok := r.Store.(ManagedGPUReleaseScopeStore); ok {
+				if observation.Absent && op.ManagedGPUReleaseSealedAt == "" {
+					op.ManagedGPUReleaseSealedAt = time.Now().UTC().Format(time.RFC3339Nano)
+				}
 				if err := scopeStore.SaveManagedGPUReleasePods(ctx, managedGPUReleaseScopeOperation(op), observation.ReleasePods); err != nil {
 					return stepResult{}, err
 				}

@@ -79,19 +79,6 @@ func TestSnapshotDigestChangesWhenExecutionChanges(t *testing.T) {
 	}
 }
 
-func TestSnapshotDigestSortsQuotaItems(t *testing.T) {
-	s := validSnapshot()
-	s.QuotaItems = []QuotaItem{{QuotaCode: "z", Units: 1}, {QuotaCode: "a", Units: 2}}
-	a, err := SnapshotDigest(s)
-	if err != nil {
-		t.Fatal(err)
-	}
-	s.QuotaItems = []QuotaItem{{QuotaCode: "a", Units: 2}, {QuotaCode: "z", Units: 1}}
-	b, err := SnapshotDigest(s)
-	if err != nil || a != b {
-		t.Fatalf("digest depends on quota ordering: %s != %s", a, b)
-	}
-}
 func TestSnapshotDigestChangesWithExecution(t *testing.T) {
 	s := validSnapshot()
 	a, err := SnapshotDigest(s)

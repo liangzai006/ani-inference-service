@@ -22,6 +22,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/fieldmaskpb"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
@@ -143,6 +144,39 @@ func TestPostgresManagedGPUConcurrentCommandHasOneACK(t *testing.T) {
 	}
 }
 
+func TestPostgresManagedGPUUpdatePreservesOperationACKAndReplay(t *testing.T) {
+	ctx, pool, tenant, resource := lifecycleDatabase(t)
+	ctx = service.WithActor(service.WithTenantID(gpu.WithGovernanceIdentity(ctx), tenant.String()), "user:42")
+	create := managedCreateFixture(t, tenant, resource)
+	repo := NewRepository(pool)
+	server := service.NewInferenceServerWithAll(NewCreateUseCase(repo), nil, NewCommandUseCase(repo), NewUpdateUseCase(repo))
+	if _, err := server.CreateInferenceService(ctx, create); err != nil {
+		t.Fatal(err)
+	}
+	update := &inferencev1.UpdateInferenceServiceRequest{
+		RequestId: uuid.NewString(), ResourceId: resource.String(), ExpectedGeneration: 1,
+		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"resource", "replicas", "runtime"}},
+		Resource:   create.Resource, Replicas: 1, Runtime: create.Runtime,
+		Context:   &inferencev1.CommandContext{TenantId: tenant.String(), ResourceId: resource.String(), OperationId: uuid.NewString()},
+		ClusterId: create.ClusterId, GpuExecution: create.GpuExecution, GpuDisplay: create.GpuDisplay,
+	}
+	var err error
+	update.Context.RequestDigest, err = inferencev1.ManagedUpdateRequestHash(update, tenant.String(), "user", "42")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := server.UpdateInferenceService(ctx, update)
+	if err != nil || !first.GetDurableOwnerAck().GetAccepted() || first.GetDurableOwnerAck().GetOperationId() != update.Context.OperationId {
+		t.Fatalf("managed update ACK=%v error=%v", first, err)
+	}
+	replayRequest := proto.Clone(update).(*inferencev1.UpdateInferenceServiceRequest)
+	replayRequest.RequestId = uuid.NewString()
+	replay, err := server.UpdateInferenceService(ctx, replayRequest)
+	if err != nil || !proto.Equal(first, replay) {
+		t.Fatalf("managed update replay=%v error=%v first=%v", replay, err, first)
+	}
+}
+
 func TestPostgresManagedGPUFrozenSnapshotProjectsSharedAndWholeReplicas(t *testing.T) {
 	for _, whole := range []bool{false, true} {
 		t.Run(map[bool]string{false: "shared", true: "whole"}[whole], func(t *testing.T) {
@@ -152,13 +186,28 @@ func TestPostgresManagedGPUFrozenSnapshotProjectsSharedAndWholeReplicas(t *testi
 			if whole {
 				req.GpuDisplay.Mode = acceleratorv1.SupplyMode_WHOLE_EXCLUSIVE
 				req.GpuExecution.Resources["volcano.sh/vgpu-cores"] = "100"
-				req.GpuExecution.Resources["volcano.sh/vgpu-memory"] = "0"
-				req.GpuExecution.Resources["volcano.sh/vgpu-memory-percentage"] = "100"
+				// ACC's strict execution contract requires exactly the three
+				// positive quantity keys for both allocation modes. Whole-device
+				// ownership is represented by cores=100; memory remains the
+				// concrete quantity returned by ACC.
+				req.GpuExecution.Resources["volcano.sh/vgpu-memory"] = "6144"
+				var err error
+				req.GpuExecution.ExecutionDigest, err = gpuprotocol.GpuExecutionDigest(req.GpuExecution)
+				if err != nil {
+					t.Fatal(err)
+				}
 			}
 			req.Replicas, req.Resource.Gpu.Replicas = 2, 2
 			refreshManagedFixtureDigests(t, req)
 			if _, err := service.NewInferenceServer(NewCreateUseCase(NewRepository(pool))).CreateInferenceService(ctx, req); err != nil {
 				t.Fatal(err)
+			}
+			var persistedDigest string
+			if err := pool.QueryRow(ctx, `SELECT gpu_plan_digest FROM inference_specs WHERE tenant_id=$1 AND service_id=$2 AND generation=1`, tenant, resource).Scan(&persistedDigest); err != nil {
+				t.Fatal(err)
+			}
+			if persistedDigest != req.GpuExecution.ExecutionDigest {
+				t.Fatalf("persisted GPU plan digest=%q, want ACC execution digest %q", persistedDigest, req.GpuExecution.ExecutionDigest)
 			}
 			loaded, err := NewRuntimeSource(pool, "models").CurrentRuntime(ctx, tenant.String(), resource.String(), 1)
 			if err != nil {

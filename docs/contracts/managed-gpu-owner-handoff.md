@@ -29,6 +29,14 @@ its ACK never means resources are released. Managed records preserve the
 original plan and ledger vector for retry/recovery. Historical direct records
 cannot manufacture those fields to become eligible for this reporter.
 
+Managed GPU UPDATE is accepted only as a Governance-owned command carrying a
+validated `CommandContext` and `gov-gpu-update-v1` request digest. A command
+may include the complete frozen execution/display snapshot, which must match
+the immutable resource selection; a business-only update reuses that persisted
+snapshot. Inference rejects GPU/context fields from ordinary tenants and never
+drops a supplied attachment. CPU/direct updates remain available through the
+ordinary update use case.
+
 The explicit migration is `migrations/000018_managed_gpu_commands.sql`.
 `inference_managed_gpu_resources` uses `(tenant_id, resource_id)` as its key
 and stores the immutable original CREATE, plan, full charge vector and GPU

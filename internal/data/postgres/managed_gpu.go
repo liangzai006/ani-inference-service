@@ -123,7 +123,10 @@ func prepareManagedGPU(ctx context.Context, tx pgx.Tx, command *inferencebiz.Man
 	if err != nil {
 		return managedIntake{}, err
 	}
-	err = q.InsertManagedGPUResource(ctx, InsertManagedGPUResourceParams{TenantID: tenant, ResourceID: resourceID, CreateOperationID: createID, OwnerService: original.OwnerService, MeteringVersion: "gpu-execution-v1", OriginalContext: payload})
+	// The column predates the execution snapshot and its CHECK remains the
+	// compatibility marker. Execution details are stored in original_context;
+	// this value does not represent or synthesize a charge vector.
+	err = q.InsertManagedGPUResource(ctx, InsertManagedGPUResourceParams{TenantID: tenant, ResourceID: resourceID, CreateOperationID: createID, OwnerService: original.OwnerService, MeteringVersion: "gpu-metering-v1", OriginalContext: payload})
 	return managedIntake{}, err
 }
 

@@ -226,6 +226,32 @@ func (s *InferenceServer) UpdateInferenceService(ctx context.Context, req *infer
 	if req.GetRequestId() == "" || req.GetResourceId() == "" || req.GetExpectedGeneration() < 1 {
 		return nil, status.Error(codes.InvalidArgument, "request_id, resource_id and positive expected_generation are required")
 	}
+	managedUpdate := req.GetContext() != nil || req.GetResource().GetGpu() != nil || req.GetClusterId() != "" || req.GetGpuExecution() != nil || req.GetGpuDisplay() != nil
+	var managedSnapshot *gpubiz.Snapshot
+	if managedUpdate {
+		if !gpubiz.GovernanceIdentity(ctx) {
+			return nil, status.Error(codes.PermissionDenied, "managed GPU updates require Governance")
+		}
+		if err := inferencev1.ValidateCommandContext(req.GetContext()); err != nil {
+			return nil, status.Error(codes.InvalidArgument, err.Error())
+		}
+		if req.GetContext().GetTenantId() != tenantID || req.GetContext().GetResourceId() != req.GetResourceId() {
+			return nil, status.Error(codes.PermissionDenied, "managed GPU update identity does not match authenticated scope")
+		}
+		expected, err := inferencev1.ManagedUpdateRequestHash(req, tenantID, actorType(Actor(ctx)), actorID(Actor(ctx)))
+		if err != nil {
+			return nil, status.Error(codes.InvalidArgument, err.Error())
+		}
+		if expected != req.GetContext().GetRequestDigest() {
+			return nil, status.Error(codes.InvalidArgument, "Governance UPDATE request digest mismatch")
+		}
+		if req.GetClusterId() != "" || req.GetGpuExecution() != nil || req.GetGpuDisplay() != nil || req.GetResource().GetGpu() != nil {
+			managedSnapshot, err = managedUpdateSnapshot(req)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
 	if req.GetEngine() != nil {
 		if err := validateEngineInput(req.GetEngine()); err != nil {
 			return nil, status.Error(codes.InvalidArgument, err.Error())
@@ -283,7 +309,18 @@ func (s *InferenceServer) UpdateInferenceService(ctx context.Context, req *infer
 	if err != nil {
 		return nil, status.Error(codes.Internal, "marshal request: "+err.Error())
 	}
-	out, err := s.update.Update(ctx, inferencebiz.UpdateInput{TenantID: tenantID, RequestID: req.GetRequestId(), Actor: Actor(ctx), ServiceID: req.GetResourceId(), ExpectedGeneration: req.GetExpectedGeneration(), ModelVersionID: req.GetModelVersionId(), ArtifactProvider: artifactProvider, ArtifactRef: artifactRef, ArtifactSHA256: artifactSHA, ImageRef: image, ServedModelName: req.GetServedModelName(), EngineRuntime: engineRuntime, RuntimeProvider: provider, EngineCommand: engineCommand, Resources: normalized, Replicas: req.GetReplicas(), WorkerReplicas: workers, RuntimeMode: mode, Endpoint: endpointInput(req.GetRuntime().GetEndpoint()), RequestHash: hashBytes(encoded)})
+	requestHash := hashBytes(encoded)
+	if managedUpdate {
+		// The Governance digest excludes the transport correlation ID; use it as
+		// the durable operation hash so a retry with a new request_id replays the
+		// same operation instead of conflicting with its own command.
+		requestHash = req.GetContext().GetRequestDigest()
+	}
+	updateInput := inferencebiz.UpdateInput{TenantID: tenantID, RequestID: req.GetRequestId(), Actor: Actor(ctx), ServiceID: req.GetResourceId(), ExpectedGeneration: req.GetExpectedGeneration(), ModelVersionID: req.GetModelVersionId(), ArtifactProvider: artifactProvider, ArtifactRef: artifactRef, ArtifactSHA256: artifactSHA, ImageRef: image, ServedModelName: req.GetServedModelName(), EngineRuntime: engineRuntime, RuntimeProvider: provider, EngineCommand: engineCommand, ManagedGPUOperationID: managedOperationID(req), Resources: normalized, GPUSnapshot: managedSnapshot, Replicas: req.GetReplicas(), WorkerReplicas: workers, RuntimeMode: mode, Endpoint: endpointInput(req.GetRuntime().GetEndpoint()), RequestHash: requestHash}
+	if managedSnapshot != nil {
+		updateInput.GPUSnapshotDigest = managedSnapshot.ExecutionDigest
+	}
+	out, err := s.update.Update(ctx, updateInput)
 	if err != nil {
 		return nil, commandStatusError(err)
 	}
@@ -562,7 +599,11 @@ func (s *InferenceServer) CreateInferenceService(ctx context.Context, req *infer
 	if managed != nil {
 		in.GPUSnapshot = managed.Context.Snapshot
 		if managed.Context.Snapshot != nil {
-			in.GPUSnapshotDigest, _ = gpubiz.SnapshotDigest(managed.Context.Snapshot)
+			// The persisted plan digest is the ACC execution digest. RuntimeSource
+			// compares this column with Snapshot.ExecutionDigest before rendering,
+			// so using Inference's envelope digest here would make every managed
+			// generation fail its durable integrity check.
+			in.GPUSnapshotDigest = managed.Context.Snapshot.ExecutionDigest
 		}
 		in.RequestHash = hashBytes(managed.Payload)
 	}
@@ -607,4 +648,11 @@ func validateEndpoint(in *inferencev1.EndpointSpec) error {
 func hashBytes(data []byte) string {
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
+}
+
+func managedOperationID(req *inferencev1.UpdateInferenceServiceRequest) string {
+	if req == nil || req.GetContext() == nil {
+		return ""
+	}
+	return req.GetContext().GetOperationId()
 }

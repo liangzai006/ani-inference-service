@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"fmt"
-	"sort"
 
 	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
 	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
@@ -77,6 +76,30 @@ func managedCreate(ctx context.Context, req *inferencev1.CreateInferenceServiceR
 	return &inferencebiz.ManagedGPUCommand{Context: frozen, Payload: payload, Business: business, BusinessDigest: digest, RequestHash: context.GetRequestDigest()}, nil
 }
 
+// managedUpdateSnapshot validates an optional frozen GPU attachment on an
+// update. Business-only managed updates omit these fields and let the durable
+// store reuse the original accepted snapshot; when present, every frozen field
+// must be supplied and must pass the same ACC contract as CREATE.
+func managedUpdateSnapshot(req *inferencev1.UpdateInferenceServiceRequest) (*gpu.Snapshot, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "update request is required")
+	}
+	if err := inferencev1.ValidateFrozenGPU(req.GetClusterId(), req.GetGpuExecution(), req.GetGpuDisplay(), req.GetResource().GetGpu()); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	create := &inferencev1.CreateInferenceServiceRequest{
+		Resource:       req.GetResource(),
+		Replicas:       req.GetReplicas(),
+		Runtime:        req.GetRuntime(),
+		ModelVersionId: req.GetModelVersionId(),
+		Engine:         req.GetEngine(),
+		ClusterId:      req.GetClusterId(),
+		GpuExecution:   req.GetGpuExecution(),
+		GpuDisplay:     req.GetGpuDisplay(),
+	}
+	return managedSnapshot(create)
+}
+
 func (s *InferenceServer) DeleteInferenceService(ctx context.Context, req *inferencev1.DeleteInferenceServiceRequest) (*inferencev1.OperationResponse, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
@@ -145,13 +168,4 @@ func cloneMap(in map[string]string) map[string]string {
 		out[k] = v
 	}
 	return out
-}
-
-// Keep deterministic ordering of the frozen quota-free snapshot for callers
-// that log it; no provider charge data is accepted here.
-func sortSnapshot(s *gpu.Snapshot) {
-	if s == nil {
-		return
-	}
-	sort.Slice(s.QuotaItems, func(i, j int) bool { return s.QuotaItems[i].QuotaCode < s.QuotaItems[j].QuotaCode })
 }

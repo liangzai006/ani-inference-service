@@ -17,6 +17,7 @@ type UpdateInput struct {
 	ImageRef, ServedModelName, EngineRuntime           string
 	RuntimeProvider                                    string
 	EngineCommand                                      string
+	ManagedGPUOperationID                              string
 	Resources                                          resources.Normalized
 	GPUSnapshot                                        *gpu.Snapshot
 	GPUSnapshotDigest                                  string

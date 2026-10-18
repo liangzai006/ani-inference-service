@@ -243,3 +243,11 @@ func TestBusinessValidationGPUQuantityContract(t *testing.T) {
 		}
 	}
 }
+
+func TestBusinessValidationAcceptsVersionedGPUProfile(t *testing.T) {
+	const id = "11111111-1111-4111-8111-111111111111"
+	req := &CreateInferenceServiceRequest{Name: "versioned-profile", ModelVersionId: id, Replicas: 1, Engine: &EngineSpec{Type: "vllm", Image: "engine:v1", Command: "serve"}, Runtime: &RuntimeSpec{Mode: RuntimeMode_RUNTIME_MODE_DEPLOYMENT}, Resource: &ResourceSpec{Gpu: &GpuRequest{ClusterId: id, PoolId: id, ProfileId: id, ProfileVersion: 2, Replicas: 1, DevicesPerReplica: 1, ContainerName: "kserve-container"}}}
+	if err := ValidateBusinessPayload(req); err != nil {
+		t.Fatalf("versioned GPU profile rejected: %v", err)
+	}
+}

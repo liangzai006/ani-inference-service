@@ -6,8 +6,12 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/google/uuid"
 	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
+	gpubiz "github.com/liangzai006/ani-inference-service/internal/biz/gpu"
 	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
+	acceleratorv1 "github.com/zhangzhe-ctrl/ani-accelerator-service/api/gen/go/accelerator/v1"
+	"github.com/zhangzhe-ctrl/ani-accelerator-service/pkg/gpuprotocol"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
@@ -147,6 +151,47 @@ func TestCreateRejectsNestedGpuRequestWithoutGovernanceAttachment(t *testing.T) 
 	_, err := NewInferenceServer(f).CreateInferenceService(WithTenantID(context.Background(), "tenant-a"), req)
 	if status.Code(err) != codes.PermissionDenied || f.in.Resources.GPU != nil {
 		t.Fatalf("GPU without Governance command context accepted: input=%+v error=%v", f.in, err)
+	}
+}
+
+func TestManagedCreatePersistsACCExecutionDigest(t *testing.T) {
+	tenant, resource, operation := uuid.New(), uuid.New(), uuid.New()
+	cluster, pool, profile := uuid.New(), uuid.New(), uuid.New()
+	execution := &acceleratorv1.GpuExecution{
+		SchedulerName: "volcano", QueueName: "gpu", RuntimeClassName: "nvidia",
+		NodeSelector: map[string]string{
+			"accelerator.ani.io/supply-group": pool.String(),
+			"accelerator.ani.io/model-key":    "nvidia-test",
+			"accelerator.ani.io/baseline-id":  profile.String(),
+		},
+		PodAnnotations: map[string]string{"volcano.sh/vgpu-mode": "hami-core"},
+		Resources:      map[string]string{"volcano.sh/vgpu-number": "1", "volcano.sh/vgpu-memory": "6144", "volcano.sh/vgpu-cores": "25"},
+	}
+	var err error
+	execution.ExecutionDigest, err = gpuprotocol.GpuExecutionDigest(execution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := &inferencev1.CreateInferenceServiceRequest{
+		RequestId: uuid.NewString(), Name: "managed-digest", ModelVersionId: uuid.NewString(), Replicas: 1,
+		Runtime:   &inferencev1.RuntimeSpec{Mode: inferencev1.RuntimeMode_RUNTIME_MODE_DEPLOYMENT, Provider: "kserve"},
+		Engine:    validEngine(),
+		Resource:  &inferencev1.ResourceSpec{Gpu: &inferencev1.GpuRequest{ClusterId: cluster.String(), PoolId: pool.String(), ProfileId: profile.String(), ProfileVersion: 1, Replicas: 1, DevicesPerReplica: 1, ContainerName: "kserve-container"}},
+		Context:   &inferencev1.CommandContext{TenantId: tenant.String(), ResourceId: resource.String(), OperationId: operation.String()},
+		ClusterId: cluster.String(), GpuExecution: execution,
+		GpuDisplay: &acceleratorv1.GpuDisplay{ProfileId: profile.String(), ProfileVersion: 1, ProfileName: "test", ModelKey: "nvidia-test", Mode: acceleratorv1.SupplyMode_SHARED_FIXED},
+	}
+	req.Context.RequestDigest, err = inferencev1.ManagedCreateRequestHash(req, tenant.String(), "user", "42")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeCreate{}
+	ctx := WithActor(WithTenantID(gpubiz.WithGovernanceIdentity(context.Background()), tenant.String()), "user:42")
+	if _, err := NewInferenceServer(f).CreateInferenceService(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	if f.in.GPUSnapshotDigest != execution.ExecutionDigest {
+		t.Fatalf("persisted GPU plan digest=%q, want ACC execution digest %q", f.in.GPUSnapshotDigest, execution.ExecutionDigest)
 	}
 }
 
@@ -532,5 +577,56 @@ func TestUpdateRejectsLegacyDeploymentProvider(t *testing.T) {
 	_, err := s.UpdateInferenceService(WithTenantID(context.Background(), "tenant-a"), req)
 	if status.Code(err) != codes.InvalidArgument {
 		t.Fatalf("code=%v err=%v, want InvalidArgument", status.Code(err), err)
+	}
+}
+
+func TestUpdateRejectsDirectGPUMutation(t *testing.T) {
+	s := NewInferenceServerWithAll(nil, nil, nil, &fakeUpdate{})
+	const id = "10000000-0000-4000-8000-000000000001"
+	req := &inferencev1.UpdateInferenceServiceRequest{RequestId: "gpu-update", ResourceId: "svc", ExpectedGeneration: 1,
+		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"resource", "replicas", "runtime"}}, Resource: &inferencev1.ResourceSpec{Gpu: &inferencev1.GpuRequest{ClusterId: id, PoolId: id, ProfileId: id, ProfileVersion: 2, Replicas: 1, DevicesPerReplica: 1, ContainerName: "kserve-container"}}, Replicas: 1,
+		Runtime: &inferencev1.RuntimeSpec{Mode: inferencev1.RuntimeMode_RUNTIME_MODE_DEPLOYMENT}}
+	if _, err := s.UpdateInferenceService(WithTenantID(context.Background(), "tenant-a"), req); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("code=%v err=%v, want PermissionDenied", status.Code(err), err)
+	}
+}
+
+func TestManagedUpdateValidatesFrozenExecutionAndDigest(t *testing.T) {
+	tenant, resource, operation := uuid.New(), uuid.New(), uuid.New()
+	cluster, pool, profile := uuid.New(), uuid.New(), uuid.New()
+	execution := &acceleratorv1.GpuExecution{SchedulerName: "volcano", QueueName: "gpu", RuntimeClassName: "nvidia", NodeSelector: map[string]string{
+		"accelerator.ani.io/supply-group": pool.String(), "accelerator.ani.io/model-key": "nvidia-test", "accelerator.ani.io/baseline-id": profile.String(),
+	}, PodAnnotations: map[string]string{"volcano.sh/vgpu-mode": "hami-core"}, Resources: map[string]string{"volcano.sh/vgpu-number": "1", "volcano.sh/vgpu-memory": "6144", "volcano.sh/vgpu-cores": "25"}}
+	var err error
+	execution.ExecutionDigest, err = gpuprotocol.GpuExecutionDigest(execution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := &inferencev1.UpdateInferenceServiceRequest{RequestId: "managed-update", ResourceId: resource.String(), ExpectedGeneration: 1,
+		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"resource", "replicas", "runtime"}}, Replicas: 1,
+		Runtime:  &inferencev1.RuntimeSpec{Mode: inferencev1.RuntimeMode_RUNTIME_MODE_DEPLOYMENT, Provider: "kserve"},
+		Resource: &inferencev1.ResourceSpec{Gpu: &inferencev1.GpuRequest{ClusterId: cluster.String(), PoolId: pool.String(), ProfileId: profile.String(), ProfileVersion: 1, Replicas: 1, DevicesPerReplica: 1, ContainerName: "kserve-container"}},
+		Context:  &inferencev1.CommandContext{TenantId: tenant.String(), ResourceId: resource.String(), OperationId: operation.String()}, ClusterId: cluster.String(), GpuExecution: execution,
+		GpuDisplay: &acceleratorv1.GpuDisplay{ProfileId: profile.String(), ProfileVersion: 1, ProfileName: "test", ModelKey: "nvidia-test", Mode: acceleratorv1.SupplyMode_SHARED_FIXED}}
+	req.Context.RequestDigest, err = inferencev1.ManagedUpdateRequestHash(req, tenant.String(), "user", "42")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeUpdate{}
+	ctx := WithActor(WithTenantID(gpubiz.WithGovernanceIdentity(context.Background()), tenant.String()), "user:42")
+	if _, err := NewInferenceServerWithAll(nil, nil, nil, f).UpdateInferenceService(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	if f.in.GPUSnapshot == nil || f.in.GPUSnapshotDigest != execution.ExecutionDigest || f.in.ManagedGPUOperationID != operation.String() {
+		t.Fatalf("managed update lost frozen execution/operation: snapshot=%+v digest=%q operation=%q", f.in.GPUSnapshot, f.in.GPUSnapshotDigest, f.in.ManagedGPUOperationID)
+	}
+	// Re-signing the command cannot make an execution digest mismatch valid.
+	req.GpuExecution.QueueName = "tampered"
+	req.Context.RequestDigest, err = inferencev1.ManagedUpdateRequestHash(req, tenant.String(), "user", "42")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewInferenceServerWithAll(nil, nil, nil, &fakeUpdate{}).UpdateInferenceService(ctx, req); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("malformed managed execution code=%v err=%v, want InvalidArgument", status.Code(err), err)
 	}
 }

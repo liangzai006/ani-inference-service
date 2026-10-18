@@ -35,9 +35,6 @@ func (c *ManagedGPUReleaseCoordinator) ReleaseManagedGPU(ctx context.Context, op
 	if strings.TrimSpace(op.ManagedGPUCreateOperationID) == "" {
 		return fmt.Errorf("%w: original create operation is missing", ErrManagedGPUReleaseNotProven)
 	}
-	if len(op.ManagedGPUReleasePods) == 0 {
-		return fmt.Errorf("%w: complete Pod UID scope is missing", ErrManagedGPUReleaseNotProven)
-	}
 	original, err := c.Contexts.LoadRefundContext(ctx, op.TenantID, op.ServiceID, op.ManagedGPUCreateOperationID)
 	if err != nil {
 		return fmt.Errorf("load managed GPU release context: %w", err)
@@ -55,7 +52,10 @@ func (c *ManagedGPUReleaseCoordinator) ReleaseManagedGPU(ctx context.Context, op
 	if clusterID == "" {
 		return fmt.Errorf("%w: GPU cluster identity is missing", ErrManagedGPUReleaseNotProven)
 	}
-	sealedAt := time.Now().UTC().Format(time.RFC3339Nano)
+	sealedAt := strings.TrimSpace(op.ManagedGPUReleaseSealedAt)
+	if sealedAt == "" {
+		sealedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	}
 	observed, err := c.Observer.ObserveRelease(ctx, gpu.ReleaseObservationInput{TenantID: op.TenantID, RequestID: op.RequestID, Actor: op.Actor, ResourceID: op.ServiceID, CreateOperationID: op.ManagedGPUCreateOperationID, OwnerService: original.OwnerService, DeleteOperationID: op.ID, ClusterID: clusterID, SealedAt: sealedAt, Pods: append([]gpu.PodRef(nil), op.ManagedGPUReleasePods...)})
 	if err != nil {
 		return fmt.Errorf("observe managed GPU release: %w", err)

@@ -29,6 +29,11 @@ import (
 
 type OperationStore struct{ pool *pgxpool.Pool }
 
+type managedGPUReleaseScope struct {
+	SealedAt string       `json:"sealed_at,omitempty"`
+	Pods     []gpu.PodRef `json:"pods"`
+}
+
 func NewOperationStore(pool *pgxpool.Pool) *OperationStore { return &OperationStore{pool: pool} }
 
 var _ inferencebiz.OperationStore = (*OperationStore)(nil)
@@ -57,7 +62,23 @@ func (s *OperationStore) SaveManagedGPUReleasePods(ctx context.Context, op infer
 	if err != nil {
 		return err
 	}
-	payload, err := json.Marshal(pods)
+	sealedAt := op.ManagedGPUReleaseSealedAt
+	if existing, loadErr := New(s.pool).GetManagedGPUReleaseScope(ctx, GetManagedGPUReleaseScopeParams{TenantID: tenant, ServiceID: service, OperationID: operation}); loadErr == nil {
+		oldSeal, oldPods, decodeErr := decodeManagedGPUReleaseScope(existing)
+		if decodeErr != nil {
+			return fmt.Errorf("decode existing managed GPU release scope: %w", decodeErr)
+		}
+		if sealedAt == "" {
+			sealedAt = oldSeal
+		}
+		pods, err = mergeManagedGPUReleasePods(oldPods, pods)
+		if err != nil {
+			return err
+		}
+	} else if !errors.Is(loadErr, pgx.ErrNoRows) {
+		return loadErr
+	}
+	payload, err := encodeManagedGPUReleaseScope(sealedAt, pods)
 	if err != nil {
 		return fmt.Errorf("encode managed GPU release scope: %w", err)
 	}
@@ -66,9 +87,28 @@ func (s *OperationStore) SaveManagedGPUReleasePods(ctx context.Context, op infer
 	})
 }
 
+func mergeManagedGPUReleasePods(existing, incoming []gpu.PodRef) ([]gpu.PodRef, error) {
+	merged := append([]gpu.PodRef(nil), existing...)
+	byUID := make(map[string]gpu.PodRef, len(existing))
+	for _, pod := range existing {
+		byUID[pod.UID] = pod
+	}
+	for _, pod := range incoming {
+		if old, ok := byUID[pod.UID]; ok {
+			if old != pod {
+				return nil, fmt.Errorf("managed GPU release Pod UID %q changed identity", pod.UID)
+			}
+			continue
+		}
+		byUID[pod.UID] = pod
+		merged = append(merged, pod)
+	}
+	return merged, nil
+}
+
 // LoadManagedGPUReleasePods returns the exact persisted Pod scope for a
-// managed delete operation. A missing row is an error: an empty scope cannot
-// be submitted to Accelerator as release evidence.
+// managed delete operation. The scope may be empty when no Pod was ever
+// observed; its sealed timestamp still fences the ACC release observation.
 func (s *OperationStore) LoadManagedGPUReleasePods(ctx context.Context, op inferencebiz.OperationContext) ([]gpu.PodRef, error) {
 	if s == nil || s.pool == nil {
 		return nil, errors.New("nil postgres operation store")
@@ -91,8 +131,8 @@ func (s *OperationStore) LoadManagedGPUReleasePods(ctx context.Context, op infer
 	if err != nil {
 		return nil, err
 	}
-	var pods []gpu.PodRef
-	if err := json.Unmarshal(payload, &pods); err != nil {
+	_, pods, err := decodeManagedGPUReleaseScope(payload)
+	if err != nil {
 		return nil, fmt.Errorf("decode managed GPU release scope: %w", err)
 	}
 	if err := validateManagedGPUReleasePods(pods); err != nil {
@@ -102,9 +142,6 @@ func (s *OperationStore) LoadManagedGPUReleasePods(ctx context.Context, op infer
 }
 
 func validateManagedGPUReleasePods(pods []gpu.PodRef) error {
-	if len(pods) == 0 {
-		return errors.New("managed GPU release scope requires at least one Pod")
-	}
 	seen := make(map[string]struct{}, len(pods))
 	for _, pod := range pods {
 		for name, value := range map[string]string{
@@ -121,6 +158,37 @@ func validateManagedGPUReleasePods(pods []gpu.PodRef) error {
 		seen[pod.UID] = struct{}{}
 	}
 	return nil
+}
+
+func encodeManagedGPUReleaseScope(sealedAt string, pods []gpu.PodRef) ([]byte, error) {
+	if pods == nil {
+		pods = []gpu.PodRef{}
+	}
+	if strings.TrimSpace(sealedAt) != "" {
+		if _, err := time.Parse(time.RFC3339Nano, sealedAt); err != nil {
+			return nil, fmt.Errorf("invalid managed GPU release sealed_at: %w", err)
+		}
+	}
+	return json.Marshal(managedGPUReleaseScope{SealedAt: sealedAt, Pods: pods})
+}
+
+func decodeManagedGPUReleaseScope(payload []byte) (string, []gpu.PodRef, error) {
+	var scope managedGPUReleaseScope
+	if err := json.Unmarshal(payload, &scope); err == nil && scope.Pods != nil {
+		if scope.SealedAt == "" {
+			return "", scope.Pods, nil
+		}
+		if _, err := time.Parse(time.RFC3339Nano, scope.SealedAt); err != nil {
+			return "", nil, err
+		}
+		return scope.SealedAt, scope.Pods, nil
+	}
+	// Read the pre-seal array shape for rows written before this contract.
+	var pods []gpu.PodRef
+	if err := json.Unmarshal(payload, &pods); err != nil {
+		return "", nil, err
+	}
+	return "", pods, nil
 }
 
 // SaveGPUSnapshot persists one validated accelerator result while the worker still
@@ -226,9 +294,11 @@ func (s *OperationStore) CurrentOperation(ctx context.Context, item work.Item) (
 			return inferencebiz.OperationContext{}, parseErr
 		}
 		if raw, scopeErr := New(s.pool).GetManagedGPUReleaseScope(ctx, GetManagedGPUReleaseScopeParams{TenantID: row.TenantID, ServiceID: row.ServiceID, OperationID: createOperation}); scopeErr == nil {
-			if err := json.Unmarshal(raw, &op.ManagedGPUReleasePods); err != nil {
-				return inferencebiz.OperationContext{}, fmt.Errorf("decode managed GPU release scope: %w", err)
+			sealedAt, pods, decodeErr := decodeManagedGPUReleaseScope(raw)
+			if decodeErr != nil {
+				return inferencebiz.OperationContext{}, fmt.Errorf("decode managed GPU release scope: %w", decodeErr)
 			}
+			op.ManagedGPUReleaseSealedAt, op.ManagedGPUReleasePods = sealedAt, pods
 			if err := validateManagedGPUReleasePods(op.ManagedGPUReleasePods); err != nil {
 				return inferencebiz.OperationContext{}, fmt.Errorf("invalid managed GPU release scope: %w", err)
 			}

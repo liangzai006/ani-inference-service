@@ -23,6 +23,10 @@ func TestGovernancePolicyIncludesNonGPULifecycleReads(t *testing.T) {
 		"/inference.v1.InferenceServiceManager/GetInferenceService",
 		"/inference.v1.InferenceServiceManager/ListInferenceServices",
 		"/inference.v1.InferenceServiceManager/DeleteInferenceService",
+		"/inference.v1.InferenceServiceManager/UpdateInferenceService",
+		"/inference.v1.InferenceServiceManager/StartInferenceService",
+		"/inference.v1.InferenceServiceManager/StopInferenceService",
+		"/inference.v1.InferenceServiceManager/RestartInferenceService",
 		"/inference.v1.InferenceServiceManager/GetOperation",
 		"/inference.v1.InferenceServiceManager/ListOperations",
 	} {

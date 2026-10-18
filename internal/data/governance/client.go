@@ -93,6 +93,18 @@ func (c *Client) ReportResourceReleased(ctx context.Context, n gpu.ReleaseNotifi
 	} else if n.Reason == gpu.AbortedCleaned {
 		req.Reason = quotav1.ReleaseReason_ABORTED_CLEANED
 	}
-	_, err := c.release.ReportResourceReleased(callCtx, req)
-	return err
+	response, err := c.release.ReportResourceReleased(callCtx, req)
+	if err != nil {
+		return err
+	}
+	if response == nil {
+		return fmt.Errorf("%w: missing Governance release response", gpu.ErrInvalidRefund)
+	}
+	if response.GetReleaseEventId() != n.ReleaseEventID || response.GetCreateOperationId() != n.CreateOperationID || response.GetResourceId() != n.ResourceID {
+		return fmt.Errorf("%w: Governance release identity mismatch", gpu.ErrInvalidRefund)
+	}
+	if releaseStatus := response.GetStatus(); releaseStatus != quotav1.ResourceReleaseStatus_APPLIED && releaseStatus != quotav1.ResourceReleaseStatus_ALREADY_APPLIED {
+		return fmt.Errorf("%w: invalid Governance release status %s", gpu.ErrInvalidRefund, releaseStatus)
+	}
+	return nil
 }

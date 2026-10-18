@@ -20,7 +20,7 @@ func quantitySnapshot(t *testing.T, whole bool) *gpu.Snapshot {
 		mode = int32(acceleratorv1.SupplyMode_WHOLE_EXCLUSIVE)
 		resources = map[string]string{"volcano.sh/vgpu-number": "1", "volcano.sh/vgpu-memory": "0", "volcano.sh/vgpu-cores": "100", "volcano.sh/vgpu-memory-percentage": "100"}
 	}
-	snapshot := &gpu.Snapshot{Request: request, Execution: &gpu.Execution{SchedulerName: "volcano", QueueName: "gpu", RuntimeClassName: "nvidia", NodeSelector: map[string]string{"accelerator.ani.io/model-key": "nvidia-test"}, Resources: resources, ExecutionDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, Display: &gpu.Display{ProfileID: profile, ProfileVersion: 1, ProfileName: "test", ModelKey: "nvidia-test", Mode: mode}, QuotaItems: []gpu.QuotaItem{{QuotaCode: "gpu.shared", Units: 12288}}}
+	snapshot := &gpu.Snapshot{Request: request, Execution: &gpu.Execution{SchedulerName: "volcano", QueueName: "gpu", RuntimeClassName: "nvidia", NodeSelector: map[string]string{"accelerator.ani.io/model-key": "nvidia-test"}, Resources: resources, ExecutionDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, Display: &gpu.Display{ProfileID: profile, ProfileVersion: 1, ProfileName: "test", ModelKey: "nvidia-test", Mode: mode}}
 	snapshot.ExecutionDigest = snapshot.Execution.ExecutionDigest
 	if err := gpu.ValidateSnapshot(snapshot, request); err != nil {
 		t.Fatal(err)
@@ -43,7 +43,7 @@ func TestPostgresManagedGPUQuantityPlanRoundtrip(t *testing.T) {
 			if err := gpu.ValidateSnapshot(&loaded, expected.Request); err != nil {
 				t.Fatal(err)
 			}
-			if loaded.ExecutionDigest != expected.ExecutionDigest || loaded.Display.Mode != expected.Display.Mode || loaded.QuotaItems[0].Units != 12288 {
+			if loaded.ExecutionDigest != expected.ExecutionDigest || loaded.Display.Mode != expected.Display.Mode {
 				t.Fatalf("quantity snapshot changed: %+v", loaded)
 			}
 			digest, err := gpu.SnapshotDigest(&loaded)

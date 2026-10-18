@@ -80,6 +80,10 @@ func bindGovernanceGPUContext(ctx context.Context, req interface{}, tenant, iden
 		if request.GetContext() != nil {
 			attachmentTenant = strings.TrimSpace(request.GetContext().GetTenantId())
 		}
+	case *inferencev1.UpdateInferenceServiceRequest:
+		if request.GetContext() != nil {
+			attachmentTenant = strings.TrimSpace(request.GetContext().GetTenantId())
+		}
 	}
 	if attachmentTenant == "" {
 		return ctx, nil

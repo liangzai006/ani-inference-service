@@ -67,6 +67,21 @@ func ManagedDeleteRequestHash(tenantID, resourceID, originalCreateID, actorType,
 	return governanceHash(map[string]any{"schema": "gov-gpu-delete-v1", "tenant_id": tenantID, "actor_type": actorType, "actor_id": actorID, "owner": "ani-inference", "action": "/inference.v1.InferenceServiceManager/DeleteInferenceService", "resource_id": resourceID, "create_operation_id": originalCreateID})
 }
 
+// ManagedUpdateRequestHash authenticates a Governance-owned update while
+// keeping the immutable GPU execution/display attachment in the business
+// payload. The context and correlation request ID are excluded by the
+// canonical business encoding and are bound by the outer command hash.
+func ManagedUpdateRequestHash(req *UpdateInferenceServiceRequest, tenantID, actorType, actorID string) (string, error) {
+	if req == nil {
+		return "", fmt.Errorf("update request is required")
+	}
+	business, err := canonicalMessage(req.ProtoReflect(), true)
+	if err != nil {
+		return "", err
+	}
+	return governanceHash(map[string]any{"schema": "gov-gpu-update-v1", "tenant_id": tenantID, "actor_type": actorType, "actor_id": actorID, "owner": "ani-inference", "action": "/inference.v1.InferenceServiceManager/UpdateInferenceService", "business_type": "inference.v1.UpdateInferenceServiceRequest", "business": business})
+}
+
 func governanceHash(object map[string]any) (string, error) {
 	var out bytes.Buffer
 	encoder := json.NewEncoder(&out)

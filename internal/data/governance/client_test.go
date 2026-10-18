@@ -57,7 +57,7 @@ func releaseNotification() gpu.ReleaseNotification {
 
 func TestClientReportsOnlyReleaseIdentityAndStableRetry(t *testing.T) {
 	n := releaseNotification()
-	rpc := &releaseStub{reply: &quotav1.ReportResourceReleasedResponse{}}
+	rpc := &releaseStub{reply: &quotav1.ReportResourceReleasedResponse{ReleaseEventId: n.ReleaseEventID, CreateOperationId: n.CreateOperationID, ResourceId: n.ResourceID, Status: quotav1.ResourceReleaseStatus_APPLIED}}
 	client, err := NewClient(rpc, nil, time.Second)
 	if err != nil {
 		t.Fatal(err)
@@ -91,6 +91,37 @@ func TestClientPropagatesRPCAndTimeoutErrors(t *testing.T) {
 	client.timeout = 10 * time.Millisecond
 	if err := client.ReportResourceReleased(context.Background(), n); status.Code(err) != codes.DeadlineExceeded {
 		t.Fatalf("fixed timeout not enforced: %v", err)
+	}
+}
+
+func TestClientValidatesResourceReleaseResponse(t *testing.T) {
+	n := releaseNotification()
+	responses := map[string]*quotav1.ReportResourceReleasedResponse{
+		"nil":                 nil,
+		"mismatched event":    {ReleaseEventId: "10000000-0000-4000-8000-000000000099", CreateOperationId: n.CreateOperationID, ResourceId: n.ResourceID, Status: quotav1.ResourceReleaseStatus_APPLIED},
+		"mismatched create":   {ReleaseEventId: n.ReleaseEventID, CreateOperationId: "10000000-0000-4000-8000-000000000099", ResourceId: n.ResourceID, Status: quotav1.ResourceReleaseStatus_APPLIED},
+		"mismatched resource": {ReleaseEventId: n.ReleaseEventID, CreateOperationId: n.CreateOperationID, ResourceId: "10000000-0000-4000-8000-000000000099", Status: quotav1.ResourceReleaseStatus_APPLIED},
+		"unspecified":         {ReleaseEventId: n.ReleaseEventID, CreateOperationId: n.CreateOperationID, ResourceId: n.ResourceID},
+	}
+	for name, response := range responses {
+		t.Run(name, func(t *testing.T) {
+			client, err := NewClient(&releaseStub{reply: response}, nil, time.Second)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := client.ReportResourceReleased(context.Background(), n); !errors.Is(err, gpu.ErrInvalidRefund) {
+				t.Fatalf("response accepted: %v", err)
+			}
+		})
+	}
+	for _, status := range []quotav1.ResourceReleaseStatus{quotav1.ResourceReleaseStatus_APPLIED, quotav1.ResourceReleaseStatus_ALREADY_APPLIED} {
+		client, err := NewClient(&releaseStub{reply: &quotav1.ReportResourceReleasedResponse{ReleaseEventId: n.ReleaseEventID, CreateOperationId: n.CreateOperationID, ResourceId: n.ResourceID, Status: status}}, nil, time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := client.ReportResourceReleased(context.Background(), n); err != nil {
+			t.Fatalf("status %v rejected: %v", status, err)
+		}
 	}
 }
 

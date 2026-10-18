@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -13,6 +14,7 @@ import (
 	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
 	gpubiz "github.com/liangzai006/ani-inference-service/internal/biz/gpu"
 	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
+	commandv1 "github.com/zhangzhe-ctrl/ani-accelerator-service/api/gen/go/accelerator/command/v1"
 )
 
 type UpdateUseCase struct{ repo *Repository }
@@ -63,22 +65,13 @@ func (u *UpdateUseCase) Update(ctx context.Context, in inferencebiz.UpdateInput)
 	if in.ExpectedGeneration < 1 {
 		return nil, inferencebiz.ErrGenerationConflict
 	}
-	resourcesJSON, err := json.Marshal(struct {
-		Requests map[string]string `json:"requests"`
-		Limits   map[string]string `json:"limits"`
-		GPU      *gpubiz.Request   `json:"gpu,omitempty"`
-	}{in.Resources.Requests, in.Resources.Limits, in.Resources.GPU})
-	if err != nil {
-		return nil, err
-	}
-	gpuRequestJSON, err := json.Marshal(in.Resources.GPU)
-	if in.Resources.GPU == nil {
-		gpuRequestJSON = nil
-	}
-	if err != nil {
-		return nil, err
-	}
 	opID := pgUUID(uuid.New())
+	if in.ManagedGPUOperationID != "" {
+		opID, err = parseUUID("managed_gpu_operation_id", in.ManagedGPUOperationID, false)
+		if err != nil {
+			return nil, err
+		}
+	}
 	tx, err := u.repo.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return nil, err
@@ -86,6 +79,22 @@ func (u *UpdateUseCase) Update(ctx context.Context, in inferencebiz.UpdateInput)
 	defer tx.Rollback(ctx)
 	q := New(tx)
 	method := "InferenceService/update"
+	if in.ManagedGPUOperationID != "" {
+		if err := q.LockManagedGPUKey(ctx, in.TenantID+":command:"+in.ManagedGPUOperationID); err != nil {
+			return nil, err
+		}
+		if existing, e := q.GetOperation(ctx, GetOperationParams{TenantID: tenant, ID: opID}); e == nil {
+			if existing.RequestHash != in.RequestHash {
+				return nil, inferencebiz.ErrIdempotencyConflict
+			}
+			if err := tx.Commit(ctx); err != nil {
+				return nil, err
+			}
+			return managedUpdateResponseFromOperation(existing), nil
+		} else if !errors.Is(e, pgx.ErrNoRows) {
+			return nil, e
+		}
+	}
 	if in.RequestID != "" {
 		if err := q.LockIdempotency(ctx, LockIdempotencyParams{TenantID: in.TenantID, Method: method, IdempotencyKey: in.RequestID}); err != nil {
 			return nil, err
@@ -102,7 +111,11 @@ func (u *UpdateUseCase) Update(ctx context.Context, in inferencebiz.UpdateInput)
 			if err := tx.Commit(ctx); err != nil {
 				return nil, err
 			}
-			return commandResponseFromRow(op), nil
+			response := commandResponseFromRow(op)
+			if in.ManagedGPUOperationID != "" {
+				response.DurableOwnerAck = &commandv1.DurableOwnerAck{OperationId: op.ID.String(), ResourceId: op.ServiceID.String(), Accepted: true}
+			}
+			return response, nil
 		}
 		if !errors.Is(e, pgx.ErrNoRows) {
 			return nil, e
@@ -130,6 +143,9 @@ func (u *UpdateUseCase) Update(ctx context.Context, in inferencebiz.UpdateInput)
 	if managedErr != nil && !errors.Is(managedErr, pgx.ErrNoRows) {
 		return nil, managedErr
 	}
+	if in.ManagedGPUOperationID != "" && !managed {
+		return nil, fmt.Errorf("%w: managed GPU resource is missing", inferencebiz.ErrInvalidState)
+	}
 	if managed {
 		if managedResource.Closing {
 			return nil, fmt.Errorf("%w: managed GPU resource has a closing intent", inferencebiz.ErrInvalidState)
@@ -138,8 +154,19 @@ func (u *UpdateUseCase) Update(ctx context.Context, in inferencebiz.UpdateInput)
 		if err := json.Unmarshal(managedResource.OriginalContext, &original); err != nil {
 			return nil, err
 		}
-		if original.Snapshot == nil || in.Resources.GPU == nil || *original.Snapshot.Request != *in.Resources.GPU {
+		if original.Snapshot == nil {
+			return nil, fmt.Errorf("%w: managed GPU snapshot is missing", inferencebiz.ErrInvalidState)
+		}
+		if in.Resources.GPU == nil {
+			// Governance may update business/runtime fields without repeating the
+			// immutable GPU attachment. Reuse the accepted request and plan rather
+			// than clearing GPU placement from the new generation.
+			in.Resources.GPU = original.Snapshot.Request
+		} else if *original.Snapshot.Request != *in.Resources.GPU {
 			return nil, fmt.Errorf("%w: managed GPU selection changes require Governance admission", inferencebiz.ErrInvalidState)
+		}
+		if in.GPUSnapshot != nil && !reflect.DeepEqual(in.GPUSnapshot, original.Snapshot) {
+			return nil, fmt.Errorf("%w: managed GPU execution/display changes require Governance admission", inferencebiz.ErrInvalidState)
 		}
 		if err := gpubiz.ValidateTopology(original.Snapshot.Request, in.Replicas, in.RuntimeMode, in.WorkerReplicas); err != nil {
 			return nil, fmt.Errorf("%w: %s", inferencebiz.ErrInvalidState, err)
@@ -156,6 +183,21 @@ func (u *UpdateUseCase) Update(ctx context.Context, in inferencebiz.UpdateInput)
 			return nil, err
 		}
 		gpuSnapshotDigest = original.Snapshot.ExecutionDigest
+	}
+	resourcesJSON, err := json.Marshal(struct {
+		Requests map[string]string `json:"requests"`
+		Limits   map[string]string `json:"limits"`
+		GPU      *gpubiz.Request   `json:"gpu,omitempty"`
+	}{in.Resources.Requests, in.Resources.Limits, in.Resources.GPU})
+	if err != nil {
+		return nil, err
+	}
+	gpuRequestJSON, err := json.Marshal(in.Resources.GPU)
+	if in.Resources.GPU == nil {
+		gpuRequestJSON = nil
+	}
+	if err != nil {
+		return nil, err
 	}
 	// The nested resource.gpu object is the complete accelerator intent for a
 	// generation. An omitted object therefore means that this desired
@@ -221,5 +263,19 @@ func (u *UpdateUseCase) Update(ctx context.Context, in inferencebiz.UpdateInput)
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
-	return commandResponse(serviceID.String(), opID.String(), target, "update", "withdraw_publication"), nil
+	return managedUpdateResponse(serviceID.String(), opID.String(), target, in.ManagedGPUOperationID != ""), nil
+}
+
+func managedUpdateResponse(serviceID, operationID string, generation int64, managed bool) *inferencev1.OperationResponse {
+	response := commandResponse(serviceID, operationID, generation, "update", "withdraw_publication")
+	if managed {
+		response.DurableOwnerAck = &commandv1.DurableOwnerAck{OperationId: operationID, ResourceId: serviceID, Accepted: true}
+	}
+	return response
+}
+
+func managedUpdateResponseFromOperation(op InferenceOperation) *inferencev1.OperationResponse {
+	response := commandResponseFromRow(op)
+	response.DurableOwnerAck = &commandv1.DurableOwnerAck{OperationId: op.ID.String(), ResourceId: op.ServiceID.String(), Accepted: true}
+	return response
 }
