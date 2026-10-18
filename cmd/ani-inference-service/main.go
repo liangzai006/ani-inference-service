@@ -234,6 +234,8 @@ func buildKubernetesServers(pool *pgxpool.Pool, modelClient *modeldata.Client, r
 			managedGPURelease = &service.ManagedGPUReleaseCoordinator{Observer: observer, Contexts: postgres.NewRepository(pool), Reporter: reporters[0]}
 		}
 	}
+	managedGPUConfigured := strings.TrimSpace(os.Getenv("ANI_ACCELERATOR_GRPC_ADDR")) != "" || (len(reporters) > 0 && reporters[0] != nil)
+	managedGPUReady := managedGPUReadiness(managedGPUConfigured, managedGPURelease)
 	operationRunner := &inferencebiz.Runner{
 		Store:             operationStore,
 		Admission:         &postgres.Admission{Source: runtimeSource},
@@ -265,9 +267,13 @@ func buildKubernetesServers(pool *pgxpool.Pool, modelClient *modeldata.Client, r
 			operationRunner.Publication != nil &&
 			operationRunner.Runtime != nil &&
 			(operationRunner.Audit != nil || operationStoreSupportsAtomicAudit(operationRunner.Store)) &&
-			managedGPURelease != nil
+			managedGPUReady
 	}
-	return []kratosTransport.Server{loopServer, &server.ManagerServer{Manager: mgr}}, managedGPURelease != nil, nil
+	return []kratosTransport.Server{loopServer, &server.ManagerServer{Manager: mgr}}, managedGPUReady, nil
+}
+
+func managedGPUReadiness(configured bool, release inferencebiz.ManagedGPUReleasePort) bool {
+	return !configured || release != nil
 }
 
 // configuredGPUResolver is optional. An omitted endpoint leaves CPU-only

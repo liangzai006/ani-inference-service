@@ -577,15 +577,15 @@ func (s *InferenceServer) CreateInferenceService(ctx context.Context, req *infer
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 	if normalized.GPU != nil {
+		if req.GetContext() != nil && !s.managedGPUConfigured() {
+			return nil, status.Error(codes.FailedPrecondition, "managed GPU dependencies are not ready")
+		}
 		if err := gpubiz.ValidateTopology(normalized.GPU, req.GetReplicas(), mode, workers); err != nil {
 			return nil, status.Error(codes.InvalidArgument, err.Error())
 		}
 	}
 	var managed *inferencebiz.ManagedGPUCommand
 	if normalized.GPU != nil {
-		if req.GetContext() != nil && !s.managedGPUConfigured() {
-			return nil, status.Error(codes.FailedPrecondition, "managed GPU dependencies are not ready")
-		}
 		managed, err = managedCreate(ctx, req)
 		if err != nil {
 			return nil, err

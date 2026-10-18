@@ -2,10 +2,19 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
+
+	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
 )
+
+type readinessReleaseStub struct{}
+
+func (readinessReleaseStub) ReleaseManagedGPU(context.Context, inferencebiz.OperationContext) error {
+	return nil
+}
 
 func TestKubernetesRuntimeConfigurationIsMandatory(t *testing.T) {
 	t.Setenv("ANI_INFERENCE_NAMESPACE", "")
@@ -13,6 +22,18 @@ func TestKubernetesRuntimeConfigurationIsMandatory(t *testing.T) {
 	_, _, err := configureKubernetesRuntime(nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "ANI_INFERENCE_NAMESPACE") {
 		t.Fatalf("configureKubernetesRuntime() error = %v, want missing namespace", err)
+	}
+}
+
+func TestManagedGPUReadinessLeavesCPUOnlyDeploymentsReady(t *testing.T) {
+	if !managedGPUReadiness(false, nil) {
+		t.Fatal("CPU-only deployment without managed GPU configuration must remain ready")
+	}
+	if managedGPUReadiness(true, nil) {
+		t.Fatal("configured managed GPU without release provider must stay not ready")
+	}
+	if !managedGPUReadiness(true, readinessReleaseStub{}) {
+		t.Fatal("configured managed GPU with release provider must be ready")
 	}
 }
 
