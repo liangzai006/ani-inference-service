@@ -37,6 +37,16 @@ func TestManagedGPUReadinessLeavesCPUOnlyDeploymentsReady(t *testing.T) {
 	}
 }
 
+func TestConfiguredGPUResolverRequiresClusterID(t *testing.T) {
+	t.Setenv("ANI_ACCELERATOR_GRPC_ADDR", "accelerator.example:443")
+	t.Setenv("ANI_ACCELERATOR_CLUSTER_ID", "")
+
+	_, err := configuredGPUResolver()
+	if err == nil || !strings.Contains(err.Error(), "ANI_ACCELERATOR_CLUSTER_ID") {
+		t.Fatalf("configuredGPUResolver() error = %v, want missing cluster id", err)
+	}
+}
+
 func TestRuntimeLoggerUsesKratosRedaction(t *testing.T) {
 	var output bytes.Buffer
 	logger := newRuntimeLogger(&output)

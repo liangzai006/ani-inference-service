@@ -285,6 +285,9 @@ func configuredGPUResolver() (inferencebiz.GPUResolver, error) {
 		return nil, nil
 	}
 	clusterID := strings.TrimSpace(os.Getenv("ANI_ACCELERATOR_CLUSTER_ID"))
+	if clusterID == "" {
+		return nil, errors.New("ANI_ACCELERATOR_CLUSTER_ID is required when ANI_ACCELERATOR_GRPC_ADDR is configured")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	client, _, err := accelerator.Dial(ctx, accelerator.Config{
