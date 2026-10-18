@@ -92,6 +92,17 @@ func TestCreateRequiresCallerEngineConfiguration(t *testing.T) {
 	}
 }
 
+func TestCreateRejectsKServeInvalidNameBeforeUseCase(t *testing.T) {
+	req := &inferencev1.CreateInferenceServiceRequest{
+		RequestId: "invalid-name", Name: "qwen2-0.5b-infer-e2e", ModelVersionId: "mv", Replicas: 1,
+		Engine: validEngine(),
+	}
+	_, err := NewInferenceServer(&fakeCreate{}).CreateInferenceService(WithTenantID(context.Background(), "tenant-a"), req)
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("code=%v err=%v, want InvalidArgument", status.Code(err), err)
+	}
+}
+
 func TestCreateNormalizesAndHashesDeterministically(t *testing.T) {
 	f := &fakeCreate{}
 	req := &inferencev1.CreateInferenceServiceRequest{Name: "svc", ModelVersionId: "mv", RequestId: "r1", Replicas: 1, Engine: validEngine(),

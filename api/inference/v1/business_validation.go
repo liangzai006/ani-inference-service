@@ -9,11 +9,28 @@ import (
 	validation "k8s.io/apimachinery/pkg/util/validation"
 )
 
+// ValidateKubernetesName validates the public inference service name against
+// the DNS label accepted by KServe for the generated runtime object. Checking
+// this at the API boundary prevents an asynchronous operation from being
+// accepted only to fail later at the KServe admission webhook.
+func ValidateKubernetesName(name string) error {
+	if name == "" {
+		return fmt.Errorf("name is required")
+	}
+	if errs := validation.IsDNS1123Label(name); len(errs) != 0 {
+		return fmt.Errorf("name must be a lowercase DNS label: %s", errs[0])
+	}
+	return nil
+}
+
 // ValidateBusinessPayload checks the public business contract before quota
 // acceptance. Trusted attachments are validated by the Inference receiver.
 func ValidateBusinessPayload(req *CreateInferenceServiceRequest) error {
-	if req == nil || strings.TrimSpace(req.GetName()) == "" {
+	if req == nil {
 		return fmt.Errorf("name is required")
+	}
+	if err := ValidateKubernetesName(req.GetName()); err != nil {
+		return err
 	}
 	if version, err := uuid.Parse(req.GetModelVersionId()); err != nil || version == uuid.Nil {
 		return fmt.Errorf("model_version_id must be a UUID")

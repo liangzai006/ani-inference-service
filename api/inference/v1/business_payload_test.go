@@ -70,6 +70,19 @@ func TestBusinessValidationRejectsResourcesBeforeQuota(t *testing.T) {
 	}
 }
 
+func TestValidateKubernetesNameRejectsKServeInvalidNames(t *testing.T) {
+	for _, name := range []string{"qwen2-0.5b-infer-e2e", "Qwen", "name_with_underscore", "name."} {
+		if err := ValidateKubernetesName(name); err == nil {
+			t.Fatalf("name %q accepted; want Kubernetes DNS label validation", name)
+		}
+	}
+	for _, name := range []string{"qwen2-05b-infer-e2e", "service-1"} {
+		if err := ValidateKubernetesName(name); err != nil {
+			t.Fatalf("name %q rejected: %v", name, err)
+		}
+	}
+}
+
 func TestBusinessValidationFailsClosedForManagedLWSOnly(t *testing.T) {
 	req := &CreateInferenceServiceRequest{Name: "distributed", ModelVersionId: "11111111-1111-4111-8111-111111111111", Replicas: 1, Engine: &EngineSpec{Type: "vllm", Image: "engine:v1", Command: "serve"}, Runtime: &RuntimeSpec{Mode: RuntimeMode_RUNTIME_MODE_LEADER_WORKER_SET, WorkerReplicas: 1}, Resource: &ResourceSpec{}}
 	if err := ValidateBusinessPayload(req); err != nil {

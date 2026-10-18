@@ -27,6 +27,16 @@ func TestEngineSpecJSONReadsLegacyWrapper(t *testing.T) {
 	}
 }
 
+func TestEngineSpecJSONReadsRawCommandString(t *testing.T) {
+	command, err := unmarshalEngineSpec([]byte(`"vllm serve /models --served-model-name qwen"`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if command != "vllm serve /models --served-model-name qwen" {
+		t.Fatalf("raw engine command = %q", command)
+	}
+}
+
 func TestEngineSpecJSONRejectsArbitraryArgv(t *testing.T) {
 	if _, err := unmarshalEngineSpec([]byte(`[
     "vllm", "serve", "/models"

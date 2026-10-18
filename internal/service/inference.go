@@ -491,6 +491,9 @@ func (s *InferenceServer) CreateInferenceService(ctx context.Context, req *infer
 	if req.GetRequestId() == "" || req.GetName() == "" || req.GetModelVersionId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "request_id, name and model_version_id are required")
 	}
+	if err := inferencev1.ValidateKubernetesName(req.GetName()); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
 	if err := validateEngineInput(req.GetEngine()); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}

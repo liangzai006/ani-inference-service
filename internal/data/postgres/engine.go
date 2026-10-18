@@ -23,6 +23,23 @@ func unmarshalEngineSpec(raw []byte) (string, error) {
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
 		return "", nil
 	}
+	if trimmed[0] == '"' {
+		// Older rows stored the caller's complete command as a JSON string.
+		// Keep the command opaque: it is intentionally not tokenized into argv.
+		decoder := json.NewDecoder(bytes.NewReader(trimmed))
+		var command string
+		if err := decoder.Decode(&command); err != nil {
+			return "", fmt.Errorf("decode engine command: %w", err)
+		}
+		var extra any
+		if err := decoder.Decode(&extra); err != io.EOF {
+			if err == nil {
+				return "", fmt.Errorf("decode engine command: multiple JSON values")
+			}
+			return "", fmt.Errorf("decode engine command: trailing data: %w", err)
+		}
+		return command, nil
+	}
 	if trimmed[0] != '{' {
 		return "", fmt.Errorf("invalid engine command JSON: expected object")
 	}
