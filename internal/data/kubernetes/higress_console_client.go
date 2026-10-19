@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -129,7 +130,23 @@ func (c *higressConsoleClient) GetRoute(ctx context.Context, name string) (map[s
 
 func (c *higressConsoleClient) PutRoute(ctx context.Context, name string, route map[string]any) error {
 	path := "/v1/routes/" + url.PathEscape(name)
-	_, _, err := c.request(ctx, http.MethodPut, path, route)
+	_, _, err := c.request(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		var statusErr *higressConsoleStatusError
+		if !errors.As(err, &statusErr) || statusErr.Status != http.StatusNotFound {
+			return err
+		}
+		_, status, createErr := c.request(ctx, http.MethodPost, "/v1/routes", route)
+		if createErr == nil {
+			return nil
+		}
+		// A concurrent publisher may have created the same route after the
+		// existence check. Reconcile it with the idempotent update path.
+		if status != http.StatusConflict {
+			return createErr
+		}
+	}
+	_, _, err = c.request(ctx, http.MethodPut, path, route)
 	return err
 }
 

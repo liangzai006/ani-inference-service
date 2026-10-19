@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -16,8 +17,18 @@ func TestHigressConsoleClientPutRoute(t *testing.T) {
 	var gotRoute map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
-		if r.Method != http.MethodPut || r.URL.Path != "/v1/routes/ani-route" {
+		if r.URL.Path != "/v1/routes/ani-route" {
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		if r.Method == http.MethodGet {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"success": true,
+				"data":    map[string]any{"name": "ani-route"},
+			})
+			return
+		}
+		if r.Method != http.MethodPut {
+			t.Fatalf("unexpected method: %s", r.Method)
 		}
 		if r.Header.Get("Content-Type") != "application/json" {
 			t.Fatalf("content type = %q", r.Header.Get("Content-Type"))
@@ -38,6 +49,32 @@ func TestHigressConsoleClientPutRoute(t *testing.T) {
 	}
 	if gotRoute["name"] != "ani-route" {
 		t.Fatalf("route = %#v", gotRoute)
+	}
+}
+
+func TestHigressConsoleClientPutRouteCreatesMissingRoute(t *testing.T) {
+	var methods []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		methods = append(methods, r.Method+" "+r.URL.Path)
+		if r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if r.Method == http.MethodPost && r.URL.Path == "/v1/routes" {
+			w.WriteHeader(http.StatusCreated)
+			return
+		}
+		t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+	}))
+	defer server.Close()
+
+	client := newHigressConsoleClient(server.URL, "admin", "secret", server.Client())
+	if err := client.PutRoute(context.Background(), "new-route", map[string]any{"name": "new-route"}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"GET /v1/routes/new-route", "POST /v1/routes"}
+	if !reflect.DeepEqual(methods, want) {
+		t.Fatalf("requests = %#v, want %#v", methods, want)
 	}
 }
 
@@ -137,7 +174,7 @@ func TestHigressConsoleClientNon2xxErrorDoesNotLeakSecrets(t *testing.T) {
 		t.Fatal("expected error")
 	}
 	message := err.Error()
-	for _, part := range []string{"PUT", "/v1/routes/private-route", "502"} {
+	for _, part := range []string{"GET", "/v1/routes/private-route", "502"} {
 		if !strings.Contains(message, part) {
 			t.Fatalf("error %q does not contain %q", message, part)
 		}
@@ -163,7 +200,7 @@ func TestHigressConsoleClientEnvelopeFailureDoesNotLeakSecrets(t *testing.T) {
 		t.Fatal("expected error")
 	}
 	message := err.Error()
-	for _, part := range []string{"PUT", "/v1/routes/private-route", "200"} {
+	for _, part := range []string{"GET", "/v1/routes/private-route", "200"} {
 		if !strings.Contains(message, part) {
 			t.Fatalf("error %q does not contain %q", message, part)
 		}

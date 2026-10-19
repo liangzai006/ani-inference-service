@@ -53,11 +53,11 @@ func TestHTTPRoutePublisherNativePublishLifecycle(t *testing.T) {
 		switch {
 		case r.Method == http.MethodPut && len(requests) == 1:
 			w.WriteHeader(http.StatusCreated)
-		case r.Method == http.MethodPut && len(requests) == 2:
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/routes/"+nativeRouteName(testPublication()):
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "data": map[string]any{"name": nativeRouteName(testPublication())}})
+		case r.Method == http.MethodPut && len(requests) == 3:
 			assertRateLimitOwner(t, p, "served-model", nativeRouteName(testPublication()))
 			w.WriteHeader(http.StatusCreated)
-		case r.Method == http.MethodGet:
-			_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "data": map[string]any{"name": nativeRouteName(testPublication())}})
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -70,10 +70,10 @@ func TestHTTPRoutePublisherNativePublishLifecycle(t *testing.T) {
 	if err := p.Publish(context.Background(), pub); err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
-	if len(requests) < 2 || requests[0] == requests[1] {
+	if len(requests) != 3 {
 		t.Fatalf("native publish requests = %#v", requests)
 	}
-	if requests[0] != "PUT /v1/service-sources/"+nativeServiceSourceName(pub) || requests[1] != "PUT /v1/routes/"+nativeRouteName(pub) {
+	if requests[0] != "PUT /v1/service-sources/"+nativeServiceSourceName(pub) || requests[1] != "GET /v1/routes/"+nativeRouteName(pub) || requests[2] != "PUT /v1/routes/"+nativeRouteName(pub) {
 		t.Fatalf("native publish requests = %#v", requests)
 	}
 	assertRateLimitOwner(t, p, "served-model", nativeRouteName(pub))
@@ -90,7 +90,7 @@ func TestHTTPRoutePublisherNativeRouteFailureRollsBack(t *testing.T) {
 		switch {
 		case r.Method == http.MethodPut && r.URL.Path == "/v1/service-sources/"+nativeServiceSourceName(testPublication()):
 			w.WriteHeader(http.StatusCreated)
-		case r.Method == http.MethodPut && r.URL.Path == "/v1/routes/"+nativeRouteName(testPublication()):
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/routes":
 			w.WriteHeader(http.StatusBadGateway)
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/routes":
 			_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "data": []map[string]any{}})
@@ -108,7 +108,7 @@ func TestHTTPRoutePublisherNativeRouteFailureRollsBack(t *testing.T) {
 	if err == nil {
 		t.Fatal("Publish() error = nil, want route failure")
 	}
-	if len(requests) != 4 || requests[0] != "PUT /v1/service-sources/"+nativeServiceSourceName(testPublication()) || requests[1] != "PUT /v1/routes/"+nativeRouteName(testPublication()) || requests[2] != "GET /v1/routes" || requests[3] != "DELETE /v1/service-sources/"+nativeServiceSourceName(testPublication()) {
+	if len(requests) != 5 || requests[0] != "PUT /v1/service-sources/"+nativeServiceSourceName(testPublication()) || requests[1] != "GET /v1/routes/"+nativeRouteName(testPublication()) || requests[2] != "POST /v1/routes" || requests[3] != "GET /v1/routes" || requests[4] != "DELETE /v1/service-sources/"+nativeServiceSourceName(testPublication()) {
 		t.Fatalf("rollback requests = %#v", requests)
 	}
 	assertRateLimitKeys(t, p, map[string]int64{"existing-model": 20})
@@ -119,7 +119,15 @@ func TestHTTPRoutePublisherEnsureBootstrapRoute(t *testing.T) {
 	var paths []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		paths = append(paths, r.Method+" "+r.URL.Path)
-		if r.Method == http.MethodPut {
+		if r.Method == http.MethodPut && r.URL.Path == "/v1/service-sources/bootstrap-source" {
+			w.WriteHeader(http.StatusCreated)
+			return
+		}
+		if r.Method == http.MethodGet && r.URL.Path == "/v1/routes/bootstrap-route" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if r.Method == http.MethodPost && r.URL.Path == "/v1/routes" {
 			w.WriteHeader(http.StatusCreated)
 			return
 		}
@@ -132,7 +140,7 @@ func TestHTTPRoutePublisherEnsureBootstrapRoute(t *testing.T) {
 	if err := p.EnsureBootstrapRoute(context.Background(), "bootstrap-route", "bootstrap-source", "sink", 80); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"PUT /v1/service-sources/bootstrap-source", "PUT /v1/routes/bootstrap-route"}
+	want := []string{"PUT /v1/service-sources/bootstrap-source", "GET /v1/routes/bootstrap-route", "POST /v1/routes"}
 	if !reflect.DeepEqual(paths, want) {
 		t.Fatalf("bootstrap requests = %#v, want %#v", paths, want)
 	}
