@@ -11,6 +11,19 @@ import (
 	"strings"
 )
 
+// higressConsoleStatusError preserves the HTTP status for callers that need
+// to distinguish an absent resource from other Console failures.
+type higressConsoleStatusError struct {
+	Method     string
+	Path       string
+	Status     int
+	StatusCode int
+}
+
+func (e *higressConsoleStatusError) Error() string {
+	return fmt.Sprintf("Higress Console API %s %s: status %d", e.Method, e.Path, e.Status)
+}
+
 // higressConsoleClient is the small transport adapter used for Higress Console's
 // native management API. Request payloads stay at this boundary as maps so the
 // business layer does not depend on Console API types.
@@ -61,7 +74,7 @@ func (c *higressConsoleClient) request(ctx context.Context, method, path string,
 		return nil, resp.StatusCode, fmt.Errorf("Higress Console API %s %s: read response: %w", method, path, readErr)
 	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return responseBody, resp.StatusCode, fmt.Errorf("Higress Console API %s %s: status %s", method, path, resp.Status)
+		return responseBody, resp.StatusCode, &higressConsoleStatusError{Method: method, Path: path, Status: resp.StatusCode, StatusCode: resp.StatusCode}
 	}
 	if err := higressConsoleEnvelopeError(method, path, resp.StatusCode, responseBody); err != nil {
 		return responseBody, resp.StatusCode, err

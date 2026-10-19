@@ -2,6 +2,10 @@ package kubernetes
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/liangzai006/ani-inference-service/internal/biz/publication"
@@ -13,6 +17,65 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
+
+func TestNativeRoutePayloadUsesModelHeaderAndServiceSource(t *testing.T) {
+	route := nativeRoutePayload("route-1", "/v1/completions", "qwen", "source-1", 100)
+	if route["name"] != "route-1" {
+		t.Fatal("missing route name")
+	}
+	path := route["path"].(map[string]any)
+	if path["matchType"] != "PRE" || path["matchValue"] != "/v1/completions" {
+		t.Fatalf("path = %#v", path)
+	}
+	headers := route["headers"].([]map[string]any)
+	if headers[0]["key"] != "x-higress-llm-model" || headers[0]["matchType"] != "EQUAL" || headers[0]["matchValue"] != "qwen" {
+		t.Fatalf("headers = %#v", headers)
+	}
+	services := route["services"].([]map[string]any)
+	if services[0]["name"] != "source-1" || services[0]["port"] != 100 || services[0]["weight"] != 100 {
+		t.Fatalf("services = %#v", services)
+	}
+	source := nativeServiceSourcePayload("source-1", "svc.models.svc.cluster.local", 100)
+	if source["type"] != "DNS" || source["protocol"] != "HTTP" {
+		t.Fatalf("source = %#v", source)
+	}
+}
+
+func TestHTTPRoutePublisherNativePublishLifecycle(t *testing.T) {
+	var requests []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, fmt.Sprintf("%s %s", r.Method, r.URL.Path))
+		switch {
+		case r.Method == http.MethodPut && len(requests) == 1:
+			w.WriteHeader(http.StatusCreated)
+		case r.Method == http.MethodPut && len(requests) == 2:
+			w.WriteHeader(http.StatusCreated)
+		case r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "data": map[string]any{"name": nativeRouteName(testPublication())}})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	p := testPublisher()
+	p.Console = newHigressConsoleClient(server.URL, "admin", "secret", server.Client())
+	pub := testPublication()
+	if err := p.Publish(context.Background(), pub); err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+	if len(requests) < 2 || requests[0] == requests[1] {
+		t.Fatalf("native publish requests = %#v", requests)
+	}
+	if requests[0] != "PUT /v1/service-sources/"+nativeServiceSourceName(pub) || requests[1] != "PUT /v1/routes/"+nativeRouteName(pub) {
+		t.Fatalf("native publish requests = %#v", requests)
+	}
+	assertRateLimitOwner(t, p, "served-model", nativeRouteName(pub))
+	confirmed, err := p.ConfirmPublished(context.Background(), pub)
+	if err != nil || !confirmed {
+		t.Fatalf("ConfirmPublished() = %v, %v", confirmed, err)
+	}
+}
 
 type publicationRuntimeSource struct {
 	desired DesiredRuntime

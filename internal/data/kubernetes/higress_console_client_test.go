@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -37,6 +38,23 @@ func TestHigressConsoleClientPutRoute(t *testing.T) {
 	}
 	if gotRoute["name"] != "ani-route" {
 		t.Fatalf("route = %#v", gotRoute)
+	}
+}
+
+func TestHigressConsoleClientGetRoute404PreservesStatus(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	client := newHigressConsoleClient(server.URL, "admin", "secret", server.Client())
+	_, err := client.GetRoute(context.Background(), "missing")
+	if err == nil {
+		t.Fatal("GetRoute() error = nil, want 404")
+	}
+	var statusErr *higressConsoleStatusError
+	if !errors.As(err, &statusErr) || statusErr.Status != http.StatusNotFound {
+		t.Fatalf("GetRoute() error = %v, want typed 404", err)
 	}
 }
 

@@ -18,13 +18,15 @@ import (
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
-// HTTPRoutePublisher owns the HTTPRoute boundary for one Inference service.
-// Higress is reached through the Gateway API; this adapter never calls a
-// gateway-specific admin API directly.
+// HTTPRoutePublisher owns the Higress publication boundary for one Inference
+// service. The type name remains for compatibility with the business port.
 type HTTPRoutePublisher struct {
 	Client    client.Client
 	APIReader client.Reader
 	Source    DesiredRuntimeSource
+	// Console selects the native Higress route API. It remains optional while
+	// process wiring migrates; an unset client uses the legacy Gateway API path.
+	Console *higressConsoleClient
 	// RuntimeProvider selects the backend naming contract. The legacy
 	// deployment provider owns <service-id>-endpoint; KServe owns its
 	// predictor/workload Service.
@@ -129,6 +131,23 @@ func (p *HTTPRoutePublisher) Publish(ctx context.Context, pub publication.Public
 	if servicePort < 1 || servicePort > 65535 {
 		return fmt.Errorf("publication backend service port %d is invalid", servicePort)
 	}
+	if p.Console != nil {
+		routeName := nativeRouteName(pub)
+		sourceName := nativeServiceSourceName(pub)
+		address := fmt.Sprintf("%s.%s.svc.cluster.local", backendName, desired.Namespace)
+		source := nativeServiceSourcePayload(sourceName, address, int(servicePort))
+		source["customLabels"] = publicationLabels(pub)
+		if err := p.Console.PutServiceSource(ctx, sourceName, source); err != nil {
+			return err
+		}
+		route := nativeRoutePayload(routeName, p.pathPrefix(), desired.ServedModelName, sourceName, int(servicePort))
+		route["customLabels"] = publicationLabels(pub)
+		if err := p.Console.PutRoute(ctx, routeName, route); err != nil {
+			_ = p.Console.DeleteServiceSource(ctx, sourceName)
+			return err
+		}
+		return p.ensureRateLimit(ctx, desired.ServedModelName, routeName)
+	}
 	routeNamespace := p.routeNamespace(desired.Namespace)
 	route := p.route(pub, routeNamespace, backendName, servicePort, desired.ServedModelName)
 	reader := p.reader()
@@ -158,6 +177,13 @@ func (p *HTTPRoutePublisher) Withdraw(ctx context.Context, pub publication.Publi
 	if err := p.validate(pub); err != nil {
 		return err
 	}
+	if p.Console != nil {
+		name := nativeRouteName(pub)
+		if err := p.Console.DeleteRoute(ctx, name); err != nil {
+			return err
+		}
+		return p.Console.DeleteServiceSource(ctx, nativeServiceSourceName(pub))
+	}
 	route := p.emptyRoute(pub, p.routeNamespace(p.RouteNamespace))
 	reader := p.reader()
 	current := &gatewayv1.HTTPRoute{}
@@ -182,6 +208,20 @@ func (p *HTTPRoutePublisher) ConfirmWithdrawn(ctx context.Context, pub publicati
 	if err := p.validate(pub); err != nil {
 		return false, err
 	}
+	if p.Console != nil {
+		_, err := p.Console.GetRoute(ctx, nativeRouteName(pub))
+		if err != nil {
+			var statusErr *higressConsoleStatusError
+			if errors.As(err, &statusErr) && statusErr.Status == 404 {
+				if err := p.cleanupRateLimit(ctx, nativeRouteName(pub)); err != nil {
+					return false, err
+				}
+				return true, nil
+			}
+			return false, err
+		}
+		return false, nil
+	}
 	route := p.emptyRoute(pub, p.routeNamespace(p.RouteNamespace))
 	current := &gatewayv1.HTTPRoute{}
 	if err := p.reader().Get(ctx, client.ObjectKeyFromObject(route), current); err != nil {
@@ -199,6 +239,17 @@ func (p *HTTPRoutePublisher) ConfirmWithdrawn(ctx context.Context, pub publicati
 func (p *HTTPRoutePublisher) ConfirmPublished(ctx context.Context, pub publication.Publication) (bool, error) {
 	if err := p.validate(pub); err != nil {
 		return false, err
+	}
+	if p.Console != nil {
+		route, err := p.Console.GetRoute(ctx, nativeRouteName(pub))
+		if err != nil {
+			var statusErr *higressConsoleStatusError
+			if errors.As(err, &statusErr) && statusErr.Status == 404 {
+				return false, nil
+			}
+			return false, err
+		}
+		return route != nil, nil
 	}
 	route := p.emptyRoute(pub, p.routeNamespace(p.RouteNamespace))
 	current := &gatewayv1.HTTPRoute{}
@@ -251,7 +302,7 @@ func (p *HTTPRoutePublisher) validate(pub publication.Publication) error {
 	if pub.TenantID == "" || pub.ServiceID == "" || pub.Generation < 1 {
 		return errors.New("publication tenant, service and positive generation are required")
 	}
-	if p.GatewayName == "" || p.GatewayNamespace == "" {
+	if p.Console == nil && (p.GatewayName == "" || p.GatewayNamespace == "") {
 		return errors.New("publication Gateway namespace and name are required")
 	}
 	if strings.TrimSpace(p.PublicBaseURL) == "" {
@@ -341,6 +392,43 @@ func (p *HTTPRoutePublisher) matchesGatewayParent(parent gatewayv1.RouteParentSt
 func routeName(pub publication.Publication) string {
 	sum := sha256.Sum256([]byte(pub.TenantID + "|" + pub.ServiceID + "|" + strconv.FormatInt(pub.Generation, 10)))
 	return "ani-pub-" + hex.EncodeToString(sum[:])[:20]
+}
+
+func nativeRouteName(pub publication.Publication) string {
+	return routeName(pub)
+}
+
+func nativeServiceSourceName(pub publication.Publication) string {
+	sum := sha256.Sum256([]byte("service-source|" + pub.TenantID + "|" + pub.ServiceID + "|" + strconv.FormatInt(pub.Generation, 10)))
+	return "ani-source-" + hex.EncodeToString(sum[:])[:20]
+}
+
+func nativeRoutePayload(name, path, model, source string, port int) map[string]any {
+	return map[string]any{
+		"name":     name,
+		"path":     map[string]any{"matchType": "PRE", "matchValue": path},
+		"headers":  []map[string]any{{"key": "x-higress-llm-model", "matchType": "EQUAL", "matchValue": model}},
+		"services": []map[string]any{{"name": source, "port": port, "weight": 100}},
+	}
+}
+
+func nativeServiceSourcePayload(name, address string, port int) map[string]any {
+	return map[string]any{
+		"name":     name,
+		"type":     "DNS",
+		"address":  address,
+		"port":     port,
+		"protocol": "HTTP",
+	}
+}
+
+func publicationLabels(pub publication.Publication) map[string]string {
+	return map[string]string{
+		tenantIDLabel:                   pub.TenantID,
+		serviceIDLabel:                  pub.ServiceID,
+		generationLabel:                 strconv.FormatInt(pub.Generation, 10),
+		"ani.kubercloud.com/managed-by": "ani-inference",
+	}
 }
 
 func (p *HTTPRoutePublisher) pathPrefix() string {

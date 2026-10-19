@@ -29,7 +29,7 @@ func routeOwnerID(namespace, name string) string {
 	return strings.TrimSpace(namespace) + "/" + strings.TrimSpace(name)
 }
 
-// ensureRateLimit records the publication before its HTTPRoute is exposed.
+// ensureRateLimit records the publication before its Higress route is exposed.
 // The WasmPlugin is updated with resource-version retries so simultaneous model
 // publications do not overwrite one another.
 func (p *HTTPRoutePublisher) ensureRateLimit(ctx context.Context, model, owner string) error {
@@ -179,6 +179,21 @@ func (p *HTTPRoutePublisher) rateLimitPluginName() string {
 }
 
 func (p *HTTPRoutePublisher) hasModelRoute(ctx context.Context, model, withdrawnOwner string) (bool, error) {
+	if p.Console != nil {
+		routes, err := p.Console.ListRoutes(ctx)
+		if err != nil {
+			return false, fmt.Errorf("list Higress routes while cleaning model %q: %w", model, err)
+		}
+		for _, route := range routes {
+			if strings.TrimSpace(fmt.Sprint(route["name"])) == strings.TrimSpace(withdrawnOwner) {
+				continue
+			}
+			if nativeRouteSelectsModel(route, model) {
+				return true, nil
+			}
+		}
+		return false, nil
+	}
 	namespace, routeName, found := strings.Cut(withdrawnOwner, "/")
 	if !found || namespace == "" || routeName == "" {
 		return false, fmt.Errorf("invalid rate-limit owner %q", withdrawnOwner)
@@ -197,6 +212,27 @@ func (p *HTTPRoutePublisher) hasModelRoute(ctx context.Context, model, withdrawn
 		}
 	}
 	return false, nil
+}
+
+func nativeRouteSelectsModel(route map[string]any, model string) bool {
+	headers, ok := route["headers"].([]any)
+	if !ok {
+		if typed, ok := route["headers"].([]map[string]any); ok {
+			for _, header := range typed {
+				if header["key"] == "x-higress-llm-model" && header["matchValue"] == model {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	for _, raw := range headers {
+		header, ok := raw.(map[string]any)
+		if ok && header["key"] == "x-higress-llm-model" && header["matchValue"] == model {
+			return true
+		}
+	}
+	return false
 }
 
 func routeSelectsModel(route *gatewayv1.HTTPRoute, model string) bool {
