@@ -9,3 +9,5 @@
 
 # Pinned local security and API generation tools
 .tools/
+
+.worktrees/
