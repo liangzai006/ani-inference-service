@@ -162,6 +162,25 @@ func (c *higressConsoleClient) PutServiceSource(ctx context.Context, name string
 	return err
 }
 
+func (c *higressConsoleClient) GetServiceSource(ctx context.Context, name string) (map[string]any, error) {
+	path := "/v1/service-sources/" + url.PathEscape(name)
+	body, _, err := c.request(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var envelope struct {
+		Success *bool          `json:"success"`
+		Data    map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return nil, fmt.Errorf("Higress Console API GET %s: decode response: %w", path, err)
+	}
+	if envelope.Success == nil {
+		return nil, fmt.Errorf("Higress Console API GET %s: decode response: missing success", path)
+	}
+	return envelope.Data, nil
+}
+
 func (c *higressConsoleClient) DeleteServiceSource(ctx context.Context, name string) error {
 	return c.delete(ctx, "/v1/service-sources/"+url.PathEscape(name))
 }

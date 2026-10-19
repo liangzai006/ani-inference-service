@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
@@ -37,6 +38,12 @@ func TestKServeLiveLifecycle(t *testing.T) {
 	if apiKey == "" {
 		t.Fatal("live test requires ANI_HIGRESS_API_KEY for the authenticated inference gateway")
 	}
+	consoleURL := os.Getenv("ANI_HIGRESS_CONSOLE_URL")
+	consoleUsername := os.Getenv("ANI_HIGRESS_CONSOLE_USERNAME")
+	consolePassword := os.Getenv("ANI_HIGRESS_CONSOLE_PASSWORD")
+	if consoleURL == "" || consoleUsername == "" || consolePassword == "" {
+		t.Fatal("live test requires Higress Console URL and credentials")
+	}
 	gatewayURL, err := url.Parse(os.Getenv("ANI_KSERVE_LIVE_GATEWAY_URL"))
 	if err != nil || gatewayURL.Host == "" || (gatewayURL.Path != "" && gatewayURL.Path != "/") {
 		t.Fatal("gateway URL must be a root URL, without /v1/completions")
@@ -69,7 +76,12 @@ func TestKServeLiveLifecycle(t *testing.T) {
 	source := &fakeRuntimeSource{desired: DesiredRuntime{RuntimeSpec: spec, DesiredState: "running", ModelReady: true, ModelReadyKnown: true}}
 	bindings := &recordingBindingStore{}
 	executor := &KServeRuntimeExecutor{RuntimeExecutor: &RuntimeExecutor{Client: cl, APIReader: cl, Source: source, Bindings: bindings}}
-	publisher := &HTTPRoutePublisher{Client: cl, APIReader: cl, Source: source, RuntimeProvider: "kserve", GatewayNamespace: "higress-system", GatewayName: "ani-higress", RouteNamespace: spec.Namespace, PublicBaseURL: os.Getenv("ANI_KSERVE_LIVE_GATEWAY_URL")}
+	console := NewHigressConsoleClient(consoleURL, consoleUsername, consolePassword, nil)
+	publisher := &HTTPRoutePublisher{
+		Client: cl, APIReader: cl, Source: source, RuntimeProvider: "kserve",
+		GatewayNamespace: "higress-system", GatewayName: "ani-higress", RouteNamespace: spec.Namespace,
+		PublicBaseURL: os.Getenv("ANI_KSERVE_LIVE_GATEWAY_URL"), Console: console,
+	}
 	op := inferencebiz.OperationContext{TenantID: spec.TenantID, ServiceID: spec.ServiceID, TargetGeneration: spec.Generation, LeaseToken: "live-test"}
 	pub := publication.Publication{TenantID: spec.TenantID, ServiceID: spec.ServiceID, Generation: spec.Generation}
 	syncBinding := func() {
@@ -124,6 +136,8 @@ func TestKServeLiveLifecycle(t *testing.T) {
 	if err := publisher.Publish(ctx, pub); err != nil {
 		t.Fatal(err)
 	}
+	routeName := nativeRouteName(pub)
+	sourceName := nativeServiceSourceName(pub)
 	for {
 		ready, err := publisher.ConfirmPublished(ctx, pub)
 		if err != nil {
@@ -137,6 +151,13 @@ func TestKServeLiveLifecycle(t *testing.T) {
 			t.Fatal(ctx.Err())
 		case <-time.After(2 * time.Second):
 		}
+	}
+	route, err := console.GetRoute(ctx, routeName)
+	if err != nil {
+		t.Fatalf("get native Higress route: %v", err)
+	}
+	if !nativeRouteSelectsModel(route, spec.ServedModelName) {
+		t.Fatalf("native route %q does not select model %q: %#v", routeName, spec.ServedModelName, route)
 	}
 	endpoint, err := publisher.Endpoint(ctx, pub)
 	if err != nil {
@@ -195,6 +216,14 @@ func TestKServeLiveLifecycle(t *testing.T) {
 	withdrawn, err := publisher.ConfirmWithdrawn(ctx, pub)
 	if err != nil || !withdrawn {
 		t.Fatalf("publication withdrawn=%v err=%v", withdrawn, err)
+	}
+	if _, err := console.GetServiceSource(ctx, sourceName); err == nil {
+		t.Fatalf("native service source %q still exists after withdrawal", sourceName)
+	} else {
+		var statusErr *higressConsoleStatusError
+		if !errors.As(err, &statusErr) || statusErr.Status != http.StatusNotFound {
+			t.Fatalf("get withdrawn native service source: %v", err)
+		}
 	}
 	source.desired.PublicationWithdrawn = true
 	if err := executor.DeleteRuntime(ctx, op); err != nil {
