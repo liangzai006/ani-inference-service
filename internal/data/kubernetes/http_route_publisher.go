@@ -139,7 +139,10 @@ func (p *HTTPRoutePublisher) Publish(ctx context.Context, pub publication.Public
 		if err := p.Console.PutServiceSource(ctx, sourceName, source); err != nil {
 			return err
 		}
-		route := nativeRoutePayload(routeName, p.pathPrefix(), desired.ServedModelName, sourceName, int(servicePort))
+		// Higress's native route API resolves services by their DNS name. The
+		// Service Source is retained as the publication's managed endpoint
+		// record, while the route points directly at the predictor Service.
+		route := nativeRoutePayload(routeName, p.pathPrefix(), desired.ServedModelName, address, int(servicePort))
 		route["customLabels"] = publicationLabels(pub)
 		if err := p.ensureRateLimit(ctx, desired.ServedModelName, routeName); err != nil {
 			_ = p.Console.DeleteServiceSource(ctx, sourceName)
