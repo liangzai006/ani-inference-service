@@ -414,10 +414,10 @@ func nativeRoutePayload(name, path, model, source string, port int) map[string]a
 func nativeServiceSourcePayload(name, address string, port int) map[string]any {
 	return map[string]any{
 		"name":     name,
-		"type":     "DNS",
-		"address":  address,
+		"type":     "dns",
+		"domain":   address,
 		"port":     port,
-		"protocol": "HTTP",
+		"protocol": "http",
 	}
 }
 

@@ -36,8 +36,11 @@ func TestNativeRoutePayloadUsesModelHeaderAndServiceSource(t *testing.T) {
 		t.Fatalf("services = %#v", services)
 	}
 	source := nativeServiceSourcePayload("source-1", "svc.models.svc.cluster.local", 100)
-	if source["type"] != "DNS" || source["protocol"] != "HTTP" {
+	if source["type"] != "dns" || source["domain"] != "svc.models.svc.cluster.local" || source["port"] != 100 || source["protocol"] != "http" {
 		t.Fatalf("source = %#v", source)
+	}
+	if _, found := source["address"]; found {
+		t.Fatalf("source uses unsupported address field: %#v", source)
 	}
 }
 
