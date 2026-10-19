@@ -18,3 +18,16 @@ Validation:
 - `make verify` — unavailable: repository has no `verify` target (`make: *** No rule to make target 'verify'. Stop.`)
 
 Concern: the native lifecycle depends on Task 3 wiring `HTTPRoutePublisher.Console`; without that field being populated, compatibility behavior still uses Kubernetes HTTPRoutes.
+
+## Follow-up schema correction
+
+- Fix commit: `ced6366ab68e546e0c2b462c568a8fc8e23987f6` (`fix: use Higress service source schema`)
+- Verified against Higress Console 2.2.4 source: ServiceSource now sends `type: dns`, `domain`, integer `port`, and `protocol: http`; the unsupported `address`, `DNS`, and `HTTP` forms are removed.
+- Route payload remains `path.matchType: PRE`, `headers[].key: x-higress-llm-model` with `matchType: EQUAL`, and `services[].name`/`port`/`weight`.
+- `ConfirmPublished` uses `GET /v1/routes/{name}` and reports true only when the successful response contains route data; typed 404 remains pending.
+
+Additional verification:
+
+- `go test ./internal/data/kubernetes -run 'NativeRoute|HTTPRoutePublisher|RateLimit|HigressConsoleClient' -count=1` — PASS
+- `go test ./internal/data/kubernetes -count=1` — PASS
+- `go test ./...` — PASS
