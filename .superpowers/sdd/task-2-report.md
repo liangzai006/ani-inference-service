@@ -31,3 +31,15 @@ Additional verification:
 - `go test ./internal/data/kubernetes -run 'NativeRoute|HTTPRoutePublisher|RateLimit|HigressConsoleClient' -count=1` — PASS
 - `go test ./internal/data/kubernetes -count=1` — PASS
 - `go test ./...` — PASS
+
+## Follow-up lifecycle correction
+
+- Fix commit: `bde19f9454a67596fdc2ffddcf237e0765f9424f` (`fix: register rate limit before native route`)
+- Native publish now registers rate-limit model ownership before `PUT /v1/routes/{name}`. If route PUT fails, it invokes native route-list cleanup for that owner and deletes the service source.
+- Tests assert the route request observes the rate-limit owner and verify failure rollback request order: service source PUT, route PUT, route list, service source DELETE; the temporary rate-limit key and owner are removed.
+
+Additional verification:
+
+- `go test ./internal/data/kubernetes -run 'NativeRoute|HTTPRoutePublisher|RateLimit|HigressConsoleClient' -count=1` — PASS
+- `go test ./internal/data/kubernetes -count=1` — PASS
+- `go test ./...` — PASS
