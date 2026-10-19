@@ -203,6 +203,8 @@ git commit -m "feat: publish inference routes through Higress API"
 **Interfaces:**
 - Add `ANI_HIGRESS_CONSOLE_URL`, `ANI_HIGRESS_CONSOLE_USERNAME`, and `ANI_HIGRESS_CONSOLE_PASSWORD` environment inputs.
 - Keep `ANI_HIGRESS_PUBLIC_BASE_URL`, `ANI_HIGRESS_PATH_PREFIX`, and rate-limit settings.
+- Export `NewHigressConsoleClient` for the composition root and add
+  `EnsureBootstrapRoute` for the fixed model-router entry route.
 
 - [ ] **Step 1: Add Helm rendering tests/fixtures for Secret references**
 
@@ -235,7 +237,13 @@ Inject the values with `secretKeyRef`; fail Helm rendering if the secret name is
 
 - [ ] **Step 3: Remove the model-specific HTTPRoute template**
 
-Delete `charts/ani-inference/templates/higress-model-router-route.yaml` from the chart and remove `gatewayName`, `gatewayNamespace`, and model bootstrap comments only where they are no longer consumed. Keep public URL and path configuration for endpoint responses.
+Delete `charts/ani-inference/templates/higress-model-router-route.yaml` from the chart. Add a
+ClusterIP sink Service with no selector and a port 80; it has no endpoints and only prevents
+unknown models from falling through to a real model. At process startup, call
+`EnsureBootstrapRoute` to create/update a native `/v1/completions` route backed by a native
+Service Source pointing to that sink Service. Remove `gatewayName`, `gatewayNamespace`, and
+model bootstrap comments only where they are no longer consumed. Keep public URL and path
+configuration for endpoint responses.
 
 - [ ] **Step 4: Update RBAC and documentation**
 
