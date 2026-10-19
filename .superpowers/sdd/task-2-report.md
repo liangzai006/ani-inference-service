@@ -1,6 +1,6 @@
 # Task 2 report
 
-- Commit: `a7f1cc389843efbc4d7d022f63aee020f528b690` (`feat: publish inference routes through Higress API`)
+- Commit: `c4baf01` (`feat: publish inference routes through Higress API`)
 - Files changed:
   - `internal/data/kubernetes/http_route_publisher.go`
   - `internal/data/kubernetes/higress_rate_limit.go`
