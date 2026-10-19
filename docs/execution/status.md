@@ -18,9 +18,11 @@ TLS、IAM 和可信身份接入暂不作为业务门禁。
   `gateway.networking.k8s.io/httproutes` 权限，保留限流 WasmPlugin 所需权限。
 - `pass`：Go 全量测试、Kubernetes 定向测试和 Helm lint/template 已通过；目标集群已
   通过 Console 原生路由和 Higress NodePort 完成一次非空模型响应验证。
-- `partial`：已验证已有推理服务的路由后端和旧 HTTPRoute 冲突清理；全新推理服务从
-  Governance 创建到 route 自动发布、删除后的 route/Service Source 清理仍需下一次
-  完整业务联调确认。
+- `pass`：已通过 Governance 完成全新推理服务的创建、KServe Predictor 启动、Higress
+  原生 route 自动发布、真实 `/v1/completions` 调用，以及删除后的 CR/Pod/Service/PVC、
+  route 和 Service Source 清理。
+- `limit`：本次服务详情的 `health` 仍为 `unknown`，但 KServe readiness 和实际 Higress
+  请求均成功；观察状态回写仍需单独修复。
 
 ## 2026-09-23 新集群 Higress 验证
 

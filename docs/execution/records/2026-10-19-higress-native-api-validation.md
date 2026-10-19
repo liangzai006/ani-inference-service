@@ -25,6 +25,25 @@
 路由的实际后端必须是 KServe predictor Service DNS。此前遗留的 Gateway API HTTPRoute
 会与原生路由冲突并造成 503，已在验证集群删除由 ANI 管理的旧 HTTPRoute。
 
+## Governance 完整链路验证
+
+使用验证租户通过 Governance NodePort `192.168.102.68:32248` 完成了一次新建、调用和删除：
+
+- 创建服务 `gov-higress-e2e-tag-20261019`，资源 ID 为
+  `0935dd18-9d86-4251-8f90-067d9058cc33`，创建操作为
+  `252c3b2b-120d-4ec4-891e-619b1e9d4c10`；请求携带完整 CPU vLLM 命令和可拉取的
+  `docker.changqingyun.cn/mirror/vllm-openai-cpu:latest` 镜像标签。
+- Governance 创建操作最终为 `succeeded`，服务为 `ready`，KServe Predictor 为
+  `1/1 Running`，Higress Console 自动出现带模型 Header 的原生 route。
+- 经 Higress NodePort `192.168.102.68:30090/v1/completions` 携带 API key 调用，
+  返回 HTTP 200，模型为 `qwen3.5-0.8b-gov-e2e-tag-20261019`，返回非空文本。
+- 通过 Governance 删除操作 `a724ef93-36fb-4422-8f9d-d1b280b7ce21`，最终为
+  `succeeded`；Inference 记录为 `stopped/withdrawn`，KServe 资源、PVC、模型 route
+  和 Service Source 均已清理。
+
+本次服务详情中的 `health` 仍为 `unknown`，但 KServe readiness 和实际 Higress 请求
+均成功；这仍是观测状态回写延迟/语义不一致问题，不能作为本次链路失败依据，但需要单独修复。
+
 ## 本地验证
 
 - `go test ./internal/data/kubernetes ./cmd/ani-inference-service`：通过。
