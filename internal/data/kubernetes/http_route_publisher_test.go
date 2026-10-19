@@ -46,12 +46,14 @@ func TestNativeRoutePayloadUsesModelHeaderAndServiceSource(t *testing.T) {
 
 func TestHTTPRoutePublisherNativePublishLifecycle(t *testing.T) {
 	var requests []string
+	var p *HTTPRoutePublisher
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests = append(requests, fmt.Sprintf("%s %s", r.Method, r.URL.Path))
 		switch {
 		case r.Method == http.MethodPut && len(requests) == 1:
 			w.WriteHeader(http.StatusCreated)
 		case r.Method == http.MethodPut && len(requests) == 2:
+			assertRateLimitOwner(t, p, "served-model", nativeRouteName(testPublication()))
 			w.WriteHeader(http.StatusCreated)
 		case r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "data": map[string]any{"name": nativeRouteName(testPublication())}})
@@ -61,7 +63,7 @@ func TestHTTPRoutePublisherNativePublishLifecycle(t *testing.T) {
 	}))
 	defer server.Close()
 
-	p := testPublisher()
+	p = testPublisher()
 	p.Console = newHigressConsoleClient(server.URL, "admin", "secret", server.Client())
 	pub := testPublication()
 	if err := p.Publish(context.Background(), pub); err != nil {
@@ -78,6 +80,38 @@ func TestHTTPRoutePublisherNativePublishLifecycle(t *testing.T) {
 	if err != nil || !confirmed {
 		t.Fatalf("ConfirmPublished() = %v, %v", confirmed, err)
 	}
+}
+
+func TestHTTPRoutePublisherNativeRouteFailureRollsBack(t *testing.T) {
+	var requests []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, fmt.Sprintf("%s %s", r.Method, r.URL.Path))
+		switch {
+		case r.Method == http.MethodPut && r.URL.Path == "/v1/service-sources/"+nativeServiceSourceName(testPublication()):
+			w.WriteHeader(http.StatusCreated)
+		case r.Method == http.MethodPut && r.URL.Path == "/v1/routes/"+nativeRouteName(testPublication()):
+			w.WriteHeader(http.StatusBadGateway)
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/routes":
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "data": []map[string]any{}})
+		case r.Method == http.MethodDelete && r.URL.Path == "/v1/service-sources/"+nativeServiceSourceName(testPublication()):
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	p := testPublisher()
+	p.Console = newHigressConsoleClient(server.URL, "admin", "secret", server.Client())
+	err := p.Publish(context.Background(), testPublication())
+	if err == nil {
+		t.Fatal("Publish() error = nil, want route failure")
+	}
+	if len(requests) != 4 || requests[0] != "PUT /v1/service-sources/"+nativeServiceSourceName(testPublication()) || requests[1] != "PUT /v1/routes/"+nativeRouteName(testPublication()) || requests[2] != "GET /v1/routes" || requests[3] != "DELETE /v1/service-sources/"+nativeServiceSourceName(testPublication()) {
+		t.Fatalf("rollback requests = %#v", requests)
+	}
+	assertRateLimitKeys(t, p, map[string]int64{"existing-model": 20})
+	assertRateLimitOwner(t, p, "served-model")
 }
 
 type publicationRuntimeSource struct {

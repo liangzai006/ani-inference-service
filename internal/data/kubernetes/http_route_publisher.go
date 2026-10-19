@@ -141,11 +141,16 @@ func (p *HTTPRoutePublisher) Publish(ctx context.Context, pub publication.Public
 		}
 		route := nativeRoutePayload(routeName, p.pathPrefix(), desired.ServedModelName, sourceName, int(servicePort))
 		route["customLabels"] = publicationLabels(pub)
-		if err := p.Console.PutRoute(ctx, routeName, route); err != nil {
+		if err := p.ensureRateLimit(ctx, desired.ServedModelName, routeName); err != nil {
 			_ = p.Console.DeleteServiceSource(ctx, sourceName)
 			return err
 		}
-		return p.ensureRateLimit(ctx, desired.ServedModelName, routeName)
+		if err := p.Console.PutRoute(ctx, routeName, route); err != nil {
+			_ = p.cleanupRateLimit(ctx, routeName)
+			_ = p.Console.DeleteServiceSource(ctx, sourceName)
+			return err
+		}
+		return nil
 	}
 	routeNamespace := p.routeNamespace(desired.Namespace)
 	route := p.route(pub, routeNamespace, backendName, servicePort, desired.ServedModelName)

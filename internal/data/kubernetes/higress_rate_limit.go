@@ -81,8 +81,8 @@ func (p *HTTPRoutePublisher) ensureRateLimit(ctx context.Context, model, owner s
 	return fmt.Errorf("update Higress rate-limit plugin conflicted after %d retries", higressRateLimitMaxUpdateRetries)
 }
 
-// cleanupRateLimit removes this route's ownership after ConfirmWithdrawn has
-// observed the route absent. A model key is removed only when no route still
+// cleanupRateLimit removes this route's ownership after the route is absent.
+// A model key is removed only when no route still
 // selects it. If it is the final key, it is retained because Higress rejects an
 // empty limit_keys configuration; it then has no owner and is harmless until a
 // platform operator replaces the bootstrap configuration.
