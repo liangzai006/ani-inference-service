@@ -406,6 +406,30 @@ func TestRunnerQuotaReserveConfirmPersistsBeforeApply(t *testing.T) {
 	}
 }
 
+func TestRunnerDeleteCancelsPendingLocalQuotaPlaceholder(t *testing.T) {
+	store := &runnerStore{op: operation(string(StepReleaseQuota))}
+	store.op.Kind = "delete"
+	store.op.Reservation = quota.Reservation{
+		TenantID: "t", ServiceID: "s", OperationID: "create-op", Generation: "1",
+		ReservationID: "pending-create-op", State: "pending",
+	}
+	q := &runnerQuota{}
+	runner := &Runner{Store: store, Quota: q, Audit: &runnerAudit{}}
+
+	if _, err := runner.Execute(context.Background(), item()); err != nil {
+		t.Fatalf("delete pending quota placeholder: %v", err)
+	}
+	if q.released {
+		t.Fatal("remote quota release called for a local pending placeholder")
+	}
+	if len(store.quotaSaved) != 1 || store.quotaSaved[0].State != "released" {
+		t.Fatalf("saved reservation=%+v, want released", store.quotaSaved)
+	}
+	if len(store.advanced) != 1 || store.advanced[0].NextPhase != OperationSucceeded || store.advanced[0].NextStep != string(StepComplete) {
+		t.Fatalf("transition=%+v, want succeeded/complete", store.advanced)
+	}
+}
+
 func TestRunnerQuotaRetryConfirmsPersistedReservationWithoutReReserve(t *testing.T) {
 	store := &runnerStore{op: operation(string(StepReserveQuota))}
 	store.op.Reservation = quota.Reservation{

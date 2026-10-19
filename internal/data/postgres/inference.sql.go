@@ -336,7 +336,16 @@ func (q *Queries) CountOperations(ctx context.Context, arg CountOperationsParams
 const countServices = `-- name: CountServices :one
 SELECT count(*)::bigint
 FROM inference_services s
-LEFT JOIN inference_specs sp ON sp.tenant_id = s.tenant_id AND sp.service_id = s.id AND sp.generation = s.desired_generation
+LEFT JOIN LATERAL (
+  SELECT sp.tenant_id, sp.id, sp.service_id, sp.generation, sp.model_id, sp.model_version_id, sp.artifact_provider, sp.artifact_ref, sp.artifact_sha256, sp.image_ref, sp.served_model_name, sp.engine_runtime, sp.command_argv, sp.resources, sp.replicas, sp.spec_json, sp.created_at, sp.runtime_mode, sp.worker_replicas, sp.endpoint_container_port, sp.endpoint_service_port, sp.endpoint_target_port, sp.endpoint_protocol, sp.runtime_provider, sp.gpu_request, sp.gpu_plan, sp.gpu_plan_digest
+  FROM inference_specs sp
+  WHERE sp.tenant_id = s.tenant_id
+    AND sp.service_id = s.id
+    AND (sp.generation = s.desired_generation
+         OR (s.desired_state = 'deleted' AND sp.generation < s.desired_generation))
+  ORDER BY sp.generation DESC
+  LIMIT 1
+) sp ON TRUE
 LEFT JOIN inference_runtime rt ON rt.tenant_id = s.tenant_id AND rt.service_id = s.id
 WHERE s.tenant_id = $1 AND s.deleted_at IS NULL
   AND ($2::text = '' OR (s.desired_state = 'running' AND COALESCE(rt.runtime_phase, 'unknown') = 'ready'))
@@ -1621,9 +1630,16 @@ SELECT s.tenant_id, s.id, s.name, s.desired_state, s.desired_generation, s.appli
        COALESCE(rt.invocation_health, 'unknown') AS invocation_health,
        rt.observed_at
 FROM inference_services s
-LEFT JOIN inference_specs sp
-  ON sp.tenant_id = s.tenant_id AND sp.service_id = s.id
- AND sp.generation = s.desired_generation
+LEFT JOIN LATERAL (
+  SELECT sp.tenant_id, sp.id, sp.service_id, sp.generation, sp.model_id, sp.model_version_id, sp.artifact_provider, sp.artifact_ref, sp.artifact_sha256, sp.image_ref, sp.served_model_name, sp.engine_runtime, sp.command_argv, sp.resources, sp.replicas, sp.spec_json, sp.created_at, sp.runtime_mode, sp.worker_replicas, sp.endpoint_container_port, sp.endpoint_service_port, sp.endpoint_target_port, sp.endpoint_protocol, sp.runtime_provider, sp.gpu_request, sp.gpu_plan, sp.gpu_plan_digest
+  FROM inference_specs sp
+  WHERE sp.tenant_id = s.tenant_id
+    AND sp.service_id = s.id
+    AND (sp.generation = s.desired_generation
+         OR (s.desired_state = 'deleted' AND sp.generation < s.desired_generation))
+  ORDER BY sp.generation DESC
+  LIMIT 1
+) sp ON TRUE
 LEFT JOIN inference_runtime rt
   ON rt.tenant_id = s.tenant_id AND rt.service_id = s.id
 LEFT JOIN LATERAL (
@@ -1765,7 +1781,16 @@ SELECT s.tenant_id, s.id, s.name, s.desired_state, s.desired_generation, s.appli
        COALESCE(rt.invocation_health, 'unknown') AS invocation_health,
        rt.observed_at
 FROM inference_services s
-LEFT JOIN inference_specs sp ON sp.tenant_id = s.tenant_id AND sp.service_id = s.id AND sp.generation = s.desired_generation
+LEFT JOIN LATERAL (
+  SELECT sp.tenant_id, sp.id, sp.service_id, sp.generation, sp.model_id, sp.model_version_id, sp.artifact_provider, sp.artifact_ref, sp.artifact_sha256, sp.image_ref, sp.served_model_name, sp.engine_runtime, sp.command_argv, sp.resources, sp.replicas, sp.spec_json, sp.created_at, sp.runtime_mode, sp.worker_replicas, sp.endpoint_container_port, sp.endpoint_service_port, sp.endpoint_target_port, sp.endpoint_protocol, sp.runtime_provider, sp.gpu_request, sp.gpu_plan, sp.gpu_plan_digest
+  FROM inference_specs sp
+  WHERE sp.tenant_id = s.tenant_id
+    AND sp.service_id = s.id
+    AND (sp.generation = s.desired_generation
+         OR (s.desired_state = 'deleted' AND sp.generation < s.desired_generation))
+  ORDER BY sp.generation DESC
+  LIMIT 1
+) sp ON TRUE
 LEFT JOIN inference_runtime rt ON rt.tenant_id = s.tenant_id AND rt.service_id = s.id
 LEFT JOIN LATERAL (
   SELECT p.observed_phase FROM inference_publications p

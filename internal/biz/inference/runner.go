@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -652,6 +653,19 @@ func (r *Runner) runStep(ctx context.Context, op OperationContext) (stepResult, 
 		// a retry after the release was persisted, can leave none to release.
 		if op.Reservation.ReservationID == "" {
 			return stepResult{phase: OperationSucceeded, step: string(StepComplete), event: "quota.none"}, nil
+		}
+		// A create accepted a local placeholder before the quota provider was
+		// called. Delete can overtake that create; there is no remote
+		// reservation to release in this state.
+		if op.Kind == "delete" && op.Reservation.State == "pending" && strings.HasPrefix(op.Reservation.ReservationID, "pending-") {
+			op.Reservation.State = "released"
+			op.Reservation.LeaseToken = op.LeaseToken
+			op.Reservation.FenceOperationID = op.ID
+			op.Reservation.LastErrorCode = ""
+			if err := r.Store.SaveQuotaReservation(ctx, op.Reservation); err != nil {
+				return stepResult{}, err
+			}
+			return stepResult{phase: OperationSucceeded, step: string(StepComplete), event: "quota.pending_cancelled"}, nil
 		}
 		if r.Quota == nil {
 			return stepResult{phase: OperationSucceeded, step: string(StepComplete), event: "quota.skipped"}, nil

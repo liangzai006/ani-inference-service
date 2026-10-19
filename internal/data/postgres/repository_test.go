@@ -80,6 +80,47 @@ func TestCreateServiceTransactionIntegration(t *testing.T) {
 	}
 }
 
+func TestCreateServiceAllowsReusingDeletedNameIntegration(t *testing.T) {
+	dsn := os.Getenv("INFERENCE_PG_DSN")
+	if dsn == "" {
+		t.Skip("set INFERENCE_PG_DSN to run PostgreSQL integration test")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	p, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(p.Close)
+	if err := p.Ping(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	tenant := uuid.New()
+	firstID, secondID := uuid.New(), uuid.New()
+	q := New(p)
+	firstName := "reusable-" + tenant.String()
+	if err := q.InsertService(ctx, InsertServiceParams{
+		TenantID: pgUUID(tenant), ID: pgUUID(firstID), Name: firstName,
+		DesiredState: "running", DesiredGeneration: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Exec(ctx, `UPDATE inference_services SET desired_state='deleted', deleted_at=now() WHERE tenant_id=$1 AND id=$2`, tenant, firstID); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = p.Exec(context.Background(), `DELETE FROM inference_services WHERE tenant_id=$1`, tenant)
+	})
+
+	if err := q.InsertService(ctx, InsertServiceParams{
+		TenantID: pgUUID(tenant), ID: pgUUID(secondID), Name: firstName,
+		DesiredState: "running", DesiredGeneration: 1,
+	}); err != nil {
+		t.Fatalf("reusing a deleted service name: %v", err)
+	}
+}
+
 func TestUpdateObservationCASUsesDesiredGenerationAndPersistsLWSFields(t *testing.T) {
 	dsn := os.Getenv("INFERENCE_PG_DSN")
 	if dsn == "" {

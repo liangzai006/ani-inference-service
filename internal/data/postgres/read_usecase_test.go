@@ -133,6 +133,38 @@ func TestReadUseCaseProjectsArtifactAndEngineFields(t *testing.T) {
 	}
 }
 
+func TestReadUseCaseListsDeletingServiceBeforeTombstone(t *testing.T) {
+	ctx, pool, tenant, service := lifecycleDatabase(t)
+	operation := uuid.New()
+	if _, err := NewRepository(pool).CreateService(ctx, CreateAggregateInput{
+		TenantID: tenant.String(), ServiceID: service.String(), OperationID: operation.String(),
+		Name: "delete-list-" + service.String(), ModelVersionID: uuid.NewString(),
+		EngineJSON:  []byte(`{"command":"vllm serve /models --served-model-name delete-list"}`),
+		RequestHash: "delete-list", IdempotencyKey: "delete-list",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// DELETE advances desired_generation without cloning a spec. The list must
+	// still project the last complete spec until the tombstone is committed.
+	if _, err := pool.Exec(ctx, `UPDATE inference_services
+		SET desired_state = 'deleted', desired_generation = 2
+		WHERE tenant_id = $1 AND id = $2`, tenant, service); err != nil {
+		t.Fatal(err)
+	}
+
+	items, total, err := NewReadUseCase(pool).ListServicesPage(ctx, tenant.String(), inferencebiz.ListOptions{Limit: 10})
+	if err != nil {
+		t.Fatalf("list during delete: %v", err)
+	}
+	if total != 1 || len(items) != 1 || items[0].GetEngine().GetCommand() != "vllm serve /models --served-model-name delete-list" {
+		t.Fatalf("list during delete=%v total=%d", items, total)
+	}
+	legacyItems, _, err := NewReadUseCase(pool).ListServices(ctx, tenant.String(), 10, "")
+	if err != nil || len(legacyItems) != 1 || legacyItems[0].GetEngine().GetCommand() != "vllm serve /models --served-model-name delete-list" {
+		t.Fatalf("keyset list during delete=%v err=%v", legacyItems, err)
+	}
+}
+
 func TestReadUseCaseListsOperationsTenantScoped(t *testing.T) {
 	ctx, pool, tenant, service := lifecycleDatabase(t)
 	if _, err := NewRepository(pool).CreateService(ctx, CreateAggregateInput{

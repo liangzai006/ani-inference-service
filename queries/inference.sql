@@ -84,9 +84,16 @@ SELECT s.tenant_id, s.id, s.name, s.desired_state, s.desired_generation, s.appli
        COALESCE(rt.invocation_health, 'unknown') AS invocation_health,
        rt.observed_at
 FROM inference_services s
-LEFT JOIN inference_specs sp
-  ON sp.tenant_id = s.tenant_id AND sp.service_id = s.id
- AND sp.generation = s.desired_generation
+LEFT JOIN LATERAL (
+  SELECT sp.*
+  FROM inference_specs sp
+  WHERE sp.tenant_id = s.tenant_id
+    AND sp.service_id = s.id
+    AND (sp.generation = s.desired_generation
+         OR (s.desired_state = 'deleted' AND sp.generation < s.desired_generation))
+  ORDER BY sp.generation DESC
+  LIMIT 1
+) sp ON TRUE
 LEFT JOIN inference_runtime rt
   ON rt.tenant_id = s.tenant_id AND rt.service_id = s.id
 LEFT JOIN LATERAL (
@@ -726,7 +733,16 @@ WHERE sp.tenant_id = sqlc.arg(tenant_id)
 -- name: CountServices :one
 SELECT count(*)::bigint
 FROM inference_services s
-LEFT JOIN inference_specs sp ON sp.tenant_id = s.tenant_id AND sp.service_id = s.id AND sp.generation = s.desired_generation
+LEFT JOIN LATERAL (
+  SELECT sp.*
+  FROM inference_specs sp
+  WHERE sp.tenant_id = s.tenant_id
+    AND sp.service_id = s.id
+    AND (sp.generation = s.desired_generation
+         OR (s.desired_state = 'deleted' AND sp.generation < s.desired_generation))
+  ORDER BY sp.generation DESC
+  LIMIT 1
+) sp ON TRUE
 LEFT JOIN inference_runtime rt ON rt.tenant_id = s.tenant_id AND rt.service_id = s.id
 WHERE s.tenant_id = sqlc.arg(tenant_id) AND s.deleted_at IS NULL
   AND (sqlc.arg(status)::text = '' OR (s.desired_state = 'running' AND COALESCE(rt.runtime_phase, 'unknown') = 'ready'))
@@ -759,7 +775,16 @@ SELECT s.tenant_id, s.id, s.name, s.desired_state, s.desired_generation, s.appli
        COALESCE(rt.invocation_health, 'unknown') AS invocation_health,
        rt.observed_at
 FROM inference_services s
-LEFT JOIN inference_specs sp ON sp.tenant_id = s.tenant_id AND sp.service_id = s.id AND sp.generation = s.desired_generation
+LEFT JOIN LATERAL (
+  SELECT sp.*
+  FROM inference_specs sp
+  WHERE sp.tenant_id = s.tenant_id
+    AND sp.service_id = s.id
+    AND (sp.generation = s.desired_generation
+         OR (s.desired_state = 'deleted' AND sp.generation < s.desired_generation))
+  ORDER BY sp.generation DESC
+  LIMIT 1
+) sp ON TRUE
 LEFT JOIN inference_runtime rt ON rt.tenant_id = s.tenant_id AND rt.service_id = s.id
 LEFT JOIN LATERAL (
   SELECT p.observed_phase FROM inference_publications p
