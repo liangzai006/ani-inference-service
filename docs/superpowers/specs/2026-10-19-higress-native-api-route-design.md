@@ -44,15 +44,18 @@ Higress Console API 的管理员凭据通过 Kubernetes Secret 注入，不写�
 
 ### Service Source
 
-每个已发布的推理服务创建一个确定性 Service Source，指向其 KServe predictor
+每个已发布的推理服务创建一个确定性 Service Source，记录其 KServe predictor
 Service 的集群 DNS 名称和服务端口。例如：
 
 ```text
 tttt-predictor.ani-system.svc.cluster.local:80
 ```
 
-Service Source 名称包含推理服务 ID 和发布代次，避免删除后重建时复用旧配置。创建和
-删除操作必须与路由发布状态绑定，不能在只写数据库记录时提前暴露路由。
+Service Source 名称包含推理服务 ID 和发布代次，避免删除后重建时复用旧配置。它是
+Higress 的服务目录/管理元数据，供 bootstrap 路由和生命周期收敛使用；模型业务路由
+不能把 Service Source 名称当作普通上游服务名。
+
+创建和删除操作必须与路由发布状态绑定，不能在只写数据库记录时提前暴露路由。
 
 ### 模型路由
 
@@ -60,11 +63,14 @@ Service Source 名称包含推理服务 ID 和发布代次，避免删除后重�
 
 - 路径前缀：当前保持 `/v1/completions`；
 - Header 精确匹配：`x-higress-llm-model=<served_model_name>`；
-- 后端：当前推理服务的 Service Source；
+- 后端：当前 KServe predictor Service 的集群 DNS 名称（例如
+  `tttt-predictor.ani-system.svc.cluster.local`）；
 - 权重：100；
 - 路由名：由租户、推理服务 ID 和 generation 确定性生成。
 
-路由创建、更新、撤销和删除必须是幂等的，并在失败时返回明确的发布错误，不能把
+Higress Console 当前版本不会把 Service Source 名称解析为普通路由上游；如果将其直接
+写入 `services[].name`，请求会得到无上游的 503。因此 Service Source 仍然保留并由
+Inference 管理，但模型路由直接指向 predictor DNS。路由创建、更新、撤销和删除必须是幂等的，并在失败时返回明确的发布错误，不能把
 数据库中的 `published` 状态提前写成成功。
 
 ### 初始匹配入口

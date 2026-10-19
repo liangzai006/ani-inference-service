@@ -4,7 +4,7 @@
 
 **Goal:** Replace ANI's Kubernetes `HTTPRoute` model publication with Higress Console native route and service-source API calls while preserving model routing, rate limiting, and lifecycle convergence.
 
-**Architecture:** Keep `publication.Port` and `publication.EndpointResolver` unchanged. Replace the infrastructure implementation behind them with a Higress Console API adapter using Basic Auth, deterministic native route/service-source names, and a Kubernetes sink Service for the model-router bootstrap route. Keep the existing Kubernetes WASM rate-limit patcher, but make its ownership lookup query Higress native routes instead of `HTTPRoute` objects.
+**Architecture:** Keep `publication.Port` and `publication.EndpointResolver` unchanged. Replace the infrastructure implementation behind them with a Higress Console API adapter using Basic Auth, deterministic native route/service-source names, and a Kubernetes sink Service for the model-router bootstrap route. Model routes point directly to the KServe predictor Service DNS; the Service Source remains managed metadata/bootstrap state. Keep the existing Kubernetes WASM rate-limit patcher, but make its ownership lookup query Higress native routes instead of `HTTPRoute` objects.
 
 **Tech Stack:** Go standard `net/http`, Kubernetes controller-runtime client, Higress Console 2.2.4 REST API, Helm, Go tests, `helm template`.
 

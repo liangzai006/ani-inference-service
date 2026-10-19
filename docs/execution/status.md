@@ -8,18 +8,19 @@ TLS、IAM 和可信身份接入暂不作为业务门禁。
 
 ## 2026-10-19 Higress 原生路由迁移
 
-- `pass`：Inference 发布适配器已改为调用 Higress Console 原生 REST API，使用
-  Service Source 指向 KServe predictor Service，再创建带
-  `x-higress-llm-model` 精确匹配的模型路由。
+- `pass`：Inference 发布适配器已改为调用 Higress Console 原生 REST API，保留
+  Service Source 作为管理元数据，并创建带 `x-higress-llm-model` 精确匹配的模型路由；
+  模型路由的实际后端是 KServe predictor Service DNS。
 - `pass`：Chart 不再渲染模型 HTTPRoute；仅创建无 selector 的 sink Service，进程启动
   时通过 Console API 创建固定 `/v1/completions` bootstrap 路由。未知模型不会落到其他
   模型后端。
 - `pass`：Console 地址和账号只通过部署 Secret 注入；运行时 Role 已移除旧
   `gateway.networking.k8s.io/httproutes` 权限，保留限流 WasmPlugin 所需权限。
-- `pass`：Go 全量测试、Kubernetes 定向测试和 Helm lint/template 已通过；缺少真实
-  Console 凭据和目标推理实例时，集群原生路由与网关响应仍为 `not_verified`。
-- `not_verified`：需要在允许联调的集群中安装更新后的 Inference Chart，确认 Console
-  路由可见、OpenAI 请求成功，并验证删除后 route/Service Source 清理。
+- `pass`：Go 全量测试、Kubernetes 定向测试和 Helm lint/template 已通过；目标集群已
+  通过 Console 原生路由和 Higress NodePort 完成一次非空模型响应验证。
+- `partial`：已验证已有推理服务的路由后端和旧 HTTPRoute 冲突清理；全新推理服务从
+  Governance 创建到 route 自动发布、删除后的 route/Service Source 清理仍需下一次
+  完整业务联调确认。
 
 ## 2026-09-23 新集群 Higress 验证
 
