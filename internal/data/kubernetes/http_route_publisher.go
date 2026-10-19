@@ -136,7 +136,6 @@ func (p *HTTPRoutePublisher) Publish(ctx context.Context, pub publication.Public
 		sourceName := nativeServiceSourceName(pub)
 		address := fmt.Sprintf("%s.%s.svc.cluster.local", backendName, desired.Namespace)
 		source := nativeServiceSourcePayload(sourceName, address, int(servicePort))
-		source["customLabels"] = publicationLabels(pub)
 		if err := p.Console.PutServiceSource(ctx, sourceName, source); err != nil {
 			return err
 		}
