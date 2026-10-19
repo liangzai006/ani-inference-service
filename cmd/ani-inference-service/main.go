@@ -233,6 +233,7 @@ func buildKubernetesServers(pool *pgxpool.Pool, modelClient *modeldata.Client, r
 		RouteNamespace:     envOrDefault("ANI_HIGRESS_ROUTE_NAMESPACE", namespace),
 		PublicBaseURL:      publicBaseURL,
 		PathPrefix:         envOrDefault("ANI_HIGRESS_PATH_PREFIX", "/v1/completions"),
+		RoutePrefix:        envOrDefault("ANI_HIGRESS_ROUTE_PREFIX", "/v1/"),
 		RateLimitNamespace: envOrDefault("ANI_HIGRESS_RATE_LIMIT_NAMESPACE", "higress-system"),
 		RateLimitPlugin:    envOrDefault("ANI_HIGRESS_RATE_LIMIT_PLUGIN", "ani-request-rate-limit"),
 		Console:            kubernetes.NewHigressConsoleClient(higressConsoleURL, higressConsoleUsername, higressConsolePassword, nil),

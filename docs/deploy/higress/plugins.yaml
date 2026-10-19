@@ -9,8 +9,10 @@ metadata:
 spec:
   defaultConfig:
     modelToHeader: x-higress-llm-model
+    # The model-router plugin supports "*" to inspect every OpenAI-compatible
+    # request under the /v1/ gateway route.
     enableOnPathSuffix:
-      - /completions
+      - "*"
   defaultConfigDisable: false
   failStrategy: FAIL_OPEN
   imagePullPolicy: IfNotPresent

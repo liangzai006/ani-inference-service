@@ -77,6 +77,8 @@ spec:
                   key: {{ required "higress.consoleCredentialsSecret.passwordKey is required" (trim .Values.higress.consoleCredentialsSecret.passwordKey) | quote }}
             - name: ANI_HIGRESS_PATH_PREFIX
               value: {{ .Values.higress.pathPrefix | quote }}
+            - name: ANI_HIGRESS_ROUTE_PREFIX
+              value: {{ .Values.higress.routePrefix | quote }}
             - name: ANI_HIGRESS_BOOTSTRAP_ROUTE_NAME
               value: {{ required "higress.bootstrapRouteName is required" (trim .Values.higress.bootstrapRouteName) | quote }}
             - name: ANI_HIGRESS_BOOTSTRAP_SOURCE_NAME

@@ -5,21 +5,28 @@ repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 tmp_dir=$(mktemp -d)
 trap 'rm -rf "$tmp_dir"' EXIT
 public_url=${HIGRESS_PUBLIC_BASE_URL:-https://inference.example.test}
+console_url=${HIGRESS_CONSOLE_URL:-http://higress-console.higress-system.svc.cluster.local:8080}
+console_secret=${HIGRESS_CONSOLE_CREDENTIALS_SECRET:-ani-higress-console-credentials}
+common_values=(
+  --set higress.publicBaseURL="$public_url"
+  --set higress.consoleURL="$console_url"
+  --set higress.consoleCredentialsSecret.name="$console_secret"
+)
 
 helm lint "$repo_root/charts/ani-inference"
 helm lint "$repo_root/charts/ani-inference-config"
 helm template ani-inference "$repo_root/charts/ani-inference" \
   --namespace ani-system \
-  --set higress.publicBaseURL="$public_url" \
+  "${common_values[@]}" \
   >"$tmp_dir/inference.yaml"
 helm template ani-inference "$repo_root/charts/ani-inference" \
   --namespace ani-system \
-  --set higress.publicBaseURL="$public_url" \
+  "${common_values[@]}" \
   --show-only templates/higress-rbac.yaml \
   >"$tmp_dir/higress-rbac.yaml"
 helm template ani-inference "$repo_root/charts/ani-inference" \
   --namespace ani-system \
-  --set higress.publicBaseURL="$public_url" \
+  "${common_values[@]}" \
   --set higress.rateLimitNamespace=custom-higress-system \
   --set higress.rateLimitPlugin=custom-rate-limit \
   --set higress.rbac.namespace=custom-higress-system \
@@ -53,13 +60,13 @@ grep -q 'pg_advisory_xact_lock' "$tmp_dir/inference.yaml"
 grep -q -- '--single-transaction' "$tmp_dir/inference.yaml"
 grep -q 'partial legacy inference schema' "$tmp_dir/inference.yaml"
 grep -q 'name: ani-inference-model-router' "$tmp_dir/inference.yaml"
-grep -q 'type: PathPrefix' "$tmp_dir/inference.yaml"
+grep -q 'name: ANI_HIGRESS_ROUTE_PREFIX' "$tmp_dir/inference.yaml"
 if grep -Eq '^kind: (ClusterIssuer|Issuer)$' "$tmp_dir/inference.yaml"; then
   echo 'ani-inference must not create a certificate issuer' >&2
   exit 1
 fi
 if helm template ani-inference "$repo_root/charts/ani-inference" \
-  --namespace default --set higress.publicBaseURL="$public_url" \
+  --namespace default "${common_values[@]}" \
   >"$tmp_dir/wrong-namespace.yaml" 2>"$tmp_dir/wrong-namespace.err"; then
   echo 'ani-inference must reject namespaces other than ani-system' >&2
   exit 1

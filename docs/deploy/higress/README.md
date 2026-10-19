@@ -7,12 +7,12 @@ Higress 版本为 2.2.4，启用 Gateway API。网关通过 NodePort `30090`（H
 为 `30443`）暴露，使用 `higress` GatewayClass。内置可观测性组件把网关
 指标和日志写入新集群 CephFS 提供的 PVC。
 
-model-router 插件从路径以 `/completions` 结尾的 JSON 请求中读取 `model`，
-再写入 `x-higress-llm-model` 请求头。Inference Chart 会安装一条没有后端的
-`/v1/completions` 兜底 HTTPRoute，让插件有机会先执行并重新计算路由；ANI
-随后为每个模型发布一条 HTTPRoute，使用该请求头精确匹配，并固定使用
-`/v1/completions` 路径。未知模型不会落到任意一个已部署模型，当前由无后端
-HTTPRoute 返回 500。调用方只传 JSON `model`，不应手工添加内部模型路由头。
+model-router 插件配置为 `enableOnPathSuffix: ["*"]`，会从 OpenAI 兼容 JSON 请求中读取
+`model`，再写入 `x-higress-llm-model` 请求头。Inference Chart 会安装一条没有后端的
+`/v1/` 兜底路由，让插件有机会先执行并重新计算路由；ANI 随后为每个模型发布一条
+`/v1/` 模型路由，因此 `/v1/completions`、`/v1/chat/completions`、`/v1/embeddings`
+等带 `model` 的 API 都复用同一条模型路由。未知模型不会落到任意一个已部署模型，当前
+由无后端路由返回不可用错误。调用方只传 JSON `model`，不应手工添加内部模型路由头。
 
 ## 推理网关 API Key
 
@@ -107,7 +107,7 @@ kubectl -n higress-system get wasmplugin
 kubectl -n ani-system get httproute -o yaml
 ```
 
-所有模型的验收请求都使用同一个入口地址：
+所有模型和 OpenAI 兼容 API 都使用同一个入口地址：
 
 ```bash
 export GATEWAY_NODE_IP="${GATEWAY_NODE_IP:?请设置新环境网关节点 IP}"
@@ -116,6 +116,11 @@ curl -sS -X POST "${HIGRESS_PUBLIC_BASE_URL}/v1/completions" \
   -H 'content-type: application/json' \
   -H "x-api-key: ${ANI_HIGRESS_API_KEY}" \
   -d '{"model":"<served-model-name>","prompt":"hello","max_tokens":16}'
+
+curl -sS -X POST "${HIGRESS_PUBLIC_BASE_URL}/v1/chat/completions" \
+  -H 'content-type: application/json' \
+  -H "x-api-key: ${ANI_HIGRESS_API_KEY}" \
+  -d '{"model":"<served-model-name>","messages":[{"role":"user","content":"hello"}],"max_tokens":16}'
 ```
 
 可重复的冒烟检查脚本是 `verify-vllm.sh`。运行前设置 `ANI_TEST_MODEL`、

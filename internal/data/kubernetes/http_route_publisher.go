@@ -37,6 +37,7 @@ type HTTPRoutePublisher struct {
 	RouteNamespace     string
 	PublicBaseURL      string
 	PathPrefix         string
+	RoutePrefix        string
 	FieldManager       string
 	RateLimitNamespace string
 	RateLimitPlugin    string
@@ -142,7 +143,7 @@ func (p *HTTPRoutePublisher) Publish(ctx context.Context, pub publication.Public
 		// Higress's native route API resolves services by their DNS name. The
 		// Service Source is retained as the publication's managed endpoint
 		// record, while the route points directly at the predictor Service.
-		route := nativeRoutePayload(routeName, p.pathPrefix(), desired.ServedModelName, address, int(servicePort))
+		route := nativeRoutePayload(routeName, p.routePrefix(), desired.ServedModelName, address, int(servicePort))
 		route["customLabels"] = publicationLabels(pub)
 		if err := p.ensureRateLimit(ctx, desired.ServedModelName, routeName); err != nil {
 			_ = p.Console.DeleteServiceSource(ctx, sourceName)
@@ -351,7 +352,7 @@ func (p *HTTPRoutePublisher) route(pub publication.Publication, namespace, backe
 		"ani.kubercloud.com/managed-by": "ani-inference",
 	})
 	pathType := gatewayv1.PathMatchPathPrefix
-	path := p.pathPrefix()
+	path := p.routePrefix()
 	headerType := gatewayv1.HeaderMatchExact
 	weight := int32(1)
 	port := gatewayv1.PortNumber(backendPort)
@@ -443,7 +444,7 @@ func (p *HTTPRoutePublisher) EnsureBootstrapRoute(ctx context.Context, routeName
 	}
 	route := map[string]any{
 		"name":     routeName,
-		"path":     map[string]any{"matchType": "PRE", "matchValue": p.pathPrefix()},
+		"path":     map[string]any{"matchType": "PRE", "matchValue": p.routePrefix()},
 		"services": []map[string]any{{"name": sourceName, "port": servicePort, "weight": 100}},
 	}
 	if err := p.Console.PutRoute(ctx, routeName, route); err != nil {
@@ -482,6 +483,20 @@ func (p *HTTPRoutePublisher) pathPrefix() string {
 	}
 	if len(path) > 1 {
 		path = strings.TrimRight(path, "/")
+	}
+	return path
+}
+
+func (p *HTTPRoutePublisher) routePrefix() string {
+	path := strings.TrimSpace(p.RoutePrefix)
+	if path == "" {
+		path = "/v1/"
+	}
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	if path == "/v1" {
+		path += "/"
 	}
 	return path
 }

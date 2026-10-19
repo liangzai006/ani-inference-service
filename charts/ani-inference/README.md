@@ -10,9 +10,10 @@
 - `Certificate/inference-model-mtls`（Inference 调用 Model 的客户端证书）
 - 一个没有 selector 的 sink Service。Inference 启动时通过 Higress Console 原生 API
   创建 bootstrap 路由和 Service Source，让 `model-router` 先读取请求体的 `model`
-  字段并触发重算路由；未知模型不会落到其他模型。每个模型路由实际指向对应的
-  KServe predictor Service DNS，Service Source 仅作为 Higress 管理元数据和 bootstrap
-  依赖保留。
+  字段并触发重算路由；未知模型不会落到其他模型。bootstrap 和模型路由统一匹配
+  `/v1/`，所以 `/v1/completions`、`/v1/chat/completions` 等 OpenAI 兼容接口无需
+  分别配置。每个模型路由实际指向对应的 KServe predictor Service DNS，Service Source
+  仅作为 Higress 管理元数据和 bootstrap 依赖保留。
 
 `imagePullSecrets` 会用于控制面 Deployment，并挂到独立的 runtime ServiceAccount。
 物化 Job、KServe

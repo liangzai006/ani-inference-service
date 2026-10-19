@@ -75,6 +75,7 @@ higress:
     usernameKey: username
     passwordKey: password
   pathPrefix: /v1/completions
+  routePrefix: /v1/
   bootstrapRouteName: ani-inference-model-router
   bootstrapSourceName: ani-inference-model-router
   bootstrapServiceName: ani-inference-model-router-sink

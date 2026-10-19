@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- Higress handles only AI inference paths such as `/v1/completions`; Governance `/api/v1/...` routes remain outside Higress.
+- Higress handles only AI inference paths under `/v1/`; Governance `/api/v1/...` routes remain outside Higress.
 - Do not maintain native routes and model `HTTPRoute` objects simultaneously.
 - Do not place Higress Console credentials in source, Helm values, logs, or generated manifests.
 - Preserve the externally supplied complete engine command; this change does not alter model runtime commands.

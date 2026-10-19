@@ -10,7 +10,7 @@ TLS、IAM 和可信身份接入暂不作为业务门禁。
 
 - `pass`：Inference 发布适配器已改为调用 Higress Console 原生 REST API，保留
   Service Source 作为管理元数据，并创建带 `x-higress-llm-model` 精确匹配的模型路由；
-  模型路由的实际后端是 KServe predictor Service DNS。
+  模型路由统一覆盖 `/v1/`，实际后端是 KServe predictor Service DNS。
 - `pass`：Chart 不再渲染模型 HTTPRoute；仅创建无 selector 的 sink Service，进程启动
   时通过 Console API 创建固定 `/v1/completions` bootstrap 路由。未知模型不会落到其他
   模型后端。

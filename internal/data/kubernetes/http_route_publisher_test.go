@@ -168,7 +168,7 @@ func testPublisher(objects ...client.Object) *HTTPRoutePublisher {
 			Endpoint:        &EndpointSpec{ContainerPort: 8080, ServicePort: 80, TargetPort: intstr.FromInt(8080)},
 		}}},
 		GatewayNamespace: "ingress-higress", GatewayName: "ani-higress",
-		RouteNamespace: "models", PublicBaseURL: "http://10.10.1.67:30090", PathPrefix: "/v1/completions",
+		RouteNamespace: "models", PublicBaseURL: "http://10.10.1.67:30090", PathPrefix: "/v1/completions", RoutePrefix: "/v1/completions",
 		RateLimitNamespace: "higress-system", RateLimitPlugin: "ani-request-rate-limit",
 	}
 }

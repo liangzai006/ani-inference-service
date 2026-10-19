@@ -15,7 +15,8 @@ Higress Controller 接收并转发流量，但 Higress Console 的路由管理�
 ## 范围和边界
 
 - 只改 AI 推理流量的网关配置。
-- AI 请求继续从 Higress 进入，例如 `/v1/completions`。
+- 所有带 `model` 字段的 OpenAI 兼容 AI 请求继续从 Higress 进入，统一覆盖 `/v1/` 路径，
+  例如 `/v1/completions`、`/v1/chat/completions` 和 `/v1/embeddings`。
 - Governance 业务接口 `/api/v1/...` 继续走 Governance BFF，不接入 Higress。
 - 不修改模型导入、配额、IAM 或推理业务 API 契约。
 - 不保留两套模型路由作为长期运行方案，避免同一模型出现重复转发和删除竞态。
@@ -61,7 +62,7 @@ Higress 的服务目录/管理元数据，供 bootstrap 路由和生命周期收
 
 每个已发布推理服务创建一条原生路由：
 
-- 路径前缀：当前保持 `/v1/completions`；
+- 路径前缀：统一使用 `/v1/`，一条模型路由覆盖 OpenAI 兼容 API；
 - Header 精确匹配：`x-higress-llm-model=<served_model_name>`；
 - 后端：当前 KServe predictor Service 的集群 DNS 名称（例如
   `tttt-predictor.ani-system.svc.cluster.local`）；
@@ -129,8 +130,8 @@ higress:
 1. 创建推理服务，确认路由出现在 Higress Console 的路由列表和
    `GET /v1/routes` 返回中。
 2. 确认 Service Source 指向正确的 `ani-system` Service。
-3. 使用 Higress NodePort、API key 和 `model` 请求 `/v1/completions`，确认返回模型
-   响应。
+3. 使用 Higress NodePort、API key 和 `model` 分别请求 `/v1/completions`、
+   `/v1/chat/completions`，确认都返回目标模型响应。
 4. 使用未知模型确认不会转发到其他模型。
 5. 删除推理服务，确认路由和 Service Source 都被删除，再确认同名服务可重建。
 6. 分别确认 Governance `/api/v1/...` 不经过 Higress。
