@@ -67,19 +67,17 @@ model:
       group: cert-manager.io
 
 higress:
-  # Required by the inference service for publishing model routes.
-  # Leave empty here. A fresh environment passes the gateway address at install.
+  # Required by the inference service for publishing native Higress routes.
   publicBaseURL: ""
-  gatewayNamespace: higress-system
-  gatewayName: ani-higress
+  consoleURL: ""
+  consoleCredentialsSecret:
+    name: ""
+    usernameKey: username
+    passwordKey: password
   pathPrefix: /v1/completions
-  # A path-only route gives the body model-router plugin an initial route. The
-  # plugin extracts `model`, adds x-higress-llm-model, and Higress recalculates
-  # the route to the model-specific HTTPRoute published by Inference. With no
-  # backendRefs, unknown models are rejected by the gateway instead of falling
-  # through to an arbitrary model.
-  modelRouterBootstrapRoute:
-    enabled: true
+  bootstrapRouteName: ani-inference-model-router
+  bootstrapSourceName: ani-inference-model-router
+  bootstrapServiceName: ani-inference-model-router-sink
   rateLimitNamespace: higress-system
   rateLimitPlugin: ani-request-rate-limit
   rbac:

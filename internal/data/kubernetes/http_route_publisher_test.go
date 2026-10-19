@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 
 	"github.com/liangzai006/ani-inference-service/internal/biz/publication"
@@ -112,6 +113,29 @@ func TestHTTPRoutePublisherNativeRouteFailureRollsBack(t *testing.T) {
 	}
 	assertRateLimitKeys(t, p, map[string]int64{"existing-model": 20})
 	assertRateLimitOwner(t, p, "served-model")
+}
+
+func TestHTTPRoutePublisherEnsureBootstrapRoute(t *testing.T) {
+	var paths []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.Method+" "+r.URL.Path)
+		if r.Method == http.MethodPut {
+			w.WriteHeader(http.StatusCreated)
+			return
+		}
+		t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+	}))
+	defer server.Close()
+
+	p := testPublisher()
+	p.Console = newHigressConsoleClient(server.URL, "admin", "secret", server.Client())
+	if err := p.EnsureBootstrapRoute(context.Background(), "bootstrap-route", "bootstrap-source", "sink", 80); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"PUT /v1/service-sources/bootstrap-source", "PUT /v1/routes/bootstrap-route"}
+	if !reflect.DeepEqual(paths, want) {
+		t.Fatalf("bootstrap requests = %#v, want %#v", paths, want)
+	}
 }
 
 type publicationRuntimeSource struct {

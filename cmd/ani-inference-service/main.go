@@ -163,6 +163,18 @@ func buildKubernetesServers(pool *pgxpool.Pool, modelClient *modeldata.Client, r
 	if err != nil {
 		return nil, false, err
 	}
+	higressConsoleURL, err := requiredEnv("ANI_HIGRESS_CONSOLE_URL")
+	if err != nil {
+		return nil, false, err
+	}
+	higressConsoleUsername, err := requiredEnv("ANI_HIGRESS_CONSOLE_USERNAME")
+	if err != nil {
+		return nil, false, err
+	}
+	higressConsolePassword, err := requiredEnv("ANI_HIGRESS_CONSOLE_PASSWORD")
+	if err != nil {
+		return nil, false, err
+	}
 	config, err := inferenceRESTConfig()
 	if err != nil {
 		return nil, false, fmt.Errorf("load Kubernetes config: %w", err)
@@ -223,6 +235,19 @@ func buildKubernetesServers(pool *pgxpool.Pool, modelClient *modeldata.Client, r
 		PathPrefix:         envOrDefault("ANI_HIGRESS_PATH_PREFIX", "/v1/completions"),
 		RateLimitNamespace: envOrDefault("ANI_HIGRESS_RATE_LIMIT_NAMESPACE", "higress-system"),
 		RateLimitPlugin:    envOrDefault("ANI_HIGRESS_RATE_LIMIT_PLUGIN", "ani-request-rate-limit"),
+		Console:            kubernetes.NewHigressConsoleClient(higressConsoleURL, higressConsoleUsername, higressConsolePassword, nil),
+	}
+	bootstrapCtx, bootstrapCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	bootstrapErr := publicationPublisher.EnsureBootstrapRoute(
+		bootstrapCtx,
+		envOrDefault("ANI_HIGRESS_BOOTSTRAP_ROUTE_NAME", "ani-inference-model-router"),
+		envOrDefault("ANI_HIGRESS_BOOTSTRAP_SOURCE_NAME", "ani-inference-model-router"),
+		envOrDefault("ANI_HIGRESS_BOOTSTRAP_SERVICE_NAME", "ani-inference-model-router-sink"),
+		80,
+	)
+	bootstrapCancel()
+	if bootstrapErr != nil {
+		return nil, false, fmt.Errorf("publish Higress bootstrap route: %w", bootstrapErr)
 	}
 	operationStore := postgres.NewOperationStore(pool)
 	gpuResolver, err := configuredGPUResolver()

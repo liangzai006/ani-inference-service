@@ -5,3 +5,5 @@
 5. 对端 Model 的零信任身份是 {{ .Values.model.tls.serverName }}。
 6. 数据库仍使用已有 Secret {{ .Values.database.existingSecret }}，键 {{ .Values.database.secretKey }}。
 7. 数据面入口是安装时传入的 {{ .Values.higress.publicBaseURL }}{{ .Values.higress.pathPrefix }}。
+8. 推理路由由 Higress Console 原生 API 管理；Console 地址是 {{ .Values.higress.consoleURL }}，
+   凭据来自 Secret {{ .Values.higress.consoleCredentialsSecret.name }}。

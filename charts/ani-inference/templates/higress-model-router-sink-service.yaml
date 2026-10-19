@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ required "higress.bootstrapServiceName is required" (trim .Values.higress.bootstrapServiceName) }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ani-inference.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway-routing
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80

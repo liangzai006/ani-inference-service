@@ -34,6 +34,16 @@ type higressConsoleClient struct {
 	http     *http.Client
 }
 
+// HigressConsoleClient is the native Higress Console API client used by the
+// inference publication adapter.
+type HigressConsoleClient = higressConsoleClient
+
+// NewHigressConsoleClient constructs a client for Higress Console's native
+// management API.
+func NewHigressConsoleClient(baseURL, username, password string, httpClient *http.Client) *HigressConsoleClient {
+	return newHigressConsoleClient(baseURL, username, password, httpClient)
+}
+
 func newHigressConsoleClient(baseURL, username, password string, httpClient *http.Client) *higressConsoleClient {
 	if httpClient == nil {
 		httpClient = http.DefaultClient

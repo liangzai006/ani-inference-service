@@ -26,7 +26,7 @@ type HTTPRoutePublisher struct {
 	Source    DesiredRuntimeSource
 	// Console selects the native Higress route API. It remains optional while
 	// process wiring migrates; an unset client uses the legacy Gateway API path.
-	Console *higressConsoleClient
+	Console *HigressConsoleClient
 	// RuntimeProvider selects the backend naming contract. The legacy
 	// deployment provider owns <service-id>-endpoint; KServe owns its
 	// predictor/workload Service.
@@ -414,6 +414,40 @@ func nativeRoutePayload(name, path, model, source string, port int) map[string]a
 		"headers":  []map[string]any{{"key": "x-higress-llm-model", "matchType": "EQUAL", "matchValue": model}},
 		"services": []map[string]any{{"name": source, "port": port, "weight": 100}},
 	}
+}
+
+// EnsureBootstrapRoute publishes the fixed path-only entry used by Higress's
+// model-router plugin before it can select a model-specific route. The sink
+// service has no endpoints, so an unknown model cannot fall through to a real
+// inference service.
+func (p *HTTPRoutePublisher) EnsureBootstrapRoute(ctx context.Context, routeName, sourceName, sinkServiceName string, servicePort int) error {
+	if p.Console == nil {
+		return errors.New("Higress Console client is required for bootstrap route")
+	}
+	if strings.TrimSpace(routeName) == "" || strings.TrimSpace(sourceName) == "" || strings.TrimSpace(sinkServiceName) == "" {
+		return errors.New("Higress bootstrap route and service source names are required")
+	}
+	if servicePort < 1 || servicePort > 65535 {
+		return fmt.Errorf("Higress bootstrap service port %d is invalid", servicePort)
+	}
+	namespace := strings.TrimSpace(p.RouteNamespace)
+	if namespace == "" {
+		return errors.New("Higress bootstrap route namespace is required")
+	}
+	address := fmt.Sprintf("%s.%s.svc.cluster.local", sinkServiceName, namespace)
+	if err := p.Console.PutServiceSource(ctx, sourceName, nativeServiceSourcePayload(sourceName, address, servicePort)); err != nil {
+		return err
+	}
+	route := map[string]any{
+		"name":     routeName,
+		"path":     map[string]any{"matchType": "PRE", "matchValue": p.pathPrefix()},
+		"services": []map[string]any{{"name": sourceName, "port": servicePort, "weight": 100}},
+	}
+	if err := p.Console.PutRoute(ctx, routeName, route); err != nil {
+		_ = p.Console.DeleteServiceSource(ctx, sourceName)
+		return err
+	}
+	return nil
 }
 
 func nativeServiceSourcePayload(name, address string, port int) map[string]any {
