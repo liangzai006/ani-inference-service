@@ -43,11 +43,22 @@ func TestHigressConsoleClientPutRoute(t *testing.T) {
 func TestHigressConsoleClientGetAndListRoutes(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && r.URL.Path == "/v1/routes/one" {
-			_ = json.NewEncoder(w).Encode(map[string]any{"name": "one"})
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"success": true,
+				"message": "success",
+				"data":    map[string]any{"name": "one"},
+			})
 			return
 		}
 		if r.Method == http.MethodGet && r.URL.Path == "/v1/routes" {
-			_ = json.NewEncoder(w).Encode([]map[string]any{{"name": "one"}, {"name": "two"}})
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"success":  true,
+				"message":  "success",
+				"data":     []map[string]any{{"name": "one"}, {"name": "two"}},
+				"total":    2,
+				"pageNum":  1,
+				"pageSize": 10,
+			})
 			return
 		}
 		http.NotFound(w, r)
@@ -109,6 +120,32 @@ func TestHigressConsoleClientNon2xxErrorDoesNotLeakSecrets(t *testing.T) {
 	}
 	message := err.Error()
 	for _, part := range []string{"PUT", "/v1/routes/private-route", "502"} {
+		if !strings.Contains(message, part) {
+			t.Fatalf("error %q does not contain %q", message, part)
+		}
+	}
+	if strings.Contains(message, "secret") || strings.Contains(message, "password") {
+		t.Fatalf("error leaks secret: %q", message)
+	}
+}
+
+func TestHigressConsoleClientEnvelopeFailureDoesNotLeakSecrets(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"success": false,
+			"message": "password=secret response detail",
+		})
+	}))
+	defer server.Close()
+
+	client := newHigressConsoleClient(server.URL, "admin", "secret", server.Client())
+	err := client.PutRoute(context.Background(), "private-route", map[string]any{"password": "secret"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	message := err.Error()
+	for _, part := range []string{"PUT", "/v1/routes/private-route", "200"} {
 		if !strings.Contains(message, part) {
 			t.Fatalf("error %q does not contain %q", message, part)
 		}

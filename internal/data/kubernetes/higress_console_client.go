@@ -63,7 +63,26 @@ func (c *higressConsoleClient) request(ctx context.Context, method, path string,
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return responseBody, resp.StatusCode, fmt.Errorf("Higress Console API %s %s: status %s", method, path, resp.Status)
 	}
+	if err := higressConsoleEnvelopeError(method, path, resp.StatusCode, responseBody); err != nil {
+		return responseBody, resp.StatusCode, err
+	}
 	return responseBody, resp.StatusCode, nil
+}
+
+// higressConsoleEnvelopeError handles application-level failures reported in a
+// successful HTTP response. The response message is intentionally ignored so
+// Console internals or credentials cannot leak through the adapter error.
+func higressConsoleEnvelopeError(method, path string, status int, body []byte) error {
+	if len(body) == 0 {
+		return nil
+	}
+	var envelope struct {
+		Success *bool `json:"success"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil || envelope.Success == nil || *envelope.Success {
+		return nil
+	}
+	return fmt.Errorf("Higress Console API %s %s: status %d", method, path, status)
 }
 
 func (c *higressConsoleClient) GetRoute(ctx context.Context, name string) (map[string]any, error) {
@@ -72,11 +91,17 @@ func (c *higressConsoleClient) GetRoute(ctx context.Context, name string) (map[s
 	if err != nil {
 		return nil, err
 	}
-	var route map[string]any
-	if err := json.Unmarshal(body, &route); err != nil {
+	var envelope struct {
+		Success *bool          `json:"success"`
+		Data    map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil {
 		return nil, fmt.Errorf("Higress Console API GET %s: decode response: %w", path, err)
 	}
-	return route, nil
+	if envelope.Success == nil {
+		return nil, fmt.Errorf("Higress Console API GET %s: decode response: missing success", path)
+	}
+	return envelope.Data, nil
 }
 
 func (c *higressConsoleClient) PutRoute(ctx context.Context, name string, route map[string]any) error {
@@ -95,11 +120,17 @@ func (c *higressConsoleClient) ListRoutes(ctx context.Context) ([]map[string]any
 	if err != nil {
 		return nil, err
 	}
-	var routes []map[string]any
-	if err := json.Unmarshal(body, &routes); err != nil {
+	var envelope struct {
+		Success *bool            `json:"success"`
+		Data    []map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil {
 		return nil, fmt.Errorf("Higress Console API GET %s: decode response: %w", path, err)
 	}
-	return routes, nil
+	if envelope.Success == nil {
+		return nil, fmt.Errorf("Higress Console API GET %s: decode response: missing success", path)
+	}
+	return envelope.Data, nil
 }
 
 func (c *higressConsoleClient) PutServiceSource(ctx context.Context, name string, source map[string]any) error {
