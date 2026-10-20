@@ -184,10 +184,12 @@ func (m *Materializer) EnsureModel(ctx context.Context, op inference.OperationCo
 			AutomountServiceAccountToken: ptr.To(false),
 			Volumes: []corev1.Volume{{Name: "model", VolumeSource: corev1.VolumeSource{
 				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: name},
+			}}, {Name: "tmp", VolumeSource: corev1.VolumeSource{
+				EmptyDir: &corev1.EmptyDirVolumeSource{},
 			}}},
 			Containers: []corev1.Container{{
 				Name: "download", Image: m.Image, Command: []string{"python3"}, Args: []string{"-c", downloadBundle},
-				VolumeMounts: []corev1.VolumeMount{{Name: "model", MountPath: "/model"}},
+				VolumeMounts: []corev1.VolumeMount{{Name: "model", MountPath: "/model"}, {Name: "tmp", MountPath: "/tmp"}},
 				Resources: corev1.ResourceRequirements{
 					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("100m"), corev1.ResourceMemory: resource.MustParse("128Mi")},
 					Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourceMemory: resource.MustParse("512Mi")},
@@ -221,6 +223,7 @@ func (m *Materializer) EnsureModel(ctx context.Context, op inference.OperationCo
 				corev1.EnvVar{Name: "SSL_CERT_FILE", Value: "/run/model-download-ca/ca-certificates.crt"})
 		}
 		jobSpec.ServiceAccountName = strings.TrimSpace(m.ServiceAccountName)
+		kube.ApplyNonRootSecurity(&jobSpec)
 		job = &batchv1.Job{ObjectMeta: meta(name + "-fetch"), Spec: batchv1.JobSpec{BackoffLimit: ptr.To(int32(2)), ActiveDeadlineSeconds: ptr.To(int64(600)), Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: labels}, Spec: jobSpec}}}
 		if err = m.Client.Create(ctx, job); err != nil {
 			return unknown, err

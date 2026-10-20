@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	modelv1 "github.com/liangzai006/ani-model-service/api/model/v1"
 	inference "github.com/liangzai006/ani-inference-service/internal/biz/inference"
 	kube "github.com/liangzai006/ani-inference-service/internal/data/kubernetes"
+	modelv1 "github.com/liangzai006/ani-model-service/api/model/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -97,6 +97,49 @@ func TestMaterializerRequiresVerifiedJobBeforeReady(t *testing.T) {
 	}
 	if job.Spec.Template.Spec.ServiceAccountName != "ani-inference-runtime" {
 		t.Fatalf("materialization Job service account = %q, want ani-inference-runtime", job.Spec.Template.Spec.ServiceAccountName)
+	}
+	pod := job.Spec.Template.Spec
+	if pod.SecurityContext == nil || pod.SecurityContext.RunAsUser == nil || *pod.SecurityContext.RunAsUser != 65532 {
+		t.Fatalf("materialization pod security context = %#v", pod.SecurityContext)
+	}
+	if pod.SecurityContext.RunAsGroup == nil || *pod.SecurityContext.RunAsGroup != 65532 ||
+		pod.SecurityContext.RunAsNonRoot == nil || !*pod.SecurityContext.RunAsNonRoot ||
+		pod.SecurityContext.FSGroup == nil || *pod.SecurityContext.FSGroup != 65532 {
+		t.Fatalf("materialization pod security context = %#v", pod.SecurityContext)
+	}
+	if pod.SecurityContext.SeccompProfile == nil || pod.SecurityContext.SeccompProfile.Type != corev1.SeccompProfileTypeRuntimeDefault {
+		t.Fatalf("materialization seccomp profile = %#v", pod.SecurityContext.SeccompProfile)
+	}
+	if pod.AutomountServiceAccountToken == nil || *pod.AutomountServiceAccountToken {
+		t.Fatalf("materialization automount token = %v", pod.AutomountServiceAccountToken)
+	}
+	if pod.Containers[0].SecurityContext == nil || pod.Containers[0].SecurityContext.AllowPrivilegeEscalation == nil ||
+		*pod.Containers[0].SecurityContext.AllowPrivilegeEscalation {
+		t.Fatalf("materialization container security context = %#v", pod.Containers[0].SecurityContext)
+	}
+	if len(pod.Containers[0].SecurityContext.Capabilities.Drop) != 1 ||
+		pod.Containers[0].SecurityContext.Capabilities.Drop[0] != corev1.Capability("ALL") {
+		t.Fatalf("materialization capability drop = %#v", pod.Containers[0].SecurityContext.Capabilities.Drop)
+	}
+	tmpVolume := false
+	for _, volume := range pod.Volumes {
+		if volume.Name == "tmp" && volume.EmptyDir != nil {
+			tmpVolume = true
+			break
+		}
+	}
+	if !tmpVolume {
+		t.Fatalf("materialization volumes = %#v, want tmp emptyDir", pod.Volumes)
+	}
+	tmpMount := false
+	for _, mount := range pod.Containers[0].VolumeMounts {
+		if mount.Name == "tmp" && mount.MountPath == "/tmp" && !mount.ReadOnly {
+			tmpMount = true
+			break
+		}
+	}
+	if !tmpMount {
+		t.Fatalf("materialization volume mounts = %#v, want writable /tmp", pod.Containers[0].VolumeMounts)
 	}
 	var maxBytes string
 	for _, env := range job.Spec.Template.Spec.Containers[0].Env {
