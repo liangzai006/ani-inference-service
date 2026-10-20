@@ -49,21 +49,13 @@ func ValidateBusinessPayload(req *CreateInferenceServiceRequest) error {
 	if provider != "" && provider != "kserve" {
 		return fmt.Errorf("runtime provider must be kserve")
 	}
-	pods := int64(req.GetReplicas())
-	container := "kserve-container"
-	switch runtime.GetMode() {
-	case RuntimeMode_RUNTIME_MODE_UNSPECIFIED, RuntimeMode_RUNTIME_MODE_DEPLOYMENT:
-		if runtime.GetWorkerReplicas() > 1 || runtime.GetWorkerReplicas() < 0 {
-			return fmt.Errorf("deployment cannot specify multiple workers")
-		}
-	case RuntimeMode_RUNTIME_MODE_LEADER_WORKER_SET:
-		if runtime.GetWorkerReplicas() < 1 {
-			return fmt.Errorf("LWS worker_replicas must be positive")
-		}
-		pods *= int64(runtime.GetWorkerReplicas()) + 1
-		container = "main"
-	default:
-		return fmt.Errorf("unsupported runtime mode")
+	devices := uint32(0)
+	if req.GetResource().GetGpu() != nil {
+		devices = req.GetResource().GetGpu().GetDevicesPerReplica()
+	}
+	topology, err := NormalizeTopology(runtime, req.GetReplicas(), devices)
+	if err != nil {
+		return err
 	}
 	if endpoint := runtime.GetEndpoint(); endpoint != nil {
 		if endpoint.GetContainerPort() < 1 || endpoint.GetContainerPort() > 65535 || endpoint.GetServicePort() < 1 || endpoint.GetServicePort() > 65535 || endpoint.GetTargetPort() == "" {
@@ -96,7 +88,7 @@ func ValidateBusinessPayload(req *CreateInferenceServiceRequest) error {
 		if runtime.GetMode() == RuntimeMode_RUNTIME_MODE_LEADER_WORKER_SET {
 			return fmt.Errorf("managed GPU LWS creation requires a synchronous pre-create projection hook; KServe v0.16 does not provide it")
 		}
-		if pods > 16 || gpu.GetReplicas() != uint32(pods) || gpu.GetDevicesPerReplica() < 1 || gpu.GetContainerName() != container || gpu.GetProfileVersion() == 0 {
+		if gpu.GetReplicas() != topology.ExecutionReplicas || gpu.GetDevicesPerReplica() < 1 || gpu.GetContainerName() != topology.ContainerName || gpu.GetProfileVersion() == 0 {
 			return fmt.Errorf("GPU selection differs from fixed runtime topology")
 		}
 		for _, id := range []string{gpu.GetClusterId(), gpu.GetPoolId(), gpu.GetProfileId()} {
@@ -142,6 +134,9 @@ func ValidateBusinessPayload(req *CreateInferenceServiceRequest) error {
 func ValidateCommandContext(context *CommandContext) error {
 	if context == nil {
 		return fmt.Errorf("command context is required")
+	}
+	if len(context.ProtoReflect().GetUnknown()) != 0 {
+		return fmt.Errorf("command context contains unknown fields")
 	}
 	for name, value := range map[string]string{
 		"tenant_id": context.GetTenantId(), "resource_id": context.GetResourceId(), "operation_id": context.GetOperationId(),
