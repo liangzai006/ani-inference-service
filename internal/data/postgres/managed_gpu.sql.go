@@ -11,8 +11,78 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const claimManagedClose = `-- name: ClaimManagedClose :one
+WITH candidate AS (
+ SELECT x.tenant_id,x.operation_id FROM inference_managed_gpu_commands x
+ WHERE x.tenant_id=$2 AND x.kind='delete' AND x.close_state='pending'
+ AND x.retry_at<=now() AND (x.lease_until IS NULL OR x.lease_until<now())
+ ORDER BY x.retry_at,x.operation_id FOR UPDATE SKIP LOCKED LIMIT 1
+)
+UPDATE inference_managed_gpu_commands c SET lease_token=$1,
+ lease_until=now()+interval '30 seconds',attempt=c.attempt+1
+FROM candidate p WHERE c.tenant_id=p.tenant_id AND c.operation_id=p.operation_id RETURNING c.tenant_id, c.operation_id, c.resource_id, c.create_operation_id, c.kind, c.payload_hash, c.request_hash, c.command_payload, c.response_snapshot, c.durable_ack, c.execution_intent, c.created_at, c.actor, c.close_state, c.lease_token, c.lease_until, c.retry_at, c.attempt, c.close_error, c.release_evidence_id, c.release_evidence_digest, c.release_report, c.completed_at
+`
+
+type ClaimManagedCloseParams struct {
+	LeaseToken pgtype.UUID
+	TenantID   pgtype.UUID
+}
+
+func (q *Queries) ClaimManagedClose(ctx context.Context, arg ClaimManagedCloseParams) (InferenceManagedGpuCommand, error) {
+	row := q.db.QueryRow(ctx, claimManagedClose, arg.LeaseToken, arg.TenantID)
+	var i InferenceManagedGpuCommand
+	err := row.Scan(
+		&i.TenantID,
+		&i.OperationID,
+		&i.ResourceID,
+		&i.CreateOperationID,
+		&i.Kind,
+		&i.PayloadHash,
+		&i.RequestHash,
+		&i.CommandPayload,
+		&i.ResponseSnapshot,
+		&i.DurableAck,
+		&i.ExecutionIntent,
+		&i.CreatedAt,
+		&i.Actor,
+		&i.CloseState,
+		&i.LeaseToken,
+		&i.LeaseUntil,
+		&i.RetryAt,
+		&i.Attempt,
+		&i.CloseError,
+		&i.ReleaseEvidenceID,
+		&i.ReleaseEvidenceDigest,
+		&i.ReleaseReport,
+		&i.CompletedAt,
+	)
+	return i, err
+}
+
+const completeManagedClose = `-- name: CompleteManagedClose :execrows
+UPDATE inference_managed_gpu_commands SET close_state='complete',completed_at=COALESCE(completed_at,now()),
+ lease_token=NULL,lease_until=NULL,close_error=''
+WHERE tenant_id=$1 AND operation_id=$2
+AND ($3::uuid IS NULL OR (lease_token=$3 AND lease_until>now()))
+AND kind='delete'
+`
+
+type CompleteManagedCloseParams struct {
+	TenantID    pgtype.UUID
+	OperationID pgtype.UUID
+	LeaseToken  pgtype.UUID
+}
+
+func (q *Queries) CompleteManagedClose(ctx context.Context, arg CompleteManagedCloseParams) (int64, error) {
+	result, err := q.db.Exec(ctx, completeManagedClose, arg.TenantID, arg.OperationID, arg.LeaseToken)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getManagedGPUCommand = `-- name: GetManagedGPUCommand :one
-SELECT tenant_id, operation_id, resource_id, create_operation_id, kind, payload_hash, request_hash, command_payload, response_snapshot, durable_ack, execution_intent, created_at FROM inference_managed_gpu_commands
+SELECT tenant_id, operation_id, resource_id, create_operation_id, kind, payload_hash, request_hash, command_payload, response_snapshot, durable_ack, execution_intent, created_at, actor, close_state, lease_token, lease_until, retry_at, attempt, close_error, release_evidence_id, release_evidence_digest, release_report, completed_at FROM inference_managed_gpu_commands
 WHERE tenant_id = $1 AND operation_id = $2
 `
 
@@ -37,6 +107,17 @@ func (q *Queries) GetManagedGPUCommand(ctx context.Context, arg GetManagedGPUCom
 		&i.DurableAck,
 		&i.ExecutionIntent,
 		&i.CreatedAt,
+		&i.Actor,
+		&i.CloseState,
+		&i.LeaseToken,
+		&i.LeaseUntil,
+		&i.RetryAt,
+		&i.Attempt,
+		&i.CloseError,
+		&i.ReleaseEvidenceID,
+		&i.ReleaseEvidenceDigest,
+		&i.ReleaseReport,
+		&i.CompletedAt,
 	)
 	return i, err
 }
@@ -84,7 +165,7 @@ func (q *Queries) GetManagedGPUReleaseScope(ctx context.Context, arg GetManagedG
 }
 
 const getManagedGPUResource = `-- name: GetManagedGPUResource :one
-SELECT tenant_id, resource_id, create_operation_id, owner_service, metering_version, original_context, business_payload, business_payload_digest, create_request_hash, create_payload, delete_operation_id, closing, created_at, updated_at FROM inference_managed_gpu_resources
+SELECT tenant_id, resource_id, create_operation_id, owner_service, metering_version, original_context, business_payload, business_payload_digest, create_request_hash, create_payload, delete_operation_id, closing, created_at, updated_at, resource_class, create_command_digest FROM inference_managed_gpu_resources
 WHERE tenant_id = $1 AND resource_id = $2
 `
 
@@ -111,12 +192,14 @@ func (q *Queries) GetManagedGPUResource(ctx context.Context, arg GetManagedGPURe
 		&i.Closing,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ResourceClass,
+		&i.CreateCommandDigest,
 	)
 	return i, err
 }
 
 const getManagedGPUResourceForUpdate = `-- name: GetManagedGPUResourceForUpdate :one
-SELECT tenant_id, resource_id, create_operation_id, owner_service, metering_version, original_context, business_payload, business_payload_digest, create_request_hash, create_payload, delete_operation_id, closing, created_at, updated_at FROM inference_managed_gpu_resources
+SELECT tenant_id, resource_id, create_operation_id, owner_service, metering_version, original_context, business_payload, business_payload_digest, create_request_hash, create_payload, delete_operation_id, closing, created_at, updated_at, resource_class, create_command_digest FROM inference_managed_gpu_resources
 WHERE tenant_id = $1 AND resource_id = $2 FOR UPDATE
 `
 
@@ -143,6 +226,8 @@ func (q *Queries) GetManagedGPUResourceForUpdate(ctx context.Context, arg GetMan
 		&i.Closing,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ResourceClass,
+		&i.CreateCommandDigest,
 	)
 	return i, err
 }
@@ -206,17 +291,18 @@ func (q *Queries) InsertManagedGPUCommand(ctx context.Context, arg InsertManaged
 }
 
 const insertManagedGPUResource = `-- name: InsertManagedGPUResource :exec
-INSERT INTO inference_managed_gpu_resources(tenant_id,resource_id,create_operation_id,owner_service,metering_version,original_context)
-VALUES($1,$2,$3,$4,$5,$6)
+INSERT INTO inference_managed_gpu_resources(tenant_id,resource_id,create_operation_id,owner_service,metering_version,original_context,resource_class,create_command_digest)
+VALUES($1,$2,$3,$4,CASE WHEN $6::text='cpu' THEN NULL ELSE 'gpu-metering-v1' END,$5,$6,$7)
 `
 
 type InsertManagedGPUResourceParams struct {
-	TenantID          pgtype.UUID
-	ResourceID        pgtype.UUID
-	CreateOperationID pgtype.UUID
-	OwnerService      string
-	MeteringVersion   string
-	OriginalContext   []byte
+	TenantID            pgtype.UUID
+	ResourceID          pgtype.UUID
+	CreateOperationID   pgtype.UUID
+	OwnerService        string
+	OriginalContext     []byte
+	ResourceClass       string
+	CreateCommandDigest string
 }
 
 func (q *Queries) InsertManagedGPUResource(ctx context.Context, arg InsertManagedGPUResourceParams) error {
@@ -225,10 +311,36 @@ func (q *Queries) InsertManagedGPUResource(ctx context.Context, arg InsertManage
 		arg.ResourceID,
 		arg.CreateOperationID,
 		arg.OwnerService,
-		arg.MeteringVersion,
 		arg.OriginalContext,
+		arg.ResourceClass,
+		arg.CreateCommandDigest,
 	)
 	return err
+}
+
+const listManagedCloseTenants = `-- name: ListManagedCloseTenants :many
+SELECT DISTINCT tenant_id FROM inference_managed_gpu_commands
+WHERE kind='delete' AND close_state IN ('pending','unknown_execution') ORDER BY tenant_id
+`
+
+func (q *Queries) ListManagedCloseTenants(ctx context.Context) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, listManagedCloseTenants)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var tenant_id pgtype.UUID
+		if err := rows.Scan(&tenant_id); err != nil {
+			return nil, err
+		}
+		items = append(items, tenant_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const lockManagedGPUKey = `-- name: LockManagedGPUKey :exec
@@ -238,6 +350,24 @@ SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))
 func (q *Queries) LockManagedGPUKey(ctx context.Context, lockKey string) error {
 	_, err := q.db.Exec(ctx, lockManagedGPUKey, lockKey)
 	return err
+}
+
+const managedExecutionFacts = `-- name: ManagedExecutionFacts :one
+SELECT EXISTS(SELECT 1 FROM inference_operations o WHERE o.tenant_id=$1 AND o.service_id=$2) OR
+ EXISTS(SELECT 1 FROM inference_resource_work w WHERE w.tenant_id=$1 AND w.service_id=$2) OR
+ EXISTS(SELECT 1 FROM inference_managed_gpu_resources r WHERE r.tenant_id=$1 AND r.resource_id=$2 AND r.create_payload IS NOT NULL) AS execution_unknown
+`
+
+type ManagedExecutionFactsParams struct {
+	TenantID   pgtype.UUID
+	ResourceID pgtype.UUID
+}
+
+func (q *Queries) ManagedExecutionFacts(ctx context.Context, arg ManagedExecutionFactsParams) (pgtype.Bool, error) {
+	row := q.db.QueryRow(ctx, managedExecutionFacts, arg.TenantID, arg.ResourceID)
+	var execution_unknown pgtype.Bool
+	err := row.Scan(&execution_unknown)
+	return execution_unknown, err
 }
 
 const managedGPUServiceExists = `-- name: ManagedGPUServiceExists :one
@@ -254,6 +384,32 @@ func (q *Queries) ManagedGPUServiceExists(ctx context.Context, arg ManagedGPUSer
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
+}
+
+const retryManagedClose = `-- name: RetryManagedClose :execrows
+UPDATE inference_managed_gpu_commands SET lease_token=NULL,lease_until=NULL,
+ retry_at=now()+interval '5 seconds',close_error=$1
+WHERE tenant_id=$2 AND operation_id=$3 AND lease_token=$4 AND lease_until>now() AND close_state='pending'
+`
+
+type RetryManagedCloseParams struct {
+	CloseError  string
+	TenantID    pgtype.UUID
+	OperationID pgtype.UUID
+	LeaseToken  pgtype.UUID
+}
+
+func (q *Queries) RetryManagedClose(ctx context.Context, arg RetryManagedCloseParams) (int64, error) {
+	result, err := q.db.Exec(ctx, retryManagedClose,
+		arg.CloseError,
+		arg.TenantID,
+		arg.OperationID,
+		arg.LeaseToken,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const saveManagedGPUCreate = `-- name: SaveManagedGPUCreate :exec
@@ -280,6 +436,71 @@ func (q *Queries) SaveManagedGPUCreate(ctx context.Context, arg SaveManagedGPUCr
 		arg.CreatePayload,
 		arg.TenantID,
 		arg.ResourceID,
+	)
+	return err
+}
+
+const saveManagedReleaseReport = `-- name: SaveManagedReleaseReport :execrows
+UPDATE inference_managed_gpu_commands c SET release_evidence_id=$1,
+ release_evidence_digest=$2,release_report=$3
+WHERE c.tenant_id=$4 AND c.operation_id=$5 AND c.kind='delete'
+AND ((c.close_state='pending' AND c.lease_token=$6::uuid AND c.lease_until>now())
+ OR (c.close_state='' AND EXISTS(
+  SELECT 1 FROM inference_resource_work w JOIN inference_services s
+   ON s.tenant_id=w.tenant_id AND s.id=w.service_id
+  WHERE w.tenant_id=c.tenant_id AND w.service_id=c.resource_id
+   AND w.lease_token=$6::uuid AND w.lease_until>now()
+   AND s.current_operation_id=c.operation_id AND s.desired_state='deleted')))
+AND EXISTS(SELECT 1 FROM inference_managed_gpu_resources r WHERE r.tenant_id=c.tenant_id AND r.resource_id=c.resource_id AND r.closing AND r.delete_operation_id=c.operation_id)
+AND (c.release_report IS NULL OR (c.release_report=$3 AND c.release_evidence_id=$1 AND c.release_evidence_digest=$2))
+`
+
+type SaveManagedReleaseReportParams struct {
+	EvidenceID     string
+	EvidenceDigest string
+	ReleaseReport  []byte
+	TenantID       pgtype.UUID
+	OperationID    pgtype.UUID
+	LeaseToken     pgtype.UUID
+}
+
+func (q *Queries) SaveManagedReleaseReport(ctx context.Context, arg SaveManagedReleaseReportParams) (int64, error) {
+	result, err := q.db.Exec(ctx, saveManagedReleaseReport,
+		arg.EvidenceID,
+		arg.EvidenceDigest,
+		arg.ReleaseReport,
+		arg.TenantID,
+		arg.OperationID,
+		arg.LeaseToken,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const setManagedCloseState = `-- name: SetManagedCloseState :exec
+UPDATE inference_managed_gpu_commands SET actor=$1, close_state=$2,
+ completed_at=CASE WHEN $2::text='complete' THEN now() ELSE NULL END,
+ close_error=$3
+WHERE tenant_id=$4 AND operation_id=$5 AND kind='delete'
+`
+
+type SetManagedCloseStateParams struct {
+	Actor       string
+	CloseState  string
+	CloseError  string
+	TenantID    pgtype.UUID
+	OperationID pgtype.UUID
+}
+
+func (q *Queries) SetManagedCloseState(ctx context.Context, arg SetManagedCloseStateParams) error {
+	_, err := q.db.Exec(ctx, setManagedCloseState,
+		arg.Actor,
+		arg.CloseState,
+		arg.CloseError,
+		arg.TenantID,
+		arg.OperationID,
 	)
 	return err
 }

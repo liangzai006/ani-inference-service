@@ -18,7 +18,7 @@ var (
 type CommandInput struct {
 	TenantID, RequestID, Actor, ServiceID, Kind, RequestHash string
 	ExpectedGeneration                                       int64
-	ManagedGPU                                               *ManagedGPUCommand
+	Managed                                                  *ManagedCommand
 }
 
 type CommandUseCase interface {

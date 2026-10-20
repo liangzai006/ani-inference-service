@@ -298,11 +298,11 @@ func (u *ReadUseCase) GetOperation(ctx context.Context, tenantID, operationID st
 	if u == nil || u.pool == nil {
 		return nil, errors.New("nil postgres read use case")
 	}
-	row, err := New(u.pool).GetOperation(ctx, GetOperationParams{TenantID: tenant, ID: op})
+	row, err := New(u.pool).GetOperationProjection(ctx, GetOperationProjectionParams{TenantID: tenant, ID: op})
 	if err != nil {
 		return nil, err
 	}
-	return operationProto(row), nil
+	return operationProjectionProto(row), nil
 }
 
 func operationProto(row InferenceOperation) *inferencev1.Operation {
@@ -364,7 +364,7 @@ func (u *ReadUseCase) ListOperations(ctx context.Context, tenantID, serviceID st
 	}
 	result := make([]*inferencev1.Operation, 0, len(rows))
 	for _, row := range rows {
-		result = append(result, operationProto(row))
+		result = append(result, operationProjectionProto(row))
 	}
 	var next string
 	if more {
@@ -502,10 +502,14 @@ func (u *ReadUseCase) ListOperationsPage(ctx context.Context, tenantID, serviceI
 	}
 	result := make([]*inferencev1.Operation, 0, len(rows))
 	for _, row := range rows {
-		result = append(result, operationProto(row))
+		result = append(result, operationProjectionProto(row))
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, 0, err
 	}
 	return result, total, nil
+}
+
+func operationProjectionProto(row InferenceOperationProjection) *inferencev1.Operation {
+	return operationProto(InferenceOperation{ID: row.ID, ServiceID: row.ServiceID, Kind: row.Kind, Phase: row.Phase, Step: row.Step, TargetGeneration: row.TargetGeneration, ErrorCode: row.ErrorCode, ErrorMessage: row.ErrorMessage, CreatedAt: row.CreatedAt, CompletedAt: row.CompletedAt})
 }

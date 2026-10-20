@@ -1,4 +1,4 @@
-package inference
+package inferencev1
 
 import (
 	"bytes"
@@ -9,7 +9,6 @@ import (
 	"math"
 	"strconv"
 
-	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
@@ -20,7 +19,7 @@ import (
 // UTF-8 without HTML escaping or a trailing newline. Command metadata is
 // excluded; the frozen GPU execution is part of the accepted business
 // snapshot. SHA256 has no additional prefix.
-func CanonicalBusinessPayload(req *inferencev1.CreateInferenceServiceRequest) ([]byte, error) {
+func CanonicalBusinessPayload(req *CreateInferenceServiceRequest) ([]byte, error) {
 	if req == nil {
 		return nil, fmt.Errorf("business request is required")
 	}
@@ -37,7 +36,7 @@ func CanonicalBusinessPayload(req *inferencev1.CreateInferenceServiceRequest) ([
 	return bytes.TrimSuffix(out.Bytes(), []byte{'\n'}), nil
 }
 
-func BusinessPayloadDigest(req *inferencev1.CreateInferenceServiceRequest) (string, error) {
+func BusinessPayloadDigest(req *CreateInferenceServiceRequest) (string, error) {
 	raw, err := CanonicalBusinessPayload(req)
 	if err != nil {
 		return "", err
@@ -49,7 +48,7 @@ func BusinessPayloadDigest(req *inferencev1.CreateInferenceServiceRequest) (stri
 // ManagedCreateRequestHash verifies the Governance original acceptance digest
 // independently of the command context. The action is the registered real
 // Inference RPC, and the GPU shape is part of both business and admission.
-func ManagedCreateRequestHash(req *inferencev1.CreateInferenceServiceRequest, tenantID, actorType, actorID string) (string, error) {
+func ManagedCreateRequestHash(req *CreateInferenceServiceRequest, tenantID, actorType, actorID string) (string, error) {
 	if req == nil || req.GetResource().GetGpu() == nil {
 		return "", fmt.Errorf("GPU business request is required")
 	}
@@ -72,7 +71,7 @@ func ManagedDeleteRequestHash(tenantID, resourceID, originalCreateID, actorType,
 // keeping the immutable GPU execution/display attachment in the business
 // payload. The context and correlation request ID are excluded by the
 // canonical business encoding and are bound by the outer command hash.
-func ManagedUpdateRequestHash(req *inferencev1.UpdateInferenceServiceRequest, tenantID, actorType, actorID string) (string, error) {
+func ManagedUpdateRequestHash(req *UpdateInferenceServiceRequest, tenantID, actorType, actorID string) (string, error) {
 	if req == nil {
 		return "", fmt.Errorf("update request is required")
 	}
@@ -177,14 +176,14 @@ func canonicalValue(field protoreflect.FieldDescriptor, value protoreflect.Value
 // DecodeBusinessPayload reconstructs the persisted canonical body. A strict
 // roundtrip check rejects unknown fields, noncanonical quantities, and trusted
 // attachment fields; adapters then add those fields from the original ledger.
-func DecodeBusinessPayload(raw []byte) (*inferencev1.CreateInferenceServiceRequest, error) {
+func DecodeBusinessPayload(raw []byte) (*CreateInferenceServiceRequest, error) {
 	var object map[string]any
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
 	if err := decoder.Decode(&object); err != nil {
 		return nil, err
 	}
-	req := new(inferencev1.CreateInferenceServiceRequest)
+	req := new(CreateInferenceServiceRequest)
 	if err := decodeEnums(object, req.ProtoReflect().Descriptor()); err != nil {
 		return nil, err
 	}

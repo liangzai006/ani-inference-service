@@ -43,6 +43,8 @@ ANI_HIGRESS_PATH_PREFIX=/v1/completions
 ANI_MODEL_GRPC_ADDR=ani-model-service.<namespace>.svc:9000  # required with Kubernetes lifecycle
 ANI_MODEL_MATERIALIZER_IMAGE=registry.example/model-fetcher:v1.2.3  # required
 ANI_MODEL_STORAGE_CLASS=  # optional; empty uses the cluster default StorageClass
+ANI_MODEL_DOWNLOAD_CA_CONFIGMAP=  # optional; trusted CA bundle for HTTPS artifact downloads
+ANI_MODEL_DOWNLOAD_CA_KEY=ca-certificates.crt  # ConfigMap data key; read-only in download Jobs
 ```
 
 GPU resolution is opt-in per request. A request without `resource.gpu` does

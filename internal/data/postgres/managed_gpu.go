@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -25,12 +26,12 @@ type managedIntake struct {
 	replay  []byte
 }
 
-// prepareManagedGPU serializes CREATE/DELETE on the tenant/resource key and
+// prepareManagedCommand serializes CREATE/DELETE on the tenant/resource key and
 // validates the original immutable context before any business write. The
 // caller uses this same transaction for service/spec/work and the durable ACK.
-func prepareManagedGPU(ctx context.Context, tx pgx.Tx, command *inferencebiz.ManagedGPUCommand, kind, operationID string) (managedIntake, error) {
+func prepareManagedCommand(ctx context.Context, tx pgx.Tx, command *inferencebiz.ManagedCommand, kind, operationID string) (managedIntake, error) {
 	if command == nil {
-		return managedIntake{}, fmt.Errorf("managed GPU command is required")
+		return managedIntake{}, fmt.Errorf("managed command is required")
 	}
 	original := command.Context
 	tenant, err := parseUUID("tenant_id", original.TenantID, false)
@@ -75,6 +76,15 @@ func prepareManagedGPU(ctx context.Context, tx pgx.Tx, command *inferencebiz.Man
 		if savedResource.CreateOperationID != createID {
 			return managedIntake{}, inferencebiz.ErrIdempotencyConflict
 		}
+		if original.ResourceClass != "" && savedResource.ResourceClass != original.ResourceClass {
+			return managedIntake{}, inferencebiz.ErrIdempotencyConflict
+		}
+		if original.CreateCommandDigest != "" && savedResource.CreateCommandDigest != "" && original.CreateCommandDigest != savedResource.CreateCommandDigest {
+			return managedIntake{}, inferencebiz.ErrIdempotencyConflict
+		}
+		if original.ClusterID != "" && saved.ClusterID != original.ClusterID {
+			return managedIntake{}, inferencebiz.ErrIdempotencyConflict
+		}
 		if kind == "create" && savedResource.DeleteOperationID.Valid {
 			// DELETE-first closes the immutable resource association. A later
 			// CREATE is acknowledged as blocked_by_delete after the command is
@@ -91,7 +101,9 @@ func prepareManagedGPU(ctx context.Context, tx pgx.Tx, command *inferencebiz.Man
 				return managedIntake{}, inferencebiz.ErrIdempotencyConflict
 			}
 			original.OwnerService, original.ClusterID, original.Snapshot = saved.OwnerService, saved.ClusterID, saved.Snapshot
+			original.ResourceClass, original.CreateCommandDigest = saved.ResourceClass, saved.CreateCommandDigest
 			original.DeleteOperationID = requestedDelete
+			command.Context = original
 		} else {
 			saved.DeleteOperationID, original.DeleteOperationID = "", ""
 			if !reflect.DeepEqual(saved, original) {
@@ -126,11 +138,11 @@ func prepareManagedGPU(ctx context.Context, tx pgx.Tx, command *inferencebiz.Man
 	// The column predates the execution snapshot and its CHECK remains the
 	// compatibility marker. Execution details are stored in original_context;
 	// this value does not represent or synthesize a charge vector.
-	err = q.InsertManagedGPUResource(ctx, InsertManagedGPUResourceParams{TenantID: tenant, ResourceID: resourceID, CreateOperationID: createID, OwnerService: original.OwnerService, MeteringVersion: "gpu-metering-v1", OriginalContext: payload})
+	err = q.InsertManagedGPUResource(ctx, InsertManagedGPUResourceParams{TenantID: tenant, ResourceID: resourceID, CreateOperationID: createID, OwnerService: original.OwnerService, ResourceClass: managedClass(command), CreateCommandDigest: original.CreateCommandDigest, OriginalContext: payload})
 	return managedIntake{}, err
 }
 
-func persistManagedGPUCommand(ctx context.Context, tx pgx.Tx, command *inferencebiz.ManagedGPUCommand, kind, operationID, intent string, response []byte) error {
+func persistManagedCommand(ctx context.Context, tx pgx.Tx, command *inferencebiz.ManagedCommand, kind, operationID, intent string, response []byte) error {
 	original := command.Context
 	tenant, err := parseUUID("tenant_id", original.TenantID, false)
 	if err != nil {
@@ -154,7 +166,7 @@ func persistManagedGPUCommand(ctx context.Context, tx pgx.Tx, command *inference
 		if err != nil {
 			return err
 		}
-	} else {
+	} else if intent != "blocked_by_delete" {
 		err := q.SaveManagedGPUCreate(ctx, SaveManagedGPUCreateParams{TenantID: tenant, ResourceID: resourceID, BusinessPayload: command.Business, BusinessPayloadDigest: command.BusinessDigest, CreateRequestHash: command.RequestHash, CreatePayload: command.Payload})
 		if err != nil {
 			return err
@@ -184,8 +196,8 @@ func managedIntentResponse(original gpu.RefundContext, operationID, kind, intent
 	}
 }
 
-func (u *CommandUseCase) acceptManagedGPUDelete(ctx context.Context, in inferencebiz.CommandInput) (*inferencev1.OperationResponse, error) {
-	original := in.ManagedGPU.Context
+func (u *CommandUseCase) acceptManagedDelete(ctx context.Context, in inferencebiz.CommandInput) (*inferencev1.OperationResponse, error) {
+	original := in.Managed.Context
 	if in.Kind != "delete" || original.TenantID != in.TenantID || original.ResourceID != in.ServiceID || original.DeleteOperationID == "" {
 		return nil, inferencebiz.ErrInvalidState
 	}
@@ -194,7 +206,7 @@ func (u *CommandUseCase) acceptManagedGPUDelete(ctx context.Context, in inferenc
 		return nil, err
 	}
 	defer tx.Rollback(ctx)
-	accepted, err := prepareManagedGPU(ctx, tx, in.ManagedGPU, "delete", original.DeleteOperationID)
+	accepted, err := prepareManagedCommand(ctx, tx, in.Managed, "delete", original.DeleteOperationID)
 	if err != nil {
 		return nil, err
 	}
@@ -207,16 +219,37 @@ func (u *CommandUseCase) acceptManagedGPUDelete(ctx context.Context, in inferenc
 		return nil, serviceErr
 	}
 	if errors.Is(serviceErr, pgx.ErrNoRows) {
-		// Governance DELETE may arrive before CREATE. Keep only the durable
-		// closing intent; the later CREATE path will be rejected and no local
-		// workload can be adopted by this command.
+		// The resource lock also fences the final CREATE transaction. A missing
+		// service alone is insufficient: retain unknown prior acceptance facts.
+		unknown, err := q.ManagedExecutionFacts(ctx, ManagedExecutionFactsParams{TenantID: pgUUIDMust(original.TenantID), ResourceID: pgUUIDMust(original.ResourceID)})
+		if err != nil {
+			return nil, err
+		}
+		state, reason := "pending", ""
+		if !unknown.Valid || unknown.Bool {
+			state, reason = "unknown_execution", "prior accepted execution cannot be excluded"
+		} else if managedClass(in.Managed) == "cpu" {
+			state = "complete"
+		}
 		response := managedIntentResponse(original, original.DeleteOperationID, "delete", "closing_intent")
 		snapshot, err := protojson.Marshal(response)
 		if err != nil {
 			return nil, err
 		}
-		if err := persistManagedGPUCommand(ctx, tx, in.ManagedGPU, "delete", original.DeleteOperationID, "closing_intent", snapshot); err != nil {
+		if err := persistManagedCommand(ctx, tx, in.Managed, "delete", original.DeleteOperationID, "closing_intent", snapshot); err != nil {
 			return nil, err
+		}
+		if err := q.SetManagedCloseState(ctx, SetManagedCloseStateParams{TenantID: pgUUIDMust(original.TenantID), OperationID: pgUUIDMust(original.DeleteOperationID), Actor: in.Actor, CloseState: state, CloseError: reason}); err != nil {
+			return nil, err
+		}
+		if unknown.Valid && !unknown.Bool && managedClass(in.Managed) == "gpu" {
+			scope, err := encodeManagedGPUReleaseScope(time.Now().UTC().Format(time.RFC3339Nano), nil)
+			if err != nil {
+				return nil, err
+			}
+			if err := q.UpsertManagedGPUReleaseScope(ctx, UpsertManagedGPUReleaseScopeParams{TenantID: pgUUIDMust(original.TenantID), ServiceID: pgUUIDMust(original.ResourceID), OperationID: pgUUIDMust(original.DeleteOperationID), Pods: scope}); err != nil {
+				return nil, err
+			}
 		}
 		if err := tx.Commit(ctx); err != nil {
 			return nil, err
@@ -224,7 +257,7 @@ func (u *CommandUseCase) acceptManagedGPUDelete(ctx context.Context, in inferenc
 		return response, nil
 	}
 	if service.DeletedAt.Valid || service.DesiredState == "deleted" {
-		return nil, fmt.Errorf("%w: managed GPU resource is already deleted", inferencebiz.ErrInvalidState)
+		return nil, fmt.Errorf("%w: managed resource is already deleted", inferencebiz.ErrInvalidState)
 	}
 	targetGeneration := service.DesiredGeneration + 1
 	cancelledActive, err := q.CancelActiveOperation(ctx, CancelActiveOperationParams{
@@ -270,7 +303,7 @@ func (u *CommandUseCase) acceptManagedGPUDelete(ctx context.Context, in inferenc
 	if err != nil {
 		return nil, err
 	}
-	if err := persistManagedGPUCommand(ctx, tx, in.ManagedGPU, "delete", original.DeleteOperationID, "closing_intent", snapshot); err != nil {
+	if err := persistManagedCommand(ctx, tx, in.Managed, "delete", original.DeleteOperationID, "closing_intent", snapshot); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -317,4 +350,53 @@ func (r *Repository) LoadRefundContext(ctx context.Context, tenantID, resourceID
 		original.DeleteOperationID = row.DeleteOperationID.String()
 	}
 	return original, nil
+}
+
+func managedClass(command *inferencebiz.ManagedCommand) string {
+	if command.ResourceClass != "" {
+		return command.ResourceClass
+	}
+	if command.Context.ResourceClass != "" {
+		return command.Context.ResourceClass
+	}
+	if command.Context.Snapshot != nil {
+		return "gpu"
+	}
+	return "cpu"
+}
+
+// PrepareCreate returns replay/blocked acceptance before Model metadata reads.
+// Unaccepted CREATEs leave no row; final CreateService repeats the locked check.
+func (r *Repository) PrepareCreate(ctx context.Context, in inferencebiz.CreateInput) (*inferencev1.OperationResponse, bool, error) {
+	if in.Managed == nil {
+		return nil, false, nil
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	defer tx.Rollback(ctx)
+	accepted, err := prepareManagedCommand(ctx, tx, in.Managed, "create", in.Managed.Context.OriginalCreateOperationID)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(accepted.replay) > 0 {
+		out, err := decodeManagedResponse(accepted.replay)
+		return out, true, err
+	}
+	if !accepted.closing {
+		return nil, false, nil
+	}
+	out := managedIntentResponse(in.Managed.Context, in.Managed.Context.OriginalCreateOperationID, "create", "blocked_by_delete")
+	raw, err := protojson.Marshal(out)
+	if err != nil {
+		return nil, false, err
+	}
+	if err := persistManagedCommand(ctx, tx, in.Managed, "create", in.Managed.Context.OriginalCreateOperationID, "blocked_by_delete", raw); err != nil {
+		return nil, false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, false, err
+	}
+	return out, true, nil
 }

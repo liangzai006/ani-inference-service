@@ -25,3 +25,18 @@ func TestConfiguredModelMaterializerSettingsUsesClusterDefaultStorageClass(t *te
 		t.Fatalf("settings = %#v, want image, empty storage class, and service account", got)
 	}
 }
+
+func TestConfiguredModelMaterializerSettingsDownloadCA(t *testing.T) {
+	t.Setenv("ANI_MODEL_MATERIALIZER_IMAGE", "registry.example/fetcher@sha256:fixed")
+	t.Setenv("ANI_MODEL_DOWNLOAD_CA_CONFIGMAP", " model-download-ca ")
+	t.Setenv("ANI_MODEL_DOWNLOAD_CA_KEY", "")
+	got, err := configuredModelMaterializerSettings()
+	if err != nil || got.DownloadCAConfigMap != "model-download-ca" || got.DownloadCAKey != "ca-certificates.crt" {
+		t.Fatalf("download CA settings = %+v, %v", got, err)
+	}
+	t.Setenv("ANI_MODEL_DOWNLOAD_CA_KEY", " bundle.pem ")
+	got, err = configuredModelMaterializerSettings()
+	if err != nil || got.DownloadCAKey != "bundle.pem" {
+		t.Fatalf("explicit download CA key = %+v, %v", got, err)
+	}
+}

@@ -115,7 +115,7 @@ func (s *RuntimeSource) CurrentRuntime(ctx context.Context, tenantID, serviceID 
 			return kube.DesiredRuntime{}, err
 		}
 	}
-	if managed.Managed {
+	if managed.Managed && resourceSpec.GPU != nil {
 		if err := gpu.ValidateSnapshot(gpuPlan, resourceSpec.GPU); err != nil {
 			return kube.DesiredRuntime{}, fmt.Errorf("invalid accepted Governance GPU snapshot: %w", err)
 		}
@@ -191,7 +191,7 @@ func (s *RuntimeSource) CurrentRuntime(ctx context.Context, tenantID, serviceID 
 			Namespace: s.Namespace, Image: row.ImageRef, ModelVersionID: row.ModelVersionID.String(), ArtifactProvider: row.ArtifactProvider, ArtifactRef: row.ArtifactRef, ArtifactSHA256: row.ArtifactSha256, ServedModelName: row.ServedModelName, EngineRuntime: row.EngineRuntime, Generation: generation,
 			EngineCommand: command, Resources: normalized, Replicas: row.Replicas,
 			WorkerReplicas: workers, RuntimeMode: mode,
-			GPUSnapshot: gpuPlan, ManagedGPU: managed.Managed,
+			GPUSnapshot: gpuPlan, Managed: managed.Managed, ManagedGPU: managed.Managed && resourceSpec.GPU != nil,
 			Endpoint: endpoint,
 		},
 		Bindings:        owned,

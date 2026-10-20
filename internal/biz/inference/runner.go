@@ -44,6 +44,7 @@ type OperationContext struct {
 	// A plan is only present after StepResolveGPU has durably saved it.
 	GPURequest                  *gpu.Request
 	GPUSnapshot                 *gpu.Snapshot
+	Managed                     bool
 	ManagedGPU                  bool
 	ManagedGPUCreateOperationID string
 	ManagedGPUReleasePods       []gpu.PodRef
@@ -259,7 +260,7 @@ func (r *Runner) runStep(ctx context.Context, op OperationContext) (stepResult, 
 		return stepResult{phase: OperationRunning, step: string(StepReserveQuota), event: "admission.accepted"}, nil
 
 	case string(StepReserveQuota):
-		if op.ManagedGPU {
+		if op.Managed || op.ManagedGPU {
 			return stepResult{phase: OperationRunning, step: nextAfterQuota(op), event: "quota.governance_owned"}, nil
 		}
 		if r.Quota == nil {
@@ -389,7 +390,7 @@ func (r *Runner) runStep(ctx context.Context, op OperationContext) (stepResult, 
 		return stepResult{phase: OperationRunning, step: string(StepApplyCR), event: "gpu.resolved"}, nil
 
 	case string(StepReleasePreviousQuota):
-		if op.ManagedGPU {
+		if op.Managed || op.ManagedGPU {
 			return stepResult{phase: OperationRunning, step: string(StepReserveQuota), event: "previous_quota.governance_owned"}, nil
 		}
 		if r.Quota == nil {
@@ -646,7 +647,7 @@ func (r *Runner) runStep(ctx context.Context, op OperationContext) (stepResult, 
 			}
 			return stepResult{phase: OperationSucceeded, step: string(StepComplete), event: "quota.governance_released"}, nil
 		}
-		if op.ManagedGPU {
+		if op.Managed || op.ManagedGPU {
 			return stepResult{phase: OperationSucceeded, step: string(StepComplete), event: "quota.governance_owned"}, nil
 		}
 		// The store returns only outstanding reservations. A prior stop, or

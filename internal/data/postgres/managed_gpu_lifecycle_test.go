@@ -20,6 +20,7 @@ func TestPostgresManagedGPUDeletePreservesAcceptedCreateAndRejectsTopologyMutati
 		t.Fatalf("delete/create identity association changed: create=%s delete=%s", req.Context.OperationId, deleteReq.Context.OperationId)
 	}
 	server := service.NewInferenceServerWithCommands(NewCreateUseCase(NewRepository(pool)), nil, NewCommandUseCase(NewRepository(pool)))
+	server.SetManagedGPUClusterID(req.ClusterId)
 	if _, err := server.DeleteInferenceService(ctx, deleteReq); err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +41,7 @@ func TestPostgresManagedGPUAcceptanceRollbackLeavesNoACK(t *testing.T) {
 	ctx = service.WithActor(service.WithTenantID(gpu.WithGovernanceIdentity(ctx), tenant.String()), "user:42")
 	req := managedCreateFixture(t, tenant, resource)
 	req.Context.RequestDigest = "0000000000000000000000000000000000000000000000000000000000000000"
-	server := service.NewInferenceServer(NewCreateUseCase(NewRepository(pool)))
+	server := managedFixtureServer(pool, req.ClusterId)
 	if _, err := server.CreateInferenceService(ctx, req); err == nil {
 		t.Fatal("forged command accepted")
 	}

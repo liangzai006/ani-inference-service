@@ -25,6 +25,12 @@ func (u *UpdateUseCase) Update(ctx context.Context, in inference.UpdateInput) (*
 	if u == nil || u.next == nil {
 		return nil, status.Error(codes.FailedPrecondition, "Inference update use case not configured")
 	}
+	if preflight, ok := u.next.(inference.UpdatePreflight); ok {
+		out, handled, err := preflight.PrepareUpdate(ctx, in)
+		if err != nil || handled {
+			return out, err
+		}
+	}
 	if in.ModelVersionID == "" {
 		if in.ArtifactProvider != "" || in.ArtifactRef != "" || in.ArtifactSHA256 != "" {
 			return nil, status.Error(codes.InvalidArgument, "artifact changes require model_version_id")

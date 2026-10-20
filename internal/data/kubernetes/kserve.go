@@ -29,7 +29,7 @@ import (
 const (
 	KServeInferenceServiceKind          = "KServeInferenceService"
 	KServeLLMInferenceServiceKind       = "KServeLLMInferenceService"
-	kserveDeploymentMode                = "RawDeployment"
+	kserveDeploymentMode                = "Standard"
 	KServePredictorServicePort    int32 = 80
 	KServeLLMWorkloadServicePort  int32 = 8000
 )
@@ -77,7 +77,7 @@ func (e *KServeRuntimeExecutor) ApplyRuntime(ctx context.Context, op inferencebi
 	if err != nil {
 		return err
 	}
-	if e.RequireQuota && !spec.ManagedGPU && !spec.QuotaReserved {
+	if e.RequireQuota && !spec.Managed && !spec.ManagedGPU && !spec.QuotaReserved {
 		return errors.New("quota reservation must be confirmed before runtime apply")
 	}
 	_, err = e.applyKServe(ctx, spec, kserveBindingForSpec(spec))
@@ -179,9 +179,10 @@ func (e *KServeRuntimeExecutor) Ensure(ctx context.Context, desired bizreconcile
 		return bizreconcile.Observation{}, bizreconcile.ErrStaleGeneration
 	}
 	spec.TenantID, spec.ServiceID, spec.Generation = desired.TenantID, desired.ServiceID, desired.Generation
+	spec.ServiceAccountName = e.ServiceAccountName
 	switch spec.DesiredState {
 	case "", "running":
-		if e.RequireQuota && !spec.ManagedGPU && !spec.QuotaReserved {
+		if e.RequireQuota && !spec.Managed && !spec.ManagedGPU && !spec.QuotaReserved {
 			return bizreconcile.Observation{}, errors.New("quota reservation must be confirmed before runtime apply")
 		}
 		if err := e.applyCR(ctx, spec.RuntimeSpec, spec.DesiredState, controlBindingForSpec(spec)); err != nil {

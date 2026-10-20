@@ -82,6 +82,23 @@ message CommandContext {
   string request_digest = 4;
 }
 
+// Resource classification comes from the immutable accepted CREATE, never
+// from an empty quota vector or the current directory.
+enum ManagedResourceClass {
+  MANAGED_RESOURCE_CLASS_UNSPECIFIED = 0;
+  MANAGED_RESOURCE_CLASS_CPU = 1;
+  MANAGED_RESOURCE_CLASS_GPU = 2;
+}
+
+// Governance-only delegation for closing a CREATE which the owner may not
+// have accepted. The trusted original command, rather than Model availability,
+// supplies the resource class and GPU cluster.
+message ManagedDeleteScope {
+  ManagedResourceClass resource_class = 1;
+  string cluster_id = 2;
+  string create_command_digest = 3;
+}
+
 message InferenceService {
   string id = 1;
   string name = 2;
@@ -161,6 +178,7 @@ message DeleteInferenceServiceRequest {
   reserved "gpu_owner_attachment", "original_charges";
   CommandContext context = 6;
   string create_operation_id = 7;
+  ManagedDeleteScope managed_delete_scope = 8;
 }
 message GetInferenceServiceRequest { string resource_id = 1; }
 message ListInferenceServicesRequest {

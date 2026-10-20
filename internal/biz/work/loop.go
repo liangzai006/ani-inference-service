@@ -26,6 +26,8 @@ type Loop struct {
 	// resource_work rows are hints, so a complete persisted scan is required
 	// to recover rows lost while the process was running.
 	Recover func(context.Context) error
+	// Close scans durable managed DELETEs even when the tenant has no service.
+	Close func(context.Context) error
 	// Repair is the cheaper periodic variant of Recover. When present it only
 	// recreates missing durable work rows and preserves existing notifications.
 	Repair           func(context.Context) error
@@ -45,11 +47,16 @@ func (l *Loop) RunOnce(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	var joined error
+	if l.Close != nil {
+		if err := l.Close(ctx); err != nil {
+			joined = errors.Join(joined, fmt.Errorf("managed close: %w", err))
+		}
+	}
 	tenants, err := l.Tenants.ListTenants(ctx)
 	if err != nil {
-		return fmt.Errorf("durable work list tenants: %w", err)
+		return errors.Join(joined, fmt.Errorf("durable work list tenants: %w", err))
 	}
-	var joined error
 	for _, tenant := range tenants {
 		if err := ctx.Err(); err != nil {
 			return errors.Join(joined, err)

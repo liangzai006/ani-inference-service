@@ -31,6 +31,8 @@ type Materializer struct {
 	Reader                         client.Reader
 	StorageClass, Image, Namespace string
 	ServiceAccountName             string
+	DownloadCAConfigMap            string
+	DownloadCAKey                  string
 }
 
 const (
@@ -198,6 +200,25 @@ func (m *Materializer) EnsureModel(ctx context.Context, op inference.OperationCo
 					}}},
 				},
 			}},
+		}
+		if m.DownloadCAConfigMap != "" {
+			caKey := m.DownloadCAKey
+			if caKey == "" {
+				caKey = "ca-certificates.crt"
+			}
+			jobSpec.Volumes = append(jobSpec.Volumes, corev1.Volume{
+				Name: "download-ca",
+				VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{Name: m.DownloadCAConfigMap},
+					Items:                []corev1.KeyToPath{{Key: caKey, Path: "ca-certificates.crt"}},
+				}},
+			})
+			jobSpec.Containers[0].VolumeMounts = append(jobSpec.Containers[0].VolumeMounts,
+				corev1.VolumeMount{Name: "download-ca", MountPath: "/run/model-download-ca", ReadOnly: true})
+			// Python's default HTTPS context uses this bundle and retains certificate
+			// and hostname verification. Missing/invalid trust data fails closed.
+			jobSpec.Containers[0].Env = append(jobSpec.Containers[0].Env,
+				corev1.EnvVar{Name: "SSL_CERT_FILE", Value: "/run/model-download-ca/ca-certificates.crt"})
 		}
 		jobSpec.ServiceAccountName = strings.TrimSpace(m.ServiceAccountName)
 		job = &batchv1.Job{ObjectMeta: meta(name + "-fetch"), Spec: batchv1.JobSpec{BackoffLimit: ptr.To(int32(2)), ActiveDeadlineSeconds: ptr.To(int64(600)), Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: labels}, Spec: jobSpec}}}

@@ -490,12 +490,15 @@ SELECT tenant_id, id, service_id, kind, phase, step, target_generation, request_
 FROM inference_operations
 WHERE tenant_id = $1 AND id = $2;
 
+-- name: GetOperationProjection :one
+SELECT * FROM inference_operation_projection WHERE tenant_id=$1 AND id=$2;
+
 -- name: ListOperations :many
 SELECT tenant_id, id, service_id, kind, phase, step, target_generation,
        request_hash, attempt, retry_at, lease_owner, lease_until, lease_token,
        error_code, error_message, result_snapshot, created_at, updated_at,
        completed_at
-FROM inference_operations
+FROM inference_operation_projection
 WHERE tenant_id = sqlc.arg(tenant_id)
   AND (sqlc.arg(service_id)::uuid IS NULL OR service_id = sqlc.arg(service_id)::uuid)
   AND (sqlc.arg(cursor_created_at)::timestamptz IS NULL
@@ -802,14 +805,19 @@ LIMIT sqlc.arg(page_limit) OFFSET sqlc.arg(page_offset);
 
 -- name: CountOperations :one
 SELECT count(*)::bigint
-FROM inference_operations
+FROM inference_operation_projection
 WHERE tenant_id = $1 AND ($2::uuid IS NULL OR service_id = $2::uuid);
 
 -- name: ListOperationsPage :many
 SELECT tenant_id, id, service_id, kind, phase, step, target_generation,
        request_hash, attempt, retry_at, lease_owner, lease_until, lease_token,
        error_code, error_message, result_snapshot, created_at, updated_at, completed_at
-FROM inference_operations
+FROM inference_operation_projection
 WHERE tenant_id = $1 AND ($2::uuid IS NULL OR service_id = $2::uuid)
 ORDER BY created_at DESC, id DESC
 LIMIT $3 OFFSET $4;
+
+-- name: SaveOperationAcceptanceResponse :execrows
+UPDATE inference_operations SET result_snapshot=sqlc.arg(response)::jsonb
+WHERE tenant_id=sqlc.arg(tenant_id) AND id=sqlc.arg(operation_id)
+ AND result_snapshot IS NULL;

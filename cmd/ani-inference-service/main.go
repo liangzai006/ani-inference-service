@@ -211,14 +211,16 @@ func buildKubernetesServers(pool *pgxpool.Pool, modelClient *modeldata.Client, r
 	runtimeExecutor.CRClient = mgr.GetClient()
 	controller.Status = &kubernetes.StatusProjector{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Source: postgres.NewStatusProjectionSource(pool)}
 	modelMaterializer := &modeldata.Materializer{
-		Catalog:            modelClient,
-		Source:             runtimeSource,
-		Client:             mgr.GetClient(),
-		Reader:             mgr.GetAPIReader(),
-		StorageClass:       materializerSettings.StorageClass,
-		Image:              materializerSettings.Image,
-		ServiceAccountName: materializerSettings.ServiceAccountName,
-		Namespace:          namespace,
+		Catalog:             modelClient,
+		Source:              runtimeSource,
+		Client:              mgr.GetClient(),
+		Reader:              mgr.GetAPIReader(),
+		StorageClass:        materializerSettings.StorageClass,
+		Image:               materializerSettings.Image,
+		ServiceAccountName:  materializerSettings.ServiceAccountName,
+		DownloadCAConfigMap: materializerSettings.DownloadCAConfigMap,
+		DownloadCAKey:       materializerSettings.DownloadCAKey,
+		Namespace:           namespace,
 	}
 	publicationPublisher := &kubernetes.HTTPRoutePublisher{
 		Client:    mgr.GetClient(),
@@ -278,6 +280,9 @@ func buildKubernetesServers(pool *pgxpool.Pool, modelClient *modeldata.Client, r
 	}, 5*time.Second, nil)
 	if err != nil {
 		return nil, false, err
+	}
+	loopServer.Loop.Close = func(ctx context.Context) error {
+		return postgres.NewRepository(pool).RunManagedCloses(ctx, managedGPURelease)
 	}
 	loopServer.WaitReady = func(ctx context.Context) error {
 		if !mgr.GetCache().WaitForCacheSync(ctx) {
