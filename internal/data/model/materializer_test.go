@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	modelv1 "github.com/liangzai006/ani-inference-service/api/model/v1"
+	modelv1 "github.com/liangzai006/ani-model-service/api/model/v1"
 	inference "github.com/liangzai006/ani-inference-service/internal/biz/inference"
 	kube "github.com/liangzai006/ani-inference-service/internal/data/kubernetes"
 	"google.golang.org/protobuf/types/known/timestamppb"
