@@ -13,6 +13,15 @@ common_values=(
   --set higress.consoleCredentialsSecret.name="$console_secret"
 )
 
+# The root migration directory is authoritative; the chart packages exact
+# copies so Helm releases cannot omit a required schema expansion.
+for source in "$repo_root"/migrations/*.sql "$repo_root/migrations/README.md"; do
+  cmp "$source" "$repo_root/charts/ani-inference/migrations/$(basename "$source")"
+done
+for packaged in "$repo_root"/charts/ani-inference/migrations/*.sql; do
+  test -f "$repo_root/migrations/$(basename "$packaged")"
+done
+
 helm lint "$repo_root/charts/ani-inference"
 helm lint "$repo_root/charts/ani-inference-config"
 helm template ani-inference "$repo_root/charts/ani-inference" \
