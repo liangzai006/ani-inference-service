@@ -53,7 +53,7 @@ func TestMaterializerRequiresVerifiedJobBeforeReady(t *testing.T) {
 	v.StoragePath = "tenant/model.tar"
 	api := &modelAPIFake{version: v, download: &modelv1.GetModelDownloadURLResponse{DownloadUrl: "http://storage/private?secret=redacted", StoragePath: v.StoragePath, ExpiresAt: timestamppb.New(time.Now().Add(time.Hour))}}
 	spec := kube.RuntimeSpec{TenantID: "tenant", ServiceID: "service", Namespace: "ani-model-inference-test", Generation: 1, ModelVersionID: v.Id, ArtifactProvider: "model", ArtifactRef: v.StoragePath, ArtifactSHA256: v.ChecksumSha256, RuntimeMode: "deployment"}
-	m := &Materializer{Catalog: NewClient(api), Source: materializerSource{kube.DesiredRuntime{RuntimeSpec: spec}}, Client: kc, Reader: kc, Namespace: spec.Namespace, StorageClass: "cephfs", Image: "image@sha256:fixed", ServiceAccountName: "ani-inference-runtime"}
+	m := &Materializer{Catalog: NewClient(api), Source: materializerSource{kube.DesiredRuntime{RuntimeSpec: spec}}, Client: kc, Reader: kc, Namespace: spec.Namespace, StorageClass: "cephfs", Image: "image@sha256:fixed", ServiceAccountName: "ani-inference-runtime", DownloadCAConfigMap: "model-ca", DownloadCAKey: "bundle.pem"}
 	op := inference.OperationContext{TenantID: spec.TenantID, ServiceID: spec.ServiceID, TargetGeneration: 1, ID: "distinct-operation-id", LeaseToken: "lease"}
 	observation, err := m.EnsureModel(ctx, op)
 	if err != nil || observation.Ready {
@@ -67,6 +67,34 @@ func TestMaterializerRequiresVerifiedJobBeforeReady(t *testing.T) {
 		t.Fatal("expected one materialization job", err)
 	}
 	job := &jobs.Items[0]
+	var caPath string
+	for _, env := range job.Spec.Template.Spec.Containers[0].Env {
+		if env.Name == "SSL_CERT_FILE" {
+			caPath = env.Value
+		}
+	}
+	if caPath == "" {
+		t.Fatal("download Job did not receive the configured TLS CA bundle")
+	}
+	var caMount *corev1.VolumeMount
+	for i := range job.Spec.Template.Spec.Containers[0].VolumeMounts {
+		mount := &job.Spec.Template.Spec.Containers[0].VolumeMounts[i]
+		if caPath == mount.MountPath+"/ca-certificates.crt" && mount.ReadOnly {
+			caMount = mount
+		}
+	}
+	if caMount == nil {
+		t.Fatal("download CA bundle must be mounted read-only")
+	}
+	var caVolume *corev1.ConfigMapVolumeSource
+	for _, volume := range job.Spec.Template.Spec.Volumes {
+		if volume.Name == caMount.Name {
+			caVolume = volume.ConfigMap
+		}
+	}
+	if caVolume == nil || caVolume.Name != "model-ca" || len(caVolume.Items) != 1 || caVolume.Items[0].Key != "bundle.pem" || caVolume.Items[0].Path != "ca-certificates.crt" {
+		t.Fatalf("download Job CA volume = %+v", caVolume)
+	}
 	if job.Spec.Template.Spec.ServiceAccountName != "ani-inference-runtime" {
 		t.Fatalf("materialization Job service account = %q, want ani-inference-runtime", job.Spec.Template.Spec.ServiceAccountName)
 	}

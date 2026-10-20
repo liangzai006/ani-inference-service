@@ -40,7 +40,7 @@ func TestRenderKServeWrapsRawEngineCommandAndModelMount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("renderKServeInferenceService() error = %v", err)
 	}
-	if got := obj.GetAnnotations()["serving.kserve.io/deploymentMode"]; got != "RawDeployment" {
+	if got := obj.GetAnnotations()["serving.kserve.io/deploymentMode"]; got != "Standard" {
 		t.Fatalf("deployment mode = %q", got)
 	}
 	if got := obj.GetAnnotations()["serving.kserve.io/autoscalerClass"]; got != "external" {
@@ -473,7 +473,7 @@ func TestKServeDeleteRemovesRawDeploymentAnnotationBeforeDelete(t *testing.T) {
 	obj := newKServeInferenceService("models", "model")
 	obj.SetUID(types.UID("isvc-uid"))
 	obj.SetResourceVersion("7")
-	obj.SetAnnotations(map[string]string{"serving.kserve.io/deploymentMode": kserveDeploymentMode})
+	obj.SetAnnotations(map[string]string{"serving.kserve.io/deploymentMode": "RawDeployment"})
 	base := fake.NewClientBuilder().WithScheme(executorScheme(t)).WithObjects(obj).Build()
 	cl := &captureDeleteClient{Client: base}
 	e := &KServeRuntimeExecutor{RuntimeExecutor: &RuntimeExecutor{Client: cl}}

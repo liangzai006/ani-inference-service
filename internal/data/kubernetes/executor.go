@@ -422,6 +422,7 @@ func (e *RuntimeExecutor) Ensure(ctx context.Context, desired bizreconcile.Desir
 		return bizreconcile.Observation{}, bizreconcile.ErrStaleGeneration
 	}
 	spec.TenantID, spec.ServiceID, spec.Generation = desired.TenantID, desired.ServiceID, desired.Generation
+	spec.ServiceAccountName = e.ServiceAccountName
 
 	switch spec.DesiredState {
 	case "", "running":

@@ -16,6 +16,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -78,6 +79,49 @@ func (c *captureApplyClient) Patch(_ context.Context, obj client.Object, _ clien
 }
 
 type noDeleteClient struct{ client.Client }
+
+type runtimeAccountCaptureClient struct {
+	client.Client
+	applied client.Object
+	err     error
+}
+
+func (c *runtimeAccountCaptureClient) Patch(_ context.Context, obj client.Object, _ client.Patch, _ ...client.PatchOption) error {
+	c.applied = obj.DeepCopyObject().(client.Object)
+	return c.err
+}
+
+func TestContinuousReconcilePreservesConfiguredRuntimeAccount(t *testing.T) {
+	for _, provider := range []string{"deployment", "kserve"} {
+		t.Run(provider, func(t *testing.T) {
+			captured := errors.New("captured runtime apply")
+			cl := &runtimeAccountCaptureClient{Client: fake.NewClientBuilder().WithScheme(executorScheme(t)).Build(), err: captured}
+			spec := RuntimeSpec{TenantID: "tenant", ServiceID: "service", Name: "model", Namespace: "models", Image: "engine:v1", Generation: 4, Replicas: 1}
+			e := &RuntimeExecutor{Client: cl, Source: fakeRuntimeSource{desired: DesiredRuntime{RuntimeSpec: spec, DesiredState: "running", PublicationPublished: true}}, ServiceAccountName: "ani-inference-runtime"}
+			var reconciler bizreconcile.Runtime = e
+			if provider == "kserve" {
+				reconciler = &KServeRuntimeExecutor{RuntimeExecutor: e}
+			}
+			_, err := reconciler.Ensure(context.Background(), bizreconcile.Desired{TenantID: spec.TenantID, ServiceID: spec.ServiceID, Generation: spec.Generation})
+			if !errors.Is(err, captured) {
+				t.Fatalf("Ensure() error = %v, want runtime apply capture", err)
+			}
+			var account string
+			err = nil
+			switch obj := cl.applied.(type) {
+			case *appsv1.Deployment:
+				account = obj.Spec.Template.Spec.ServiceAccountName
+			case *unstructured.Unstructured:
+				account, _, err = unstructured.NestedString(obj.Object, "spec", "predictor", "serviceAccountName")
+			default:
+				t.Fatalf("unexpected runtime apply %T", cl.applied)
+			}
+			if err != nil || account != e.ServiceAccountName {
+				t.Fatalf("continuous %s runtime account = %q (%v), want %q", provider, account, err, e.ServiceAccountName)
+			}
+		})
+	}
+}
 
 type recordingBindingStore struct{ records []BindingRecord }
 

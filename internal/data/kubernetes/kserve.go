@@ -29,7 +29,7 @@ import (
 const (
 	KServeInferenceServiceKind          = "KServeInferenceService"
 	KServeLLMInferenceServiceKind       = "KServeLLMInferenceService"
-	kserveDeploymentMode                = "RawDeployment"
+	kserveDeploymentMode                = "Standard"
 	KServePredictorServicePort    int32 = 80
 	KServeLLMWorkloadServicePort  int32 = 8000
 )
@@ -179,6 +179,7 @@ func (e *KServeRuntimeExecutor) Ensure(ctx context.Context, desired bizreconcile
 		return bizreconcile.Observation{}, bizreconcile.ErrStaleGeneration
 	}
 	spec.TenantID, spec.ServiceID, spec.Generation = desired.TenantID, desired.ServiceID, desired.Generation
+	spec.ServiceAccountName = e.ServiceAccountName
 	switch spec.DesiredState {
 	case "", "running":
 		if e.RequireQuota && !spec.Managed && !spec.ManagedGPU && !spec.QuotaReserved {

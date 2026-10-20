@@ -24,6 +24,15 @@ Client errors retain their gRPC status, and failed Model queries do not create
 	artifact size as its download/extraction limit, so the old fixed 512 MiB
 	ceiling is not used.
 
+For HTTPS object storage signed by a private CA, set
+`ANI_MODEL_DOWNLOAD_CA_CONFIGMAP` to an existing trusted CA bundle ConfigMap in
+the runtime namespace, and optionally `ANI_MODEL_DOWNLOAD_CA_KEY` (default
+`ca-certificates.crt`). The composition root passes these settings to the
+materializer. Each download Job mounts that bundle read-only and sets
+`SSL_CERT_FILE` for Python's default HTTPS context. Certificate and hostname
+verification stay enabled; absent configuration uses the image's system trust.
+Use a bundle containing all required roots, as it replaces the default CA file.
+
 The new-cluster deployment uses mTLS for Model gRPC inside the cluster. Model
 RPCs require the verified caller identity, tenant metadata, client certificate,
 and the configured `ANI_MODEL_GRPC_SERVER_NAME`; the request tenant cannot
