@@ -92,8 +92,8 @@ github.com/kylelemons/godebug v1.1.0 h1:RPNrshWIDI6G2gRW9EHilWtl7Z6Sb1BR0xunSBf0
 github.com/kylelemons/godebug v1.1.0/go.mod h1:9/0rRGxNHcop5bhtWyNeEfOS8JIWk580+fNqagV/RAw=
 github.com/liangzai006/ani-inference-service/api v0.1.0 h1:gxefJhzeDbFCk0hDIQZ1cPFbmM/fmrAK15y04BnhPzU=
 github.com/liangzai006/ani-inference-service/api v0.1.0/go.mod h1:kCxifBbREAjpKRUxGS+fDDKTXn/P6O/8MochJJr0xmQ=
-github.com/liangzai006/ani-model-service/api v0.0.0-20261020102840-e6b26b580a9f h1:NwvFJhs382p+W9xI9lo+YbsEp7Ai54+yoVX13ATyd7w=
-github.com/liangzai006/ani-model-service/api v0.0.0-20261020102840-e6b26b580a9f/go.mod h1:JsFcJK23M4jXHkXdX9U28lEArWVkp9SS6h2hGroLjIM=
+github.com/liangzai006/ani-model-service/api v0.0.0-20261020112655-0b687e3fceea h1:2/1X/U2QqN85tsQBISe//gvBabUl5FVU3rdm4QjJun0=
+github.com/liangzai006/ani-model-service/api v0.0.0-20261020112655-0b687e3fceea/go.mod h1:JsFcJK23M4jXHkXdX9U28lEArWVkp9SS6h2hGroLjIM=
 github.com/mailru/easyjson v0.7.7 h1:UGYAvKxe3sBsEDzO8ZeWOSlIQfWFlxbzLZe7hwFURr0=
 github.com/mailru/easyjson v0.7.7/go.mod h1:xzfreul335JAWq5oZzymOObrkdz5UnU4kGfJJLY9Nlc=
 github.com/modern-go/concurrent v0.0.0-20180228061459-e0a39a4cb421/go.mod h1:6dJC0mAP4ikYIbvyc7fijjWJddQyLn8Ig3JB5CqoB9Q=
