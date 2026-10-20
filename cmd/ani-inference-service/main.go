@@ -383,10 +383,22 @@ func inferenceRESTConfig() (*rest.Config, error) {
 	return rest.InClusterConfig()
 }
 
+// configuredLogFormat selects the log encoding. Text is the default for human
+// readability; an explicit "json" restores the previous structured output.
+func configuredLogFormat() log.Format {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("ANI_LOG_FORMAT")), "json") {
+		return log.FormatJSON
+	}
+	return log.FormatText
+}
+
 func newRuntimeLogger(writer io.Writer) *slog.Logger {
+	// Text is the default because operators read these logs directly. Set
+	// ANI_LOG_FORMAT=json to restore machine-parseable output for a log
+	// aggregation pipeline.
 	handler := log.NewHandler(
 		log.WithWriter(writer),
-		log.WithFormat(log.FormatJSON),
+		log.WithFormat(configuredLogFormat()),
 		log.WithLevel(log.LevelInfo),
 		log.WithAddSource(true),
 		log.WithExtractor(tracing.TraceAttrs),
