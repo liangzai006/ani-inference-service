@@ -36,7 +36,7 @@ func (s *InferenceServer) managedCreate(ctx context.Context, req *inferencev1.Cr
 		return nil, status.Error(codes.PermissionDenied, "GPU commands require the authenticated Governance service")
 	}
 	context := req.GetContext()
-	if err := inferencev1.ValidateCommandContext(context); err != nil {
+	if err := inferencebiz.ValidateCommandContext(context); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 	tenant, ok := TenantID(ctx)
@@ -50,19 +50,19 @@ func (s *InferenceServer) managedCreate(ctx context.Context, req *inferencev1.Cr
 	if err != nil {
 		return nil, err
 	}
-	if err := inferencev1.ValidateBusinessPayload(req); err != nil {
+	if err := inferencebiz.ValidateBusinessPayload(req); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	business, err := inferencev1.CanonicalBusinessPayload(req)
+	business, err := inferencebiz.CanonicalBusinessPayload(req)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	digest, err := inferencev1.BusinessPayloadDigest(req)
+	digest, err := inferencebiz.BusinessPayloadDigest(req)
 	if err != nil {
 		return nil, err
 	}
 	actor := Actor(ctx)
-	requestHash, err := inferencev1.ManagedCreateRequestHash(req, tenant, actorType(actor), actorID(actor))
+	requestHash, err := inferencebiz.ManagedCreateRequestHash(req, tenant, actorType(actor), actorID(actor))
 	if err != nil {
 		return nil, err
 	}
@@ -116,7 +116,7 @@ func (s *InferenceServer) DeleteInferenceService(ctx context.Context, req *infer
 	if !s.managedGPUConfigured() {
 		return nil, status.Error(codes.FailedPrecondition, "managed GPU dependencies are not ready")
 	}
-	if err := inferencev1.ValidateCommandContext(req.GetContext()); err != nil {
+	if err := inferencebiz.ValidateCommandContext(req.GetContext()); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 	if !gpu.GovernanceIdentity(ctx) {

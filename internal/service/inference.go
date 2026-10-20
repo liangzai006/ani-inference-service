@@ -275,7 +275,7 @@ func (s *InferenceServer) UpdateInferenceService(ctx context.Context, req *infer
 				return nil, err
 			}
 		}
-		if err := inferencev1.ValidateCommandContext(req.GetContext()); err != nil {
+		if err := inferencebiz.ValidateCommandContext(req.GetContext()); err != nil {
 			return nil, status.Error(codes.InvalidArgument, err.Error())
 		}
 		if req.GetContext().GetTenantId() != tenantID || req.GetContext().GetResourceId() != req.GetResourceId() {

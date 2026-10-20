@@ -1,10 +1,11 @@
-package inferencev1
+package inference
 
 import (
 	"fmt"
 	"strings"
 
 	"github.com/google/uuid"
+	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
 	acceleratorv1 "github.com/zhangzhe-ctrl/ani-accelerator-service/api/gen/go/accelerator/v1"
 	"github.com/zhangzhe-ctrl/ani-accelerator-service/pkg/gpuprotocol"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -27,7 +28,7 @@ func ValidateKubernetesName(name string) error {
 
 // ValidateBusinessPayload checks the public business contract before quota
 // acceptance. Trusted attachments are validated by the Inference receiver.
-func ValidateBusinessPayload(req *CreateInferenceServiceRequest) error {
+func ValidateBusinessPayload(req *inferencev1.CreateInferenceServiceRequest) error {
 	if req == nil {
 		return fmt.Errorf("name is required")
 	}
@@ -52,11 +53,11 @@ func ValidateBusinessPayload(req *CreateInferenceServiceRequest) error {
 	pods := int64(req.GetReplicas())
 	container := "kserve-container"
 	switch runtime.GetMode() {
-	case RuntimeMode_RUNTIME_MODE_UNSPECIFIED, RuntimeMode_RUNTIME_MODE_DEPLOYMENT:
+	case inferencev1.RuntimeMode_RUNTIME_MODE_UNSPECIFIED, inferencev1.RuntimeMode_RUNTIME_MODE_DEPLOYMENT:
 		if runtime.GetWorkerReplicas() > 1 || runtime.GetWorkerReplicas() < 0 {
 			return fmt.Errorf("deployment cannot specify multiple workers")
 		}
-	case RuntimeMode_RUNTIME_MODE_LEADER_WORKER_SET:
+	case inferencev1.RuntimeMode_RUNTIME_MODE_LEADER_WORKER_SET:
 		if runtime.GetWorkerReplicas() < 1 {
 			return fmt.Errorf("LWS worker_replicas must be positive")
 		}
@@ -93,7 +94,7 @@ func ValidateBusinessPayload(req *CreateInferenceServiceRequest) error {
 		// annotations, and its LWS metadata filter drops the queue annotation.
 		// Reject before quota acceptance until the owner installs a supported
 		// synchronous LWS projection hook.
-		if runtime.GetMode() == RuntimeMode_RUNTIME_MODE_LEADER_WORKER_SET {
+		if runtime.GetMode() == inferencev1.RuntimeMode_RUNTIME_MODE_LEADER_WORKER_SET {
 			return fmt.Errorf("managed GPU LWS creation requires a synchronous pre-create projection hook; KServe v0.16 does not provide it")
 		}
 		if pods > 16 || gpu.GetReplicas() != uint32(pods) || gpu.GetDevicesPerReplica() < 1 || gpu.GetContainerName() != container || gpu.GetProfileVersion() == 0 {
@@ -139,7 +140,7 @@ func ValidateBusinessPayload(req *CreateInferenceServiceRequest) error {
 // ValidateCommandContext checks the stable identity and digest carried by a
 // Governance command. Credentials and tenant authorization are verified by
 // the transport layer and are deliberately not represented here.
-func ValidateCommandContext(context *CommandContext) error {
+func ValidateCommandContext(context *inferencev1.CommandContext) error {
 	if context == nil {
 		return fmt.Errorf("command context is required")
 	}
@@ -159,7 +160,7 @@ func ValidateCommandContext(context *CommandContext) error {
 
 // ValidateFrozenGPU validates the exact ACC execution snapshot. Inference
 // never reconstructs scheduler fields or resource quantities from a profile.
-func ValidateFrozenGPU(clusterID string, execution *acceleratorv1.GpuExecution, display *acceleratorv1.GpuDisplay, resourceGPU ...*GpuRequest) error {
+func ValidateFrozenGPU(clusterID string, execution *acceleratorv1.GpuExecution, display *acceleratorv1.GpuDisplay, resourceGPU ...*inferencev1.GpuRequest) error {
 	parsed, err := uuid.Parse(clusterID)
 	if err != nil || parsed == uuid.Nil || parsed.String() != clusterID {
 		return fmt.Errorf("cluster_id must be a canonical UUID")

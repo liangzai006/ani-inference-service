@@ -1,4 +1,3 @@
-// Package conf contains the generated and validated runtime configuration.
 package inferencev1
 
 import (
