@@ -6,15 +6,15 @@
 
 **Architecture:** Add one Kubernetes adapter helper that applies the shared pod/container security contract. Use it in the legacy Deployment/LWS renderers, KServe InferenceService/LLMInferenceService projections, and the model materializer Job. Keep the control-plane ServiceAccount able to access Kubernetes while disabling token mounting for runtime Pods and materializer Jobs; keep CPU on the default scheduler and project Volcano only from a validated GPU execution snapshot.
 
-**Tech Stack:** Go 1.25 module, client-go/corev1 typed objects, KServe unstructured rendering, LeaderWorkerSet, Kubernetes Jobs, Helm 3, Volcano 1.12.1, existing CPU vLLM and model-import-worker images.
+**Tech Stack:** Go 1.26.9 module, client-go/corev1 typed objects, KServe unstructured rendering, LeaderWorkerSet, Kubernetes Jobs, Helm 3, Volcano 1.12.1, existing CPU vLLM and model-import-worker images.
 
 ## Global Constraints
 
 - The repository gateway boundary remains unchanged: Higress only serves OpenAI-compatible `/v1/...`; Governance serves management `/api/v1/...`.
 - Volcano remains a separately installed platform component and is not added to `charts/ani-inference`.
-- Every Inference-created workload uses `runAsUser: 65532`, `runAsGroup: 65532`, `runAsNonRoot: true`, `fsGroup: 65532`, and `seccompProfile.type: RuntimeDefault`.
+- Every Inference-created runtime workload and materializer Job uses `runAsUser: 65532`, `runAsGroup: 65532`, `runAsNonRoot: true`, `fsGroup: 65532`, and `seccompProfile.type: RuntimeDefault`; the control-plane Deployment receives the same pod/container hardening but keeps its Kubernetes API token.
 - Every Inference-created container uses `allowPrivilegeEscalation: false` and drops capability `ALL`.
-- Runtime Pods and materializer Jobs set `automountServiceAccountToken: false`; the control-plane Deployment keeps its token because it calls the Kubernetes API.
+- Runtime Pods and materializer Jobs set `automountServiceAccountToken: false`; the control-plane Deployment keeps `automountServiceAccountToken: true` because it calls the Kubernetes API.
 - Do not set `readOnlyRootFilesystem`; preserve writable `/tmp` and `/dev/shm` mounts needed by inference engines and import scripts.
 - Preserve the complete caller-provided engine command byte-for-byte; do not parse it, append flags, or convert environment variables into flags.
 - Do not modify `/root/kubercon/ANI`, Model, Governance, Accelerator, or Console repositories.
@@ -410,11 +410,12 @@ Run:
 ```bash
 go test ./internal/data/kubernetes ./internal/data/model
 go test ./...
-make verify
+go vet ./...
+go build ./...
 helm lint charts/ani-inference
 ```
 
-Expected: all commands exit 0. If `make verify` reports only pre-existing environment/tool failures, record the exact output and do not call verification complete.
+Expected: all commands exit 0. This repository has no `Makefile`, so `make verify` is not an available gate; use the listed Go and Helm commands instead and record any environment/tool failure exactly.
 
 - [ ] **Step 2: Verify Volcano release and webhook health**
 
