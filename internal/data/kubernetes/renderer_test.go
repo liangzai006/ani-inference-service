@@ -14,6 +14,33 @@ import (
 	lwsv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 )
 
+func assertNonRootPod(t *testing.T, pod *corev1.PodSpec) {
+	t.Helper()
+	if pod.SecurityContext == nil || pod.SecurityContext.RunAsUser == nil || *pod.SecurityContext.RunAsUser != 65532 {
+		t.Fatalf("pod security context = %#v", pod.SecurityContext)
+	}
+	if pod.SecurityContext.RunAsGroup == nil || *pod.SecurityContext.RunAsGroup != 65532 ||
+		pod.SecurityContext.RunAsNonRoot == nil || !*pod.SecurityContext.RunAsNonRoot ||
+		pod.SecurityContext.FSGroup == nil || *pod.SecurityContext.FSGroup != 65532 {
+		t.Fatalf("pod security context = %#v", pod.SecurityContext)
+	}
+	if pod.SecurityContext.SeccompProfile == nil || pod.SecurityContext.SeccompProfile.Type != corev1.SeccompProfileTypeRuntimeDefault {
+		t.Fatalf("seccomp profile = %#v", pod.SecurityContext.SeccompProfile)
+	}
+	if pod.AutomountServiceAccountToken == nil || *pod.AutomountServiceAccountToken {
+		t.Fatalf("automount token = %v", pod.AutomountServiceAccountToken)
+	}
+	if len(pod.Containers) != 1 || pod.Containers[0].SecurityContext == nil ||
+		pod.Containers[0].SecurityContext.AllowPrivilegeEscalation == nil ||
+		*pod.Containers[0].SecurityContext.AllowPrivilegeEscalation {
+		t.Fatalf("container security context = %#v", pod.Containers)
+	}
+	if len(pod.Containers[0].SecurityContext.Capabilities.Drop) != 1 ||
+		pod.Containers[0].SecurityContext.Capabilities.Drop[0] != corev1.Capability("ALL") {
+		t.Fatalf("capability drop = %#v", pod.Containers[0].SecurityContext.Capabilities.Drop)
+	}
+}
+
 func TestDeploymentRendersNativeResourceMaps(t *testing.T) {
 	normalized, err := resources.Normalize(resources.Spec{
 		Requests: map[string]string{"cpu": "2", "nvidia.com/gpu": "1"},
@@ -48,6 +75,7 @@ func TestDeploymentRendersNativeResourceMaps(t *testing.T) {
 	if got := deployment.Spec.Template.Spec.Containers[0].Command; len(got) != 0 {
 		t.Fatalf("command = %v, want omitted for empty command", got)
 	}
+	assertNonRootPod(t, &deployment.Spec.Template.Spec)
 }
 
 func TestDeploymentAndLWSWrapRawCommandExactly(t *testing.T) {
@@ -57,6 +85,7 @@ func TestDeploymentAndLWSWrapRawCommandExactly(t *testing.T) {
 		t.Fatal(err)
 	}
 	container := deployment.Spec.Template.Spec.Containers[0]
+	assertNonRootPod(t, &deployment.Spec.Template.Spec)
 	if got, want := container.Command, []string{"/bin/sh", "-c"}; !slices.Equal(got, want) {
 		t.Fatalf("deployment command = %#v, want %#v", got, want)
 	}
@@ -68,6 +97,7 @@ func TestDeploymentAndLWSWrapRawCommandExactly(t *testing.T) {
 		t.Fatal(err)
 	}
 	container = lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers[0]
+	assertNonRootPod(t, &lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec)
 	if got, want := container.Command, []string{"/bin/sh", "-c"}; !slices.Equal(got, want) {
 		t.Fatalf("LWS command = %#v, want %#v", got, want)
 	}
@@ -105,6 +135,7 @@ func TestLeaderWorkerSetRendersGroupsAndWorkers(t *testing.T) {
 		t.Fatalf("group size = %v, want leader plus 4 workers", obj.Spec.LeaderWorkerTemplate.Size)
 	}
 	container := obj.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers[0]
+	assertNonRootPod(t, &obj.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec)
 	if container.Name != "inference" || container.Image != "engine:v1" {
 		t.Fatalf("container = %#v", container)
 	}

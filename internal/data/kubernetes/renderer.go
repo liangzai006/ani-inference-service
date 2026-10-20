@@ -100,6 +100,11 @@ func Deployment(spec RuntimeSpec) (*appsv1.Deployment, error) {
 		container.Ports = []corev1.ContainerPort{{Name: "http", ContainerPort: spec.ContainerPort, Protocol: spec.ServiceProtocol}}
 	}
 	container.Command, container.Args = shellCommand(spec.EngineCommand)
+	pod := corev1.PodSpec{
+		ServiceAccountName: spec.ServiceAccountName,
+		Containers:         []corev1.Container{container},
+	}
+	ApplyNonRootSecurity(&pod)
 	obj := &appsv1.Deployment{
 		TypeMeta: metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"},
 		ObjectMeta: metav1.ObjectMeta{
@@ -111,7 +116,7 @@ func Deployment(spec RuntimeSpec) (*appsv1.Deployment, error) {
 			Selector: &metav1.LabelSelector{MatchLabels: stableLabels},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{Labels: labels},
-				Spec:       corev1.PodSpec{ServiceAccountName: spec.ServiceAccountName, Containers: []corev1.Container{container}},
+				Spec:       pod,
 			},
 		},
 	}
@@ -145,6 +150,7 @@ func LeaderWorkerSet(spec RuntimeSpec) (*lwsv1.LeaderWorkerSet, error) {
 	container.Command, container.Args = shellCommand(spec.EngineCommand)
 	groups, size := spec.Replicas, spec.WorkerReplicas+1
 	template := corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: labels}, Spec: corev1.PodSpec{ServiceAccountName: spec.ServiceAccountName, Containers: []corev1.Container{container}}}
+	ApplyNonRootSecurity(&template.Spec)
 	if err := mountModel(&template.Spec, spec); err != nil {
 		return nil, err
 	}
