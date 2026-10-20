@@ -163,11 +163,11 @@ func TestManagedGPUReadinessGateFailsClosedForCommands(t *testing.T) {
 		t.Fatalf("create gate code=%v err=%v, want FailedPrecondition", status.Code(err), err)
 	}
 	update := &inferencev1.UpdateInferenceServiceRequest{RequestId: "update-gate", ResourceId: id, ExpectedGeneration: 1, Context: &inferencev1.CommandContext{TenantId: id, ResourceId: id, OperationId: "10000000-0000-4000-8000-000000000004"}}
-	if _, err := server.UpdateInferenceService(WithTenantID(context.Background(), id), update); status.Code(err) != codes.FailedPrecondition {
-		t.Fatalf("update gate code=%v err=%v, want FailedPrecondition", status.Code(err), err)
+	if _, err := server.UpdateInferenceService(WithTenantID(context.Background(), id), update); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("update contract code=%v err=%v, want InvalidArgument", status.Code(err), err)
 	}
-	if _, err := server.DeleteInferenceService(context.Background(), &inferencev1.DeleteInferenceServiceRequest{RequestId: "delete-gate", ResourceId: id, Context: &inferencev1.CommandContext{}}); status.Code(err) != codes.FailedPrecondition {
-		t.Fatalf("delete gate code=%v err=%v, want FailedPrecondition", status.Code(err), err)
+	if _, err := server.DeleteInferenceService(context.Background(), &inferencev1.DeleteInferenceServiceRequest{RequestId: "delete-gate", ResourceId: id, Context: &inferencev1.CommandContext{}}); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("delete contract code=%v err=%v, want InvalidArgument", status.Code(err), err)
 	}
 }
 
@@ -193,12 +193,12 @@ func TestManagedCreatePersistsACCExecutionDigest(t *testing.T) {
 		RequestId: uuid.NewString(), Name: "managed-digest", ModelVersionId: uuid.NewString(), Replicas: 1,
 		Runtime:   &inferencev1.RuntimeSpec{Mode: inferencev1.RuntimeMode_RUNTIME_MODE_DEPLOYMENT, Provider: "kserve"},
 		Engine:    validEngine(),
-		Resource:  &inferencev1.ResourceSpec{Gpu: &inferencev1.GpuRequest{ClusterId: cluster.String(), PoolId: pool.String(), ProfileId: profile.String(), ProfileVersion: 1, Replicas: 1, DevicesPerReplica: 1, ContainerName: "kserve-container"}},
+		Resource:  &inferencev1.ResourceSpec{Requests: map[string]string{"cpu": "1", "memory": "8Gi"}, Limits: map[string]string{"cpu": "1", "memory": "8Gi"}, Gpu: &inferencev1.GpuRequest{ClusterId: cluster.String(), PoolId: pool.String(), ProfileId: profile.String(), ProfileVersion: 1, Replicas: 1, DevicesPerReplica: 1, ContainerName: "kserve-container"}},
 		Context:   &inferencev1.CommandContext{TenantId: tenant.String(), ResourceId: resource.String(), OperationId: operation.String()},
 		ClusterId: cluster.String(), GpuExecution: execution,
 		GpuDisplay: &acceleratorv1.GpuDisplay{ProfileId: profile.String(), ProfileVersion: 1, ProfileName: "test", ModelKey: "nvidia-test", Mode: acceleratorv1.SupplyMode_SHARED_FIXED},
 	}
-	req.Context.RequestDigest, err = inferencev1.ManagedCreateRequestHash(req, tenant.String(), "user", "42")
+	req.Context.RequestDigest, err = inferencev1.ManagedCreateCommandHash(req, tenant.String(), "user", "42")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -328,10 +328,7 @@ func TestCreateRejectsLegacyDeploymentProvider(t *testing.T) {
 func TestUpdatePropagatesAuditActor(t *testing.T) {
 	f := &fakeUpdate{}
 	server := NewInferenceServerWithAll(nil, nil, nil, f)
-	req := &inferencev1.UpdateInferenceServiceRequest{RequestId: "actor-update", ResourceId: "svc", ExpectedGeneration: 1,
-		Resource: &inferencev1.ResourceSpec{Requests: map[string]string{"cpu": "1"}}, Replicas: 1,
-		Runtime:    &inferencev1.RuntimeSpec{Mode: inferencev1.RuntimeMode_RUNTIME_MODE_DEPLOYMENT},
-		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"resource", "replicas", "runtime"}}}
+	req := &inferencev1.UpdateInferenceServiceRequest{RequestId: "actor-update", ResourceId: uuid.NewString(), ExpectedGeneration: 1, ServedModelName: "renamed", UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"served_model_name"}}}
 	if _, err := server.UpdateInferenceService(WithActor(WithTenantID(context.Background(), "tenant-a"), "workload:caller"), req); err != nil {
 		t.Fatal(err)
 	}
@@ -343,18 +340,13 @@ func TestUpdatePropagatesAuditActor(t *testing.T) {
 func TestUpdatePassesModelVersionID(t *testing.T) {
 	f := &fakeUpdate{}
 	server := NewInferenceServerWithAll(nil, nil, nil, f)
-	req := &inferencev1.UpdateInferenceServiceRequest{
-		RequestId: "switch-version", ResourceId: "svc", ExpectedGeneration: 1,
-		ModelVersionId: "version-new",
-		Resource:       &inferencev1.ResourceSpec{Requests: map[string]string{"cpu": "1"}}, Replicas: 1,
-		Runtime:    &inferencev1.RuntimeSpec{Mode: inferencev1.RuntimeMode_RUNTIME_MODE_DEPLOYMENT},
-		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"resource", "replicas", "runtime", "model_version_id"}},
-	}
+	version := uuid.NewString()
+	req := &inferencev1.UpdateInferenceServiceRequest{RequestId: "switch-version", ResourceId: uuid.NewString(), ExpectedGeneration: 1, ModelVersionId: version, UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"model_version_id"}}}
 	if _, err := server.UpdateInferenceService(WithTenantID(context.Background(), "tenant-a"), req); err != nil {
 		t.Fatal(err)
 	}
-	if f.in.ModelVersionID != "version-new" {
-		t.Fatalf("model version id=%q", f.in.ModelVersionID)
+	if f.in.ModelVersionID != version || len(f.in.UpdateMask) != 1 {
+		t.Fatalf("model patch=%+v", f.in)
 	}
 }
 
@@ -588,36 +580,28 @@ func TestCreateAcceptsKServeLeaderWorkerSetShape(t *testing.T) {
 	}
 }
 
-func TestUpdateRequiresFullSupportedMaskAndPreservesRuntime(t *testing.T) {
+func TestUpdateAllowsBusinessPatchAndIgnoresOffMaskValues(t *testing.T) {
 	f := &fakeUpdate{}
-	s := NewInferenceServerWithAll(nil, nil, nil, f)
-	req := &inferencev1.UpdateInferenceServiceRequest{RequestId: "u1", ResourceId: "svc", ExpectedGeneration: 2,
-		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"resource", "replicas", "runtime"}}, Resource: &inferencev1.ResourceSpec{Requests: map[string]string{"cpu": "2"}}, Replicas: 1,
-		Runtime: &inferencev1.RuntimeSpec{Mode: inferencev1.RuntimeMode_RUNTIME_MODE_LEADER_WORKER_SET, WorkerReplicas: 2}}
-	out, err := s.UpdateInferenceService(WithTenantID(context.Background(), "tenant-a"), req)
-	if err != nil || out.GetOperation().GetId() != "op-update" || f.in.RuntimeMode != "leader_worker_set" || f.in.WorkerReplicas != 2 {
-		t.Fatalf("out=%v err=%v input=%+v", out, err, f.in)
+	server := NewInferenceServerWithAll(nil, nil, nil, f)
+	req := &inferencev1.UpdateInferenceServiceRequest{RequestId: "engine-only", ResourceId: uuid.NewString(), ExpectedGeneration: 2, Engine: validEngine(), ModelVersionId: uuid.NewString(), ServedModelName: "off-mask", UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"engine"}}}
+	out, err := server.UpdateInferenceService(WithTenantID(context.Background(), "tenant-a"), req)
+	if err != nil || out.GetOperation().GetId() != "op-update" {
+		t.Fatalf("out=%v err=%v", out, err)
 	}
-	if f.in.RuntimeProvider != "" {
-		t.Fatalf("omitted runtime provider=%q, want inherit marker", f.in.RuntimeProvider)
+	if f.in.EngineCommand != validEngine().Command || f.in.ModelVersionID != "" || f.in.ServedModelName != "" || f.in.Resources.GPU != nil || f.in.RuntimeProvider != "" {
+		t.Fatalf("off-mask or frozen values passed to owner: %+v", f.in)
 	}
-	_, err = s.UpdateInferenceService(WithTenantID(context.Background(), "tenant-a"), &inferencev1.UpdateInferenceServiceRequest{RequestId: "u2", ResourceId: "svc", ExpectedGeneration: 2, UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"replicas"}}, Replicas: 1})
-	if status.Code(err) != codes.InvalidArgument {
-		t.Fatalf("partial mask code=%v err=%v", status.Code(err), err)
+	req.UpdateMask = nil
+	if _, err := server.UpdateInferenceService(WithTenantID(context.Background(), "tenant-a"), req); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("empty mask err=%v", err)
 	}
 }
 
-func TestUpdatePassesRuntimeProvider(t *testing.T) {
-	f := &fakeUpdate{}
-	s := NewInferenceServerWithAll(nil, nil, nil, f)
-	req := &inferencev1.UpdateInferenceServiceRequest{RequestId: "provider-update", ResourceId: "svc", ExpectedGeneration: 2,
-		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"resource", "replicas", "runtime"}}, Resource: &inferencev1.ResourceSpec{Requests: map[string]string{"cpu": "2"}}, Replicas: 1,
-		Runtime: &inferencev1.RuntimeSpec{Provider: "kserve"}}
-	if _, err := s.UpdateInferenceService(WithTenantID(context.Background(), "tenant-a"), req); err != nil {
-		t.Fatal(err)
-	}
-	if f.in.RuntimeProvider != "kserve" {
-		t.Fatalf("runtime provider=%q, want kserve", f.in.RuntimeProvider)
+func TestUpdateRejectsFrozenRuntimeProvider(t *testing.T) {
+	server := NewInferenceServerWithAll(nil, nil, nil, &fakeUpdate{})
+	req := &inferencev1.UpdateInferenceServiceRequest{RequestId: "frozen-provider", ResourceId: uuid.NewString(), ExpectedGeneration: 1, ServedModelName: "renamed", Runtime: &inferencev1.RuntimeSpec{Provider: "kserve"}, UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"served_model_name"}}}
+	if _, err := server.UpdateInferenceService(WithTenantID(context.Background(), "tenant-a"), req); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("frozen provider accepted: %v", err)
 	}
 }
 
@@ -652,51 +636,60 @@ func TestUpdateRejectsDirectGPUMutation(t *testing.T) {
 	req := &inferencev1.UpdateInferenceServiceRequest{RequestId: "gpu-update", ResourceId: "svc", ExpectedGeneration: 1,
 		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"resource", "replicas", "runtime"}}, Resource: &inferencev1.ResourceSpec{Gpu: &inferencev1.GpuRequest{ClusterId: id, PoolId: id, ProfileId: id, ProfileVersion: 2, Replicas: 1, DevicesPerReplica: 1, ContainerName: "kserve-container"}}, Replicas: 1,
 		Runtime: &inferencev1.RuntimeSpec{Mode: inferencev1.RuntimeMode_RUNTIME_MODE_DEPLOYMENT}}
-	if _, err := s.UpdateInferenceService(WithTenantID(context.Background(), "tenant-a"), req); status.Code(err) != codes.PermissionDenied {
-		t.Fatalf("code=%v err=%v, want PermissionDenied", status.Code(err), err)
+	if _, err := s.UpdateInferenceService(WithTenantID(context.Background(), "tenant-a"), req); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("code=%v err=%v, want InvalidArgument", status.Code(err), err)
 	}
 }
 
-func TestManagedUpdateValidatesFrozenExecutionAndDigest(t *testing.T) {
-	tenant, resource, operation := uuid.New(), uuid.New(), uuid.New()
-	cluster, pool, profile := uuid.New(), uuid.New(), uuid.New()
-	execution := &acceleratorv1.GpuExecution{SchedulerName: "volcano", QueueName: "gpu", RuntimeClassName: "nvidia", NodeSelector: map[string]string{
-		"accelerator.ani.io/supply-group": pool.String(), "accelerator.ani.io/model-key": "nvidia-test", "accelerator.ani.io/baseline-id": profile.String(),
-	}, PodAnnotations: map[string]string{"volcano.sh/vgpu-mode": "hami-core"}, Resources: map[string]string{"volcano.sh/vgpu-number": "1", "volcano.sh/vgpu-memory": "6144", "volcano.sh/vgpu-cores": "25"}}
+func TestManagedUpdateValidatesPatchDigestAndOperation(t *testing.T) {
+	tenant, resource, operation := uuid.NewString(), uuid.NewString(), uuid.NewString()
+	req := &inferencev1.UpdateInferenceServiceRequest{RequestId: "managed-patch", ResourceId: resource, ExpectedGeneration: 1, Engine: validEngine(), UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"engine"}}, Context: &inferencev1.CommandContext{TenantId: tenant, ResourceId: resource, OperationId: operation}}
 	var err error
-	execution.ExecutionDigest, err = gpuprotocol.GpuExecutionDigest(execution)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req := &inferencev1.UpdateInferenceServiceRequest{RequestId: "managed-update", ResourceId: resource.String(), ExpectedGeneration: 1,
-		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"resource", "replicas", "runtime"}}, Replicas: 1,
-		Runtime:  &inferencev1.RuntimeSpec{Mode: inferencev1.RuntimeMode_RUNTIME_MODE_DEPLOYMENT, Provider: "kserve"},
-		Resource: &inferencev1.ResourceSpec{Gpu: &inferencev1.GpuRequest{ClusterId: cluster.String(), PoolId: pool.String(), ProfileId: profile.String(), ProfileVersion: 1, Replicas: 1, DevicesPerReplica: 1, ContainerName: "kserve-container"}},
-		Context:  &inferencev1.CommandContext{TenantId: tenant.String(), ResourceId: resource.String(), OperationId: operation.String()}, ClusterId: cluster.String(), GpuExecution: execution,
-		GpuDisplay: &acceleratorv1.GpuDisplay{ProfileId: profile.String(), ProfileVersion: 1, ProfileName: "test", ModelKey: "nvidia-test", Mode: acceleratorv1.SupplyMode_SHARED_FIXED}}
-	req.Context.RequestDigest, err = inferencev1.ManagedUpdateRequestHash(req, tenant.String(), "user", "42")
+	req.Context.RequestDigest, err = inferencev1.ManagedUpdateCommandHash(req, tenant, "user", "42")
 	if err != nil {
 		t.Fatal(err)
 	}
 	f := &fakeUpdate{}
 	server := NewInferenceServerWithAll(nil, nil, nil, f)
-	server.SetManagedGPUClusterID(cluster.String())
-	ctx := WithActor(WithTenantID(gpubiz.WithGovernanceIdentity(context.Background()), tenant.String()), "user:42")
+	ctx := WithActor(WithTenantID(gpubiz.WithGovernanceIdentity(context.Background()), tenant), "user:42")
 	if _, err := server.UpdateInferenceService(ctx, req); err != nil {
 		t.Fatal(err)
 	}
-	if f.in.GPUSnapshot == nil || f.in.GPUSnapshotDigest != execution.ExecutionDigest || f.in.ManagedGPUOperationID != operation.String() {
-		t.Fatalf("managed update lost frozen execution/operation: snapshot=%+v digest=%q operation=%q", f.in.GPUSnapshot, f.in.GPUSnapshotDigest, f.in.ManagedGPUOperationID)
+	if f.in.GPUSnapshot != nil || f.in.ManagedOperationID != operation {
+		t.Fatalf("patch invented GPU or lost identity: %+v", f.in)
 	}
-	// Re-signing the command cannot make an execution digest mismatch valid.
-	req.GpuExecution.QueueName = "tampered"
-	req.Context.RequestDigest, err = inferencev1.ManagedUpdateRequestHash(req, tenant.String(), "user", "42")
+	req.Engine.Command = "tampered"
+	if _, err := server.UpdateInferenceService(ctx, req); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("tampered digest accepted: %v", err)
+	}
+}
+
+func TestManagedCPUNeedsNoGPUReadinessOrAttachment(t *testing.T) {
+	tenant, resource, operation := uuid.NewString(), uuid.NewString(), uuid.NewString()
+	req := &inferencev1.CreateInferenceServiceRequest{RequestId: uuid.NewString(), Name: "managed-cpu", ModelVersionId: uuid.NewString(), Replicas: 1, Engine: validEngine(), Resource: &inferencev1.ResourceSpec{Requests: map[string]string{"cpu": "500m", "memory": "1024Mi"}, Limits: map[string]string{"cpu": "500m", "memory": "1024Mi"}}, Context: &inferencev1.CommandContext{TenantId: tenant, ResourceId: resource, OperationId: operation}}
+	var err error
+	req.Context.RequestDigest, err = inferencev1.ManagedCreateCommandHash(req, tenant, "user", "42")
 	if err != nil {
 		t.Fatal(err)
 	}
-	tamperedServer := NewInferenceServerWithAll(nil, nil, nil, &fakeUpdate{})
-	tamperedServer.SetManagedGPUClusterID(cluster.String())
-	if _, err := tamperedServer.UpdateInferenceService(ctx, req); status.Code(err) != codes.InvalidArgument {
-		t.Fatalf("malformed managed execution code=%v err=%v, want InvalidArgument", status.Code(err), err)
+	capture := &fakeCreate{}
+	owner := NewInferenceServer(capture)
+	owner.SetManagedGPUReady(false)
+	for _, tc := range []struct{ actor, kind, id string }{{"user:42", "user", "42"}, {"governance:user:42", "user", "42"}, {"governance:access-key:1", "api_key", "1"}, {"governance:api_key:1", "api_key", "1"}} {
+		actor := tc.actor
+		req.Context.RequestDigest, err = inferencev1.ManagedCreateCommandHash(req, tenant, tc.kind, tc.id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx := WithActor(WithTenantID(gpubiz.WithGovernanceIdentity(context.Background()), tenant), actor)
+		if _, err := owner.CreateInferenceService(ctx, req); err != nil {
+			t.Fatalf("delegated actor %s: %v", actor, err)
+		}
+		if capture.in.Actor != actor {
+			t.Fatalf("audit actor envelope changed: %q", capture.in.Actor)
+		}
+	}
+	if capture.in.Managed == nil || capture.in.Managed.ResourceClass != "cpu" || capture.in.GPUSnapshot != nil || capture.in.Resources.GPU != nil {
+		t.Fatalf("CPU identity coupled to GPU attachment: %+v", capture.in)
 	}
 }

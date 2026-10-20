@@ -6,7 +6,7 @@ require (
 	github.com/go-kratos/kratos/contrib/otel/v3 v3.0.0-20260515082355-1ddb58e407c5
 	github.com/go-kratos/kratos/v3 v3.0.0
 	github.com/jackc/pgx/v5 v5.11.0
-	github.com/liangzai006/ani-inference-service/api v0.1.0
+	github.com/liangzai006/ani-inference-service/api v0.1.1
 	github.com/prometheus/client_golang v1.24.1
 	github.com/zhangzhe-ctrl/ani-accelerator-service v0.0.0-20261018033121-4f084c9f5f25
 	go.opentelemetry.io/otel v1.45.0

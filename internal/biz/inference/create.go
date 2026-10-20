@@ -23,15 +23,18 @@ type CreateInput struct {
 	RuntimeMode                                      string
 	Endpoint                                         *EndpointSpec
 	RequestHash                                      string
-	ManagedGPU                                       *ManagedGPUCommand
+	Managed                                          *ManagedCommand
 }
 
-// ManagedGPUCommand preserves the trusted command independently of later
+// ManagedCommand preserves the trusted command independently of later
 // local generations. Payload is the complete transport command, Business is
 // the canonical body without attachment/IDs, and Context is the original
 // immutable ledger/plan reference used by the refund client.
-type ManagedGPUCommand struct {
+type ManagedCommand struct {
 	Context                     gpu.RefundContext
+	ResourceClass               string
+	CreateCommandDigest         string
+	Actor                       string
 	Payload, Business           []byte
 	BusinessDigest, RequestHash string
 }
@@ -45,4 +48,9 @@ type EndpointSpec struct {
 
 type CreateUseCase interface {
 	Create(context.Context, CreateInput) (*inferencev1.OperationResponse, error)
+}
+
+// CreatePreflight checks durable replay and closing before external Model reads.
+type CreatePreflight interface {
+	PrepareCreate(context.Context, CreateInput) (*inferencev1.OperationResponse, bool, error)
 }

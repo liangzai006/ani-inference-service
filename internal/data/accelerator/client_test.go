@@ -84,10 +84,12 @@ func TestClientMapsExecutionAndIdentity(t *testing.T) {
 type usageServer struct {
 	acceleratorv1.UnimplementedAcceleratorUsageServiceServer
 	got *acceleratorv1.ObserveReleaseRequest
+	md  metadata.MD
 }
 
-func (s *usageServer) ObserveRelease(_ context.Context, req *acceleratorv1.ObserveReleaseRequest) (*acceleratorv1.ReleaseObservation, error) {
+func (s *usageServer) ObserveRelease(ctx context.Context, req *acceleratorv1.ObserveReleaseRequest) (*acceleratorv1.ReleaseObservation, error) {
 	s.got = req
+	s.md, _ = metadata.FromIncomingContext(ctx)
 	return &acceleratorv1.ReleaseObservation{EvidenceId: "10000000-0000-4000-8000-000000000010", Finding: acceleratorv1.ReleaseFinding_ALLOCATION_RELEASED, EvidenceDigest: "release-digest"}, nil
 }
 func TestClientObservesReleaseWithClusterAndSeal(t *testing.T) {
@@ -102,11 +104,30 @@ func TestClientObservesReleaseWithClusterAndSeal(t *testing.T) {
 	c := NewClientForCluster(acceleratorv1.NewAcceleratorCatalogServiceClient(conn), validGPURequest().ClusterID)
 	c.usage = acceleratorv1.NewAcceleratorUsageServiceClient(conn)
 	in := gpu.ReleaseObservationInput{TenantID: "tenant", RequestID: "request", Actor: "ani-inference:owner", ResourceID: "10000000-0000-4000-8000-000000000011", CreateOperationID: "10000000-0000-4000-8000-000000000012", OwnerService: "ani-inference", DeleteOperationID: "10000000-0000-4000-8000-000000000013", ClusterID: validGPURequest().ClusterID, SealedAt: "2026-10-18T00:00:00.000000000Z", Pods: []gpu.PodRef{{ClusterID: validGPURequest().ClusterID, Namespace: "ani-system", Name: "model-0", UID: "10000000-0000-4000-8000-000000000014", ContainerName: "kserve-container"}}}
-	got, err := c.ObserveRelease(context.Background(), in)
-	if err != nil {
-		t.Fatal(err)
+	for _, tc := range []struct{ actor, kind, id string }{
+		{"ani-inference:owner", "ani-inference", "owner"},
+		{"workload:caller", "workload", "caller"},
+		{"governance:legacy-id", "governance", "legacy-id"},
+		{"governance:user:1", "user", "1"},
+		{"governance:access-key:1", "api_key", "1"},
+		{"governance:api_key:1", "api_key", "1"},
+	} {
+		t.Run(tc.actor, func(t *testing.T) {
+			in.Actor = tc.actor
+			got, err := c.ObserveRelease(context.Background(), in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Finding != gpu.ReleaseFindingReleased || srv.got.GetClusterId() != in.ClusterID || srv.got.GetSealedAt() != in.SealedAt {
+				t.Fatalf("got=%+v req=%v", got, srv.got)
+			}
+			for key, want := range map[string]string{"x-ani-actor-type": tc.kind, "x-ani-actor-id": tc.id, "x-ani-action": "ObserveRelease", "x-ani-tenant-id": in.TenantID} {
+				values := srv.md.Get(key)
+				if len(values) != 1 || values[0] != want {
+					t.Fatalf("%s=%v want=%s", key, values, want)
+				}
+			}
+		})
 	}
-	if got.Finding != gpu.ReleaseFindingReleased || srv.got.GetClusterId() != in.ClusterID || srv.got.GetSealedAt() != in.SealedAt {
-		t.Fatalf("got=%+v req=%v", got, srv.got)
-	}
+
 }

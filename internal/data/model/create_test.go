@@ -2,6 +2,8 @@ package model
 
 import (
 	"context"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"testing"
 
 	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
@@ -81,5 +83,23 @@ func TestCreatePreservesCallerEngineConfiguration(t *testing.T) {
 	}
 	if !next.called || next.in.ImageRef != in.ImageRef || next.in.EngineRuntime != in.EngineRuntime || next.in.EngineCommand != in.EngineCommand {
 		t.Fatalf("caller engine configuration was changed: %+v", next.in)
+	}
+}
+
+type createReplayCapture struct {
+	createCapture
+	response *inferencev1.OperationResponse
+}
+
+func (c *createReplayCapture) PrepareCreate(context.Context, inference.CreateInput) (*inferencev1.OperationResponse, bool, error) {
+	return c.response, true, nil
+}
+func TestCreatePersistentReplayPrecedesModel(t *testing.T) {
+	api := &modelAPIFake{err: status.Error(codes.Unavailable, "Model unavailable")}
+	expected := &inferencev1.OperationResponse{Operation: &inferencev1.Operation{Id: "accepted"}}
+	next := &createReplayCapture{response: expected}
+	out, err := NewCreateUseCase(NewClient(api), next).Create(context.Background(), inference.CreateInput{ModelVersionID: "original"})
+	if err != nil || out != expected || api.request != nil || next.called {
+		t.Fatalf("durable replay visited Model or persisted again: out=%v err=%v request=%v called=%v", out, err, api.request, next.called)
 	}
 }

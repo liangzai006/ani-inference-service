@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
 	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
@@ -31,7 +32,7 @@ func managedSnapshot(req *inferencev1.CreateInferenceServiceRequest) (*gpu.Snaps
 	return snapshot, nil
 }
 
-func (s *InferenceServer) managedCreate(ctx context.Context, req *inferencev1.CreateInferenceServiceRequest) (*inferencebiz.ManagedGPUCommand, error) {
+func (s *InferenceServer) managedCreate(ctx context.Context, req *inferencev1.CreateInferenceServiceRequest) (*inferencebiz.ManagedCommand, error) {
 	if !gpu.GovernanceIdentity(ctx) {
 		return nil, status.Error(codes.PermissionDenied, "GPU commands require the authenticated Governance service")
 	}
@@ -43,12 +44,24 @@ func (s *InferenceServer) managedCreate(ctx context.Context, req *inferencev1.Cr
 	if !ok || tenant != context.GetTenantId() {
 		return nil, status.Error(codes.PermissionDenied, "GPU command tenant does not match authenticated scope")
 	}
-	if err := s.validateManagedGPUClusterID(req.GetClusterId()); err != nil {
-		return nil, err
+	if err := inferencev1.ValidateManagedCreate(req); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	snapshot, err := managedSnapshot(req)
-	if err != nil {
-		return nil, err
+	class := "cpu"
+	var snapshot *gpu.Snapshot
+	var err error
+	if req.GetResource().GetGpu() != nil {
+		class = "gpu"
+		if !s.managedGPUConfigured() {
+			return nil, status.Error(codes.FailedPrecondition, "managed GPU dependencies are not ready")
+		}
+		if err := s.validateManagedGPUClusterID(req.GetClusterId()); err != nil {
+			return nil, err
+		}
+		snapshot, err = managedSnapshot(req)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if err := inferencev1.ValidateBusinessPayload(req); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
@@ -62,7 +75,7 @@ func (s *InferenceServer) managedCreate(ctx context.Context, req *inferencev1.Cr
 		return nil, err
 	}
 	actor := Actor(ctx)
-	requestHash, err := inferencev1.ManagedCreateRequestHash(req, tenant, actorType(actor), actorID(actor))
+	requestHash, err := inferencev1.ManagedCreateCommandHash(req, tenant, actorType(actor), actorID(actor))
 	if err != nil {
 		return nil, err
 	}
@@ -75,8 +88,8 @@ func (s *InferenceServer) managedCreate(ctx context.Context, req *inferencev1.Cr
 	if err != nil {
 		return nil, err
 	}
-	frozen := gpu.RefundContext{TenantID: tenant, ResourceID: context.GetResourceId(), OriginalCreateOperationID: context.GetOperationId(), OwnerService: "ani-inference", ClusterID: req.GetClusterId(), Snapshot: snapshot}
-	return &inferencebiz.ManagedGPUCommand{Context: frozen, Payload: payload, Business: business, BusinessDigest: digest, RequestHash: context.GetRequestDigest()}, nil
+	frozen := gpu.RefundContext{TenantID: tenant, ResourceID: context.GetResourceId(), OriginalCreateOperationID: context.GetOperationId(), OwnerService: "ani-inference", ResourceClass: class, CreateCommandDigest: context.GetRequestDigest(), ClusterID: req.GetClusterId(), Snapshot: snapshot}
+	return &inferencebiz.ManagedCommand{Context: frozen, ResourceClass: class, CreateCommandDigest: context.GetRequestDigest(), Actor: actor, Payload: payload, Business: business, BusinessDigest: digest, RequestHash: context.GetRequestDigest()}, nil
 }
 
 // managedUpdateSnapshot validates an optional frozen GPU attachment on an
@@ -111,9 +124,15 @@ func (s *InferenceServer) DeleteInferenceService(ctx context.Context, req *infer
 		return nil, status.Error(codes.InvalidArgument, "request_id is required")
 	}
 	if req.GetContext() == nil {
+		if req.GetManagedDeleteScope() != nil {
+			return nil, status.Error(codes.InvalidArgument, "managed_delete_scope requires trusted command context")
+		}
 		return s.acceptCommand(ctx, "delete", &inferencev1.ServiceCommandRequest{RequestId: req.GetRequestId(), ResourceId: req.GetResourceId(), ExpectedGeneration: req.GetExpectedGeneration()})
 	}
-	if !s.managedGPUConfigured() {
+	if err := inferencev1.ValidateManagedDelete(req); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	if req.GetManagedDeleteScope().GetResourceClass() == inferencev1.ManagedResourceClass_MANAGED_RESOURCE_CLASS_GPU && !s.managedGPUConfigured() {
 		return nil, status.Error(codes.FailedPrecondition, "managed GPU dependencies are not ready")
 	}
 	if err := inferencev1.ValidateCommandContext(req.GetContext()); err != nil {
@@ -130,7 +149,7 @@ func (s *InferenceServer) DeleteInferenceService(ctx context.Context, req *infer
 		return nil, status.Error(codes.InvalidArgument, "invalid managed DELETE identity")
 	}
 	actor := Actor(ctx)
-	expected, err := inferencev1.ManagedDeleteRequestHash(tenant, req.GetResourceId(), req.GetCreateOperationId(), actorType(actor), actorID(actor))
+	expected, err := inferencev1.ManagedDeleteCommandHash(req, tenant, actorType(actor), actorID(actor))
 	if err != nil {
 		return nil, err
 	}
@@ -147,11 +166,18 @@ func (s *InferenceServer) DeleteInferenceService(ctx context.Context, req *infer
 	// DELETE carries only the stable command identity. The persisted CREATE
 	// context remains the source of the frozen cluster/snapshot used by release
 	// observation; copying tenant_id into cluster_id would forge that context.
-	frozen := gpu.RefundContext{TenantID: tenant, ResourceID: req.GetResourceId(), OriginalCreateOperationID: req.GetCreateOperationId(), DeleteOperationID: req.GetContext().GetOperationId(), OwnerService: "ani-inference"}
+	class := "cpu"
+	if req.GetManagedDeleteScope().GetResourceClass() == inferencev1.ManagedResourceClass_MANAGED_RESOURCE_CLASS_GPU {
+		class = "gpu"
+		if err := s.validateManagedGPUClusterID(req.GetManagedDeleteScope().GetClusterId()); err != nil {
+			return nil, err
+		}
+	}
+	frozen := gpu.RefundContext{ResourceClass: class, CreateCommandDigest: req.GetManagedDeleteScope().GetCreateCommandDigest(), ClusterID: req.GetManagedDeleteScope().GetClusterId(), TenantID: tenant, ResourceID: req.GetResourceId(), OriginalCreateOperationID: req.GetCreateOperationId(), DeleteOperationID: req.GetContext().GetOperationId(), OwnerService: "ani-inference"}
 	if s.command == nil {
 		return nil, status.Error(codes.FailedPrecondition, "inference command use case is not configured")
 	}
-	out, err := s.command.Command(ctx, inferencebiz.CommandInput{TenantID: tenant, RequestID: req.GetRequestId(), Actor: actor, ServiceID: req.GetResourceId(), Kind: "delete", RequestHash: hashBytes(payload), ManagedGPU: &inferencebiz.ManagedGPUCommand{Context: frozen, Payload: payload, RequestHash: req.GetContext().GetRequestDigest()}})
+	out, err := s.command.Command(ctx, inferencebiz.CommandInput{TenantID: tenant, RequestID: req.GetRequestId(), Actor: actor, ServiceID: req.GetResourceId(), Kind: "delete", RequestHash: hashBytes(payload), Managed: &inferencebiz.ManagedCommand{Context: frozen, ResourceClass: class, CreateCommandDigest: frozen.CreateCommandDigest, Actor: actor, Payload: payload, RequestHash: req.GetContext().GetRequestDigest()}})
 	if err != nil {
 		return nil, commandStatusError(err)
 	}
@@ -161,9 +187,17 @@ func (s *InferenceServer) DeleteInferenceService(ctx context.Context, req *infer
 func actorType(actor string) string { v, _, _ := splitActor(actor); return v }
 func actorID(actor string) string   { _, v, _ := splitActor(actor); return v }
 func splitActor(actor string) (string, string, error) {
+	// The authenticated transport envelope identifies Governance; the command
+	// digest binds the delegated subject inside it, independently of that owner.
+	enveloped := strings.HasPrefix(actor, "governance:")
+	actor = strings.TrimPrefix(actor, "governance:")
 	for i := 0; i < len(actor); i++ {
 		if actor[i] == ':' {
-			return actor[:i], actor[i+1:], nil
+			typeName := actor[:i]
+			if enveloped && typeName == "access-key" {
+				typeName = "api_key"
+			}
+			return typeName, actor[i+1:], nil
 		}
 	}
 	return "", "", fmt.Errorf("actor must be type:id")

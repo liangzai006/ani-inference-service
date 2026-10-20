@@ -279,6 +279,9 @@ func buildKubernetesServers(pool *pgxpool.Pool, modelClient *modeldata.Client, r
 	if err != nil {
 		return nil, false, err
 	}
+	loopServer.Loop.Close = func(ctx context.Context) error {
+		return postgres.NewRepository(pool).RunManagedCloses(ctx, managedGPURelease)
+	}
 	loopServer.WaitReady = func(ctx context.Context) error {
 		if !mgr.GetCache().WaitForCacheSync(ctx) {
 			return errors.New("controller-runtime cache did not sync")

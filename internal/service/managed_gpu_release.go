@@ -42,6 +42,15 @@ func (c *ManagedGPUReleaseCoordinator) ReleaseManagedGPU(ctx context.Context, op
 	if original.DeleteOperationID == "" || original.DeleteOperationID != op.ID {
 		return fmt.Errorf("%w: persisted delete operation does not match", ErrManagedGPUReleaseNotProven)
 	}
+	if store, ok := c.Contexts.(gpu.ReleaseReportStore); ok {
+		saved, exists, err := store.LoadManagedReleaseReport(ctx, original)
+		if err != nil {
+			return err
+		}
+		if exists {
+			return c.Reporter.ReportResourceReleased(ctx, saved)
+		}
+	}
 	clusterID := original.ClusterID
 	if clusterID == "" && op.GPURequest != nil {
 		clusterID = op.GPURequest.ClusterID
@@ -64,7 +73,13 @@ func (c *ManagedGPUReleaseCoordinator) ReleaseManagedGPU(ctx context.Context, op
 		return fmt.Errorf("%w: accelerator finding=%q", ErrManagedGPUReleaseNotProven, observed.Finding)
 	}
 	releaseEventID := uuid.NewSHA1(uuid.NameSpaceURL, []byte("ani-inference/managed-gpu-release/"+op.ID)).String()
-	if err := c.Reporter.ReportResourceReleased(ctx, gpu.ReleaseNotification{ReleaseEventID: releaseEventID, CreateOperationID: op.ManagedGPUCreateOperationID, ResourceID: op.ServiceID, Reason: gpu.ResourceReleased}); err != nil {
+	notification := gpu.ReleaseNotification{ReleaseEventID: releaseEventID, CreateOperationID: op.ManagedGPUCreateOperationID, ResourceID: op.ServiceID, Reason: gpu.ResourceReleased}
+	if store, ok := c.Contexts.(gpu.ReleaseReportStore); ok {
+		if err := store.SaveManagedReleaseReport(ctx, original, observed.EvidenceID, observed.EvidenceDigest, notification, op.LeaseToken); err != nil {
+			return fmt.Errorf("persist managed GPU release report: %w", err)
+		}
+	}
+	if err := c.Reporter.ReportResourceReleased(ctx, notification); err != nil {
 		return fmt.Errorf("report managed GPU release: %w", err)
 	}
 	return nil

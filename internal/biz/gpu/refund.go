@@ -11,6 +11,8 @@ var ErrInvalidRefund = errors.New("invalid managed GPU release")
 // RefundContext is the owner-side immutable command context. Governance owns
 // the original quota ledger; Inference stores no charge vector.
 type RefundContext struct {
+	ResourceClass             string    `json:"resource_class,omitempty"`
+	CreateCommandDigest       string    `json:"create_command_digest,omitempty"`
 	TenantID                  string    `json:"tenant_id"`
 	ResourceID                string    `json:"resource_id"`
 	OriginalCreateOperationID string    `json:"original_create_operation_id"`
@@ -70,4 +72,11 @@ func ValidateRefund(n ReleaseNotification, original RefundContext) error {
 		return invalid("owner service mismatch")
 	}
 	return nil
+}
+
+// ReleaseReportStore fixes evidence and the exact four-field report before RPC.
+// The lease fences only DELETE-first recovery; normal resource_work has its own fence.
+type ReleaseReportStore interface {
+	LoadManagedReleaseReport(context.Context, RefundContext) (ReleaseNotification, bool, error)
+	SaveManagedReleaseReport(context.Context, RefundContext, string, string, ReleaseNotification, string) error
 }

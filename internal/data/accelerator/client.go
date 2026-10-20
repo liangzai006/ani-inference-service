@@ -244,9 +244,20 @@ func (c *Client) ObserveRelease(ctx context.Context, input gpu.ReleaseObservatio
 
 func parseActor(actor string) (string, string, error) {
 	actor = strings.TrimSpace(actor)
+	enveloped := false
+	if subject, ok := strings.CutPrefix(actor, "governance:"); ok {
+		kind, _, nested := strings.Cut(subject, ":")
+		if nested && (kind == "user" || kind == "api_key" || kind == "access-key") {
+			actor = subject
+			enveloped = true
+		}
+	}
 	typeName, id, ok := strings.Cut(actor, ":")
 	if !ok || strings.TrimSpace(typeName) == "" || strings.TrimSpace(id) == "" {
 		return "", "", ErrInvalidActor
+	}
+	if enveloped && typeName == "access-key" {
+		typeName = "api_key"
 	}
 	return typeName, id, nil
 }

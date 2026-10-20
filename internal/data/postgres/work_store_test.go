@@ -58,7 +58,7 @@ func TestWorkStoreLeaseAndObservationIntegration(t *testing.T) {
 			}
 		}
 	})
-	store := NewWorkStore(pool, WorkStoreOptions{Owner: "test-worker", LeaseSeconds: .05, ObserveSeconds: .05, RetrySeconds: .01})
+	store := NewWorkStore(pool, WorkStoreOptions{Owner: "test-worker", LeaseSeconds: 30, ObserveSeconds: 30, RetrySeconds: .01})
 	services, err := store.ScanUndeletedServices(ctx, tenant.String())
 	if err != nil || len(services) != 1 || services[0].ServiceID != service.String() || services[0].Generation != 1 {
 		t.Fatalf("startup service scan: services=%+v err=%v", services, err)
@@ -74,7 +74,9 @@ func TestWorkStoreLeaseAndObservationIntegration(t *testing.T) {
 	if _, ok, err := store.Claim(ctx, tenant.String()); err != nil || ok {
 		t.Fatalf("claim before expiry: ok=%v err=%v", ok, err)
 	}
-	time.Sleep(70 * time.Millisecond)
+	if _, err := pool.Exec(ctx, "UPDATE inference_resource_work SET lease_until=clock_timestamp()-interval '1 second' WHERE tenant_id=$1 AND service_id=$2 AND lease_token=$3", tenantPG, servicePG, pgUUID(uuid.MustParse(first.LeaseToken))); err != nil {
+		t.Fatal(err)
+	}
 	if err := store.Commit(ctx, first, work.Result{Generation: first.Generation}); !errors.Is(err, work.ErrLeaseLost) {
 		t.Fatalf("expired commit err=%v", err)
 	}
@@ -91,7 +93,9 @@ func TestWorkStoreLeaseAndObservationIntegration(t *testing.T) {
 	if err := store.Commit(ctx, second, work.Result{Generation: second.Generation}); err != nil {
 		t.Fatalf("current commit: %v", err)
 	}
-	time.Sleep(70 * time.Millisecond)
+	if _, err := pool.Exec(ctx, "UPDATE inference_resource_work SET next_run_at=clock_timestamp()-interval '1 second' WHERE tenant_id=$1 AND service_id=$2", tenantPG, servicePG); err != nil {
+		t.Fatal(err)
+	}
 	third, ok, err := store.Claim(ctx, tenant.String())
 	if err != nil || !ok {
 		t.Fatalf("periodic observation claim: item=%+v ok=%v err=%v", third, ok, err)

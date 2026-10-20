@@ -65,13 +65,13 @@ func (u *CreateUseCase) Create(ctx context.Context, in inferencebiz.CreateInput)
 	serviceID, operationID := uuid.New(), uuid.New()
 	idempotencyKey := in.RequestID
 	var responseSnapshot []byte
-	if in.ManagedGPU != nil {
+	if in.Managed != nil {
 		idempotencyKey = "" // immutable Gov command ID owns replay
-		serviceID, err = uuid.Parse(in.ManagedGPU.Context.ResourceID)
+		serviceID, err = uuid.Parse(in.Managed.Context.ResourceID)
 		if err != nil {
 			return nil, err
 		}
-		operationID, err = uuid.Parse(in.ManagedGPU.Context.OriginalCreateOperationID)
+		operationID, err = uuid.Parse(in.Managed.Context.OriginalCreateOperationID)
 		if err != nil {
 			return nil, err
 		}
@@ -89,8 +89,8 @@ func (u *CreateUseCase) Create(ctx context.Context, in inferencebiz.CreateInput)
 		RuntimeMode: in.RuntimeMode, WorkerReplicas: in.WorkerReplicas, RuntimeProvider: in.RuntimeProvider,
 		GPURequest:  gpuRequestJSON,
 		GPUSnapshot: gpuPlanJSON, GPUSnapshotDigest: gpuSnapshotDigest,
-		SpecJSON:   specJSON,
-		ManagedGPU: in.ManagedGPU, ResponseSnapshot: responseSnapshot,
+		SpecJSON: specJSON,
+		Managed:  in.Managed, ResponseSnapshot: responseSnapshot,
 		EndpointEnabled:       in.Endpoint != nil,
 		EndpointContainerPort: endpointContainerPort(in.Endpoint), EndpointServicePort: endpointServicePort(in.Endpoint),
 		EndpointTargetPort: endpointTargetPort(in.Endpoint), EndpointProtocol: endpointProtocol(in.Endpoint),
@@ -122,7 +122,7 @@ func createResponse(in inferencebiz.CreateInput, result CreateAggregateResult) *
 		},
 		Operation: &inferencev1.Operation{Id: result.OperationID, ServiceId: result.ServiceID, Kind: "create", Phase: "pending", Step: "admission", TargetGeneration: 1},
 	}
-	if in.ManagedGPU != nil {
+	if in.Managed != nil {
 		out.DurableOwnerAck = &commandv1.DurableOwnerAck{OperationId: result.OperationID, ResourceId: result.ServiceID, Accepted: true}
 	}
 	return out
@@ -165,4 +165,16 @@ func runtimeModeEnum(mode string) inferencev1.RuntimeMode {
 		return inferencev1.RuntimeMode_RUNTIME_MODE_LEADER_WORKER_SET
 	}
 	return inferencev1.RuntimeMode_RUNTIME_MODE_DEPLOYMENT
+}
+
+func (u *CreateUseCase) PrepareCreate(ctx context.Context, in inferencebiz.CreateInput) (*inferencev1.OperationResponse, bool, error) {
+	if in.Managed == nil {
+		return nil, false, nil
+	}
+	if repo, ok := u.repo.(interface {
+		PrepareCreate(context.Context, inferencebiz.CreateInput) (*inferencev1.OperationResponse, bool, error)
+	}); ok {
+		return repo.PrepareCreate(ctx, in)
+	}
+	return nil, false, nil
 }

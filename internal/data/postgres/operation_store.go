@@ -275,7 +275,7 @@ func (s *OperationStore) CurrentOperation(ctx context.Context, item work.Item) (
 	if err != nil {
 		return inferencebiz.OperationContext{}, err
 	}
-	op.ManagedGPU = managed.Managed
+	op.Managed = managed.Managed
 	if managed.Managed {
 		managedRow, managedErr := New(s.pool).GetManagedGPUResource(ctx, GetManagedGPUResourceParams{TenantID: row.TenantID, ResourceID: row.ServiceID})
 		if managedErr != nil {
@@ -285,6 +285,7 @@ func (s *OperationStore) CurrentOperation(ctx context.Context, item work.Item) (
 		if err := json.Unmarshal(managedRow.OriginalContext, &original); err != nil {
 			return inferencebiz.OperationContext{}, fmt.Errorf("decode managed GPU context: %w", err)
 		}
+		op.ManagedGPU = original.ResourceClass == "gpu" || original.Snapshot != nil
 		op.ManagedGPUCreateOperationID = original.OriginalCreateOperationID
 		// A create observation stores the complete Pod UID scope under the
 		// immutable create operation. Copy it into the delete operation context

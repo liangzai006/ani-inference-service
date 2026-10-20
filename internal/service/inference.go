@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -261,108 +262,57 @@ func (s *InferenceServer) UpdateInferenceService(ctx context.Context, req *infer
 	if req.GetRequestId() == "" || req.GetResourceId() == "" || req.GetExpectedGeneration() < 1 {
 		return nil, status.Error(codes.InvalidArgument, "request_id, resource_id and positive expected_generation are required")
 	}
-	managedUpdate := req.GetContext() != nil || req.GetResource().GetGpu() != nil || req.GetClusterId() != "" || req.GetGpuExecution() != nil || req.GetGpuDisplay() != nil
-	var managedSnapshot *gpubiz.Snapshot
-	if managedUpdate {
-		if req.GetContext() != nil && !s.managedGPUConfigured() {
-			return nil, status.Error(codes.FailedPrecondition, "managed GPU dependencies are not ready")
-		}
+	if err := inferencev1.ValidateUpdatePatch(req); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	if s.update == nil {
+		return nil, status.Error(codes.FailedPrecondition, "inference update use case is not configured")
+	}
+	managed := req.GetContext() != nil
+	if managed {
 		if !gpubiz.GovernanceIdentity(ctx) {
-			return nil, status.Error(codes.PermissionDenied, "managed GPU updates require Governance")
-		}
-		if req.GetContext() != nil && (req.GetClusterId() != "" || req.GetGpuExecution() != nil || req.GetGpuDisplay() != nil || req.GetResource().GetGpu() != nil) {
-			if err := s.validateManagedGPUClusterID(req.GetClusterId()); err != nil {
-				return nil, err
-			}
+			return nil, status.Error(codes.PermissionDenied, "managed updates require Governance")
 		}
 		if err := inferencev1.ValidateCommandContext(req.GetContext()); err != nil {
 			return nil, status.Error(codes.InvalidArgument, err.Error())
 		}
 		if req.GetContext().GetTenantId() != tenantID || req.GetContext().GetResourceId() != req.GetResourceId() {
-			return nil, status.Error(codes.PermissionDenied, "managed GPU update identity does not match authenticated scope")
+			return nil, status.Error(codes.PermissionDenied, "managed update scope mismatch")
 		}
-		expected, err := inferencev1.ManagedUpdateRequestHash(req, tenantID, actorType(Actor(ctx)), actorID(Actor(ctx)))
+	}
+	canonical := proto.Clone(req).(*inferencev1.UpdateInferenceServiceRequest)
+	canonical.RequestId = ""
+	selected := map[string]bool{}
+	for _, path := range req.GetUpdateMask().GetPaths() {
+		selected[path] = true
+	}
+	if !selected["model_version_id"] {
+		canonical.ModelVersionId = ""
+	}
+	if !selected["served_model_name"] {
+		canonical.ServedModelName = ""
+	}
+	if !selected["engine"] {
+		canonical.Engine = nil
+	}
+	sort.Strings(canonical.UpdateMask.Paths)
+	encoded, err := (proto.MarshalOptions{Deterministic: true}).Marshal(canonical)
+	if err != nil {
+		return nil, err
+	}
+	requestHash := hashBytes(append([]byte(Actor(ctx)+"\x00"), encoded...))
+	if managed {
+		expected, err := inferencev1.ManagedUpdateCommandHash(req, tenantID, actorType(Actor(ctx)), actorID(Actor(ctx)))
 		if err != nil {
 			return nil, status.Error(codes.InvalidArgument, err.Error())
 		}
 		if expected != req.GetContext().GetRequestDigest() {
 			return nil, status.Error(codes.InvalidArgument, "Governance UPDATE request digest mismatch")
 		}
-		if req.GetClusterId() != "" || req.GetGpuExecution() != nil || req.GetGpuDisplay() != nil || req.GetResource().GetGpu() != nil {
-			managedSnapshot, err = managedUpdateSnapshot(req)
-			if err != nil {
-				return nil, err
-			}
-		}
+		requestHash = expected
 	}
-	if req.GetEngine() != nil {
-		if err := validateEngineInput(req.GetEngine()); err != nil {
-			return nil, status.Error(codes.InvalidArgument, err.Error())
-		}
-	}
-	if s.update == nil {
-		return nil, status.Error(codes.FailedPrecondition, "inference update use case is not configured")
-	}
-	if err := validateGPUResourceMap(req.GetResource()); err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
-	}
-	if err := validateUpdateMask(req.GetUpdateMask(), req.GetModelVersionId()); err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
-	}
-	normalized, err := resources.Normalize(resources.Spec{Requests: req.GetResource().GetRequests(), Limits: req.GetResource().GetLimits(), GPU: gpuInput(req.GetResource().GetGpu())})
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
-	}
-	mode := runtimeMode(req.GetRuntime())
-	provider := strings.ToLower(strings.TrimSpace(req.GetRuntime().GetProvider()))
-	if provider != "" && provider != "kserve" {
-		return nil, status.Error(codes.InvalidArgument, "runtime provider must be kserve")
-	}
-	if err := validateEndpoint(req.GetRuntime().GetEndpoint()); err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
-	}
-	workers := int32(1)
-	if req.GetRuntime() != nil && req.GetRuntime().GetWorkerReplicas() > 0 {
-		workers = req.GetRuntime().GetWorkerReplicas()
-	}
-	if err := admission.ValidateCreate(admission.CreateRequest{Replicas: req.GetReplicas(), WorkerReplicas: workers, RuntimeMode: mode, Resources: admission.ResourceInput{Requests: normalized.Requests, Limits: normalized.Limits}}); err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
-	}
-	if normalized.GPU != nil {
-		if err := gpubiz.ValidateTopology(normalized.GPU, req.GetReplicas(), mode, workers); err != nil {
-			return nil, status.Error(codes.InvalidArgument, err.Error())
-		}
-	}
-	canonical := proto.Clone(req).(*inferencev1.UpdateInferenceServiceRequest)
-	canonical.Resource = &inferencev1.ResourceSpec{Requests: normalized.Requests, Limits: normalized.Limits, Gpu: gpuProto(normalized.GPU)}
-	canonical.Runtime = &inferencev1.RuntimeSpec{Mode: inferencev1.RuntimeMode_RUNTIME_MODE_DEPLOYMENT, WorkerReplicas: workers}
-	if mode == "leader_worker_set" {
-		canonical.Runtime.Mode = inferencev1.RuntimeMode_RUNTIME_MODE_LEADER_WORKER_SET
-	}
-	// Preserve an omitted provider as the inherit marker on update; the
-	// persistence layer resolves it against the existing service provider.
-	canonical.Runtime.Provider = provider
-	canonical.Runtime.Endpoint = req.GetRuntime().GetEndpoint()
-	image, engineRuntime, engineCommand := engineInput(req.GetEngine())
-	artifactProvider, artifactRef, artifactSHA := "", "", ""
-	if artifact := req.GetModelArtifact(); artifact != nil {
-		artifactProvider, artifactRef, artifactSHA = artifact.GetProvider(), artifact.GetReference(), artifact.GetSha256()
-	}
-	encoded, err := (proto.MarshalOptions{Deterministic: true}).Marshal(canonical)
-	if err != nil {
-		return nil, status.Error(codes.Internal, "marshal request: "+err.Error())
-	}
-	requestHash := hashBytes(encoded)
-	if managedUpdate {
-		// The Governance digest excludes the transport correlation ID; use it as
-		// the durable operation hash so a retry with a new request_id replays the
-		// same operation instead of conflicting with its own command.
-		requestHash = req.GetContext().GetRequestDigest()
-	}
-	updateInput := inferencebiz.UpdateInput{TenantID: tenantID, RequestID: req.GetRequestId(), Actor: Actor(ctx), ServiceID: req.GetResourceId(), ExpectedGeneration: req.GetExpectedGeneration(), ModelVersionID: req.GetModelVersionId(), ArtifactProvider: artifactProvider, ArtifactRef: artifactRef, ArtifactSHA256: artifactSHA, ImageRef: image, ServedModelName: req.GetServedModelName(), EngineRuntime: engineRuntime, RuntimeProvider: provider, EngineCommand: engineCommand, ManagedGPUOperationID: managedOperationID(req), Resources: normalized, GPUSnapshot: managedSnapshot, Replicas: req.GetReplicas(), WorkerReplicas: workers, RuntimeMode: mode, Endpoint: endpointInput(req.GetRuntime().GetEndpoint()), RequestHash: requestHash}
-	if managedSnapshot != nil {
-		updateInput.GPUSnapshotDigest = managedSnapshot.ExecutionDigest
-	}
+	image, engineRuntime, engineCommand := engineInput(canonical.GetEngine())
+	updateInput := inferencebiz.UpdateInput{TenantID: tenantID, RequestID: req.GetRequestId(), Actor: Actor(ctx), ServiceID: req.GetResourceId(), ExpectedGeneration: req.GetExpectedGeneration(), ModelVersionID: canonical.GetModelVersionId(), ImageRef: image, ServedModelName: canonical.GetServedModelName(), EngineRuntime: engineRuntime, EngineCommand: engineCommand, ManagedOperationID: managedOperationID(req), RequestHash: requestHash, UpdateMask: append([]string(nil), req.GetUpdateMask().GetPaths()...)}
 	out, err := s.update.Update(ctx, updateInput)
 	if err != nil {
 		return nil, commandStatusError(err)
@@ -375,22 +325,15 @@ func (s *InferenceServer) UpdateInferenceService(ctx context.Context, req *infer
 
 func validateUpdateMask(mask *fieldmaskpb.FieldMask, modelVersionID string) error {
 	if mask == nil || len(mask.GetPaths()) == 0 {
-		return errors.New("update_mask must include resource, replicas and runtime")
+		return errors.New("update_mask is required")
 	}
-	seen := map[string]bool{}
 	for _, path := range mask.GetPaths() {
-		if path != "resource" && path != "replicas" && path != "runtime" && path != "engine" && path != "model_artifact" && path != "served_model_name" && path != "model_version_id" {
+		if path != "model_version_id" && path != "served_model_name" && path != "engine" {
 			return fmt.Errorf("unsupported update field %q", path)
 		}
-		seen[path] = true
-	}
-	for _, path := range []string{"resource", "replicas", "runtime"} {
-		if !seen[path] {
-			return fmt.Errorf("update_mask must include %s", path)
+		if path == "model_version_id" && modelVersionID == "" {
+			return errors.New("model_version_id is required")
 		}
-	}
-	if seen["model_version_id"] != (modelVersionID != "") {
-		return errors.New("model_version_id and its update_mask entry must be provided together")
 	}
 	return nil
 }
@@ -430,7 +373,7 @@ func (s *InferenceServer) acceptCommand(ctx context.Context, kind string, req *i
 	out, err := s.command.Command(ctx, inferencebiz.CommandInput{
 		TenantID: tenantID, RequestID: req.GetRequestId(), Actor: Actor(ctx), ServiceID: req.GetResourceId(),
 		Kind: kind, ExpectedGeneration: req.GetExpectedGeneration(),
-		RequestHash: hashBytes(append([]byte(kind+"\x00"), encoded...)),
+		RequestHash: hashBytes(append([]byte(kind+"\x00"+Actor(ctx)+"\x00"), encoded...)),
 	})
 	if err != nil {
 		return nil, commandStatusError(err)
@@ -610,13 +553,13 @@ func (s *InferenceServer) CreateInferenceService(ctx context.Context, req *infer
 			return nil, status.Error(codes.InvalidArgument, err.Error())
 		}
 	}
-	var managed *inferencebiz.ManagedGPUCommand
-	if normalized.GPU != nil {
+	var managed *inferencebiz.ManagedCommand
+	if normalized.GPU != nil || req.GetContext() != nil {
 		managed, err = s.managedCreate(ctx, req)
 		if err != nil {
 			return nil, err
 		}
-	} else if req.GetContext() != nil || req.GetGpuExecution() != nil || req.GetGpuDisplay() != nil || req.GetClusterId() != "" {
+	} else if req.GetGpuExecution() != nil || req.GetGpuDisplay() != nil || req.GetClusterId() != "" {
 		return nil, status.Error(codes.InvalidArgument, "frozen GPU context requires resource.gpu")
 	}
 	canonical := proto.Clone(req).(*inferencev1.CreateInferenceServiceRequest)
@@ -641,7 +584,7 @@ func (s *InferenceServer) CreateInferenceService(ctx context.Context, req *infer
 	if s.create == nil {
 		return nil, status.Error(codes.FailedPrecondition, "inference create use case is not configured")
 	}
-	in := CreateInput{TenantID: tenantID, RequestID: req.GetRequestId(), Actor: Actor(ctx), Name: req.GetName(), ModelVersionID: req.GetModelVersionId(), ArtifactProvider: artifactProvider, ArtifactRef: artifactRef, ArtifactSHA256: artifactSHA, ImageRef: image, ServedModelName: req.GetServedModelName(), EngineRuntime: engineRuntime, RuntimeProvider: provider, EngineCommand: engineCommand, Resources: normalized, Replicas: req.GetReplicas(), WorkerReplicas: workers, RuntimeMode: mode, Endpoint: endpointInput(req.GetRuntime().GetEndpoint()), RequestHash: hashBytes(encoded), ManagedGPU: managed}
+	in := CreateInput{TenantID: tenantID, RequestID: req.GetRequestId(), Actor: Actor(ctx), Name: req.GetName(), ModelVersionID: req.GetModelVersionId(), ArtifactProvider: artifactProvider, ArtifactRef: artifactRef, ArtifactSHA256: artifactSHA, ImageRef: image, ServedModelName: req.GetServedModelName(), EngineRuntime: engineRuntime, RuntimeProvider: provider, EngineCommand: engineCommand, Resources: normalized, Replicas: req.GetReplicas(), WorkerReplicas: workers, RuntimeMode: mode, Endpoint: endpointInput(req.GetRuntime().GetEndpoint()), RequestHash: hashBytes(encoded), Managed: managed}
 	if managed != nil {
 		in.GPUSnapshot = managed.Context.Snapshot
 		if managed.Context.Snapshot != nil {

@@ -45,7 +45,7 @@ type CreateAggregateInput struct {
 	EndpointServicePort                      int32
 	EndpointTargetPort, EndpointProtocol     string
 	EndpointEnabled                          bool
-	ManagedGPU                               *inferencebiz.ManagedGPUCommand
+	Managed                                  *inferencebiz.ManagedCommand
 	ResponseSnapshot                         []byte
 }
 
@@ -158,12 +158,12 @@ func (r *Repository) CreateService(ctx context.Context, in CreateAggregateInput)
 	}
 	defer tx.Rollback(ctx)
 	q := New(tx)
-	if in.ManagedGPU != nil {
-		original := in.ManagedGPU.Context
-		if original.TenantID != in.TenantID || original.ResourceID != serviceID.String() || original.OriginalCreateOperationID != opID.String() || len(in.ResponseSnapshot) == 0 || len(in.GPUSnapshot) == 0 {
+	if in.Managed != nil {
+		original := in.Managed.Context
+		if original.TenantID != in.TenantID || original.ResourceID != serviceID.String() || original.OriginalCreateOperationID != opID.String() || len(in.ResponseSnapshot) == 0 || (in.Managed.ResourceClass == "gpu" && len(in.GPUSnapshot) == 0) {
 			return CreateAggregateResult{}, inferencebiz.ErrInvalidState
 		}
-		accepted, e := prepareManagedGPU(ctx, tx, in.ManagedGPU, "create", opID.String())
+		accepted, e := prepareManagedCommand(ctx, tx, in.Managed, "create", opID.String())
 		if e != nil {
 			return CreateAggregateResult{}, e
 		}
@@ -176,7 +176,7 @@ func (r *Repository) CreateService(ctx context.Context, in CreateAggregateInput)
 			if e != nil {
 				return CreateAggregateResult{}, e
 			}
-			if e := persistManagedGPUCommand(ctx, tx, in.ManagedGPU, "create", opID.String(), "blocked_by_delete", snapshot); e != nil {
+			if e := persistManagedCommand(ctx, tx, in.Managed, "create", opID.String(), "blocked_by_delete", snapshot); e != nil {
 				return CreateAggregateResult{}, e
 			}
 			if e := tx.Commit(ctx); e != nil {
@@ -228,7 +228,7 @@ func (r *Repository) CreateService(ctx context.Context, in CreateAggregateInput)
 	if reservationID == "" {
 		reservationID = "pending-" + opID.String()
 	}
-	if in.ManagedGPU == nil {
+	if in.Managed == nil {
 		if err = q.InsertQuotaReservation(ctx, InsertQuotaReservationParams{TenantID: tenant, ServiceID: serviceID, OperationID: opID, Generation: generation, ReservationID: reservationID, RequestedResources: jsonOrEmpty(in.Resources, []byte("{}"))}); err != nil {
 			return CreateAggregateResult{}, err
 		}
@@ -263,8 +263,8 @@ func (r *Repository) CreateService(ctx context.Context, in CreateAggregateInput)
 	if err = q.AppendAuditEvent(ctx, AppendAuditEventParams{TenantID: tenant, EventID: pgtype.UUID{Bytes: eventID, Valid: true}, ServiceID: serviceID, OperationID: opID, Generation: generation, EventType: "inference.create.accepted", Actor: in.Actor, RequestID: in.RequestID, Payload: []byte(`{"operation_id":"` + opID.String() + `"}`)}); err != nil {
 		return CreateAggregateResult{}, err
 	}
-	if in.ManagedGPU != nil {
-		if err := persistManagedGPUCommand(ctx, tx, in.ManagedGPU, "create", opID.String(), "create_pending", in.ResponseSnapshot); err != nil {
+	if in.Managed != nil {
+		if err := persistManagedCommand(ctx, tx, in.Managed, "create", opID.String(), "create_pending", in.ResponseSnapshot); err != nil {
 			return CreateAggregateResult{}, err
 		}
 	}

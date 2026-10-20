@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
 	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
 	"github.com/liangzai006/ani-inference-service/internal/data/kubernetes"
@@ -45,7 +46,7 @@ func managedCreateFixture(t *testing.T, tenant, resource uuid.UUID) *inferencev1
 		RequestId: uuid.NewString(), Name: "managed-" + resource.String(), ModelVersionId: uuid.NewString(), Replicas: 1,
 		Runtime:   &inferencev1.RuntimeSpec{Mode: inferencev1.RuntimeMode_RUNTIME_MODE_DEPLOYMENT, Provider: "kserve"},
 		Engine:    &inferencev1.EngineSpec{Type: "vllm", Image: "engine:v1", Command: "engine serve /models"},
-		Resource:  &inferencev1.ResourceSpec{Gpu: request, Requests: map[string]string{"cpu": "1", "memory": "8Gi"}},
+		Resource:  &inferencev1.ResourceSpec{Gpu: request, Requests: map[string]string{"cpu": "1", "memory": "8Gi"}, Limits: map[string]string{"cpu": "1", "memory": "8Gi"}},
 		Context:   &inferencev1.CommandContext{TenantId: tenant.String(), ResourceId: resource.String(), OperationId: uuid.NewString()},
 		ClusterId: cluster.String(), GpuExecution: execution,
 		GpuDisplay: &acceleratorv1.GpuDisplay{ProfileId: profile.String(), ProfileVersion: 1, ProfileName: "test", ModelKey: "nvidia-test", Mode: acceleratorv1.SupplyMode_SHARED_FIXED},
@@ -56,7 +57,7 @@ func managedCreateFixture(t *testing.T, tenant, resource uuid.UUID) *inferencev1
 
 func refreshManagedFixtureDigests(t *testing.T, req *inferencev1.CreateInferenceServiceRequest) {
 	t.Helper()
-	digest, err := inferencev1.ManagedCreateRequestHash(req, req.Context.TenantId, "user", "42")
+	digest, err := inferencev1.ManagedCreateCommandHash(req, req.Context.TenantId, "user", "42")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,11 +67,16 @@ func refreshManagedFixtureDigests(t *testing.T, req *inferencev1.CreateInference
 func managedDeleteFixture(t *testing.T, req *inferencev1.CreateInferenceServiceRequest) *inferencev1.DeleteInferenceServiceRequest {
 	t.Helper()
 	deleteID := uuid.NewString()
-	digest, err := inferencev1.ManagedDeleteRequestHash(req.Context.TenantId, req.Context.ResourceId, req.Context.OperationId, "user", "42")
+	out := &inferencev1.DeleteInferenceServiceRequest{RequestId: uuid.NewString(), ResourceId: req.Context.ResourceId, CreateOperationId: req.Context.OperationId, Context: &inferencev1.CommandContext{TenantId: req.Context.TenantId, ResourceId: req.Context.ResourceId, OperationId: deleteID}, ManagedDeleteScope: &inferencev1.ManagedDeleteScope{ResourceClass: inferencev1.ManagedResourceClass_MANAGED_RESOURCE_CLASS_GPU, ClusterId: req.ClusterId, CreateCommandDigest: req.Context.RequestDigest}}
+	if req.Resource.Gpu == nil {
+		out.ManagedDeleteScope.ResourceClass = inferencev1.ManagedResourceClass_MANAGED_RESOURCE_CLASS_CPU
+	}
+	digest, err := inferencev1.ManagedDeleteCommandHash(out, req.Context.TenantId, "user", "42")
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &inferencev1.DeleteInferenceServiceRequest{RequestId: uuid.NewString(), ResourceId: req.Context.ResourceId, CreateOperationId: req.Context.OperationId, Context: &inferencev1.CommandContext{TenantId: req.Context.TenantId, ResourceId: req.Context.ResourceId, OperationId: deleteID, RequestDigest: digest}}
+	out.Context.RequestDigest = digest
+	return out
 }
 
 func TestPostgresManagedGPUCreateAtomicReplayAndOriginalContext(t *testing.T) {
@@ -79,6 +85,7 @@ func TestPostgresManagedGPUCreateAtomicReplayAndOriginalContext(t *testing.T) {
 	req := managedCreateFixture(t, tenant, resource)
 	repo := NewRepository(pool)
 	server := service.NewInferenceServerWithAll(NewCreateUseCase(repo), nil, NewCommandUseCase(repo), NewUpdateUseCase(repo))
+	server.SetManagedGPUClusterID(req.ClusterId)
 	out, err := server.CreateInferenceService(ctx, req)
 	if err != nil {
 		t.Fatal(err)
@@ -88,7 +95,7 @@ func TestPostgresManagedGPUCreateAtomicReplayAndOriginalContext(t *testing.T) {
 	}
 	reordered := proto.Clone(req).(*inferencev1.CreateInferenceServiceRequest)
 	reordered.RequestId = uuid.NewString()
-	replay, err := service.NewInferenceServer(NewCreateUseCase(NewRepository(pool))).CreateInferenceService(ctx, reordered)
+	replay, err := managedFixtureServer(pool, req.ClusterId).CreateInferenceService(ctx, reordered)
 	if err != nil || !proto.Equal(out, replay) {
 		t.Fatalf("restart replay=%v error=%v", replay, err)
 	}
@@ -108,7 +115,7 @@ func TestPostgresManagedGPUConcurrentCommandHasOneACK(t *testing.T) {
 	ctx, pool, tenant, resource := lifecycleDatabase(t)
 	ctx = service.WithActor(service.WithTenantID(gpu.WithGovernanceIdentity(ctx), tenant.String()), "user:42")
 	req := managedCreateFixture(t, tenant, resource)
-	server := service.NewInferenceServer(NewCreateUseCase(NewRepository(pool)))
+	server := managedFixtureServer(pool, req.ClusterId)
 	var wait sync.WaitGroup
 	results := make(chan *inferencev1.OperationResponse, 8)
 	errors := make(chan error, 8)
@@ -150,18 +157,16 @@ func TestPostgresManagedGPUUpdatePreservesOperationACKAndReplay(t *testing.T) {
 	create := managedCreateFixture(t, tenant, resource)
 	repo := NewRepository(pool)
 	server := service.NewInferenceServerWithAll(NewCreateUseCase(repo), nil, NewCommandUseCase(repo), NewUpdateUseCase(repo))
+	server.SetManagedGPUClusterID(create.ClusterId)
 	if _, err := server.CreateInferenceService(ctx, create); err != nil {
 		t.Fatal(err)
 	}
-	update := &inferencev1.UpdateInferenceServiceRequest{
-		RequestId: uuid.NewString(), ResourceId: resource.String(), ExpectedGeneration: 1,
-		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"resource", "replicas", "runtime"}},
-		Resource:   create.Resource, Replicas: 1, Runtime: create.Runtime,
-		Context:   &inferencev1.CommandContext{TenantId: tenant.String(), ResourceId: resource.String(), OperationId: uuid.NewString()},
-		ClusterId: create.ClusterId, GpuExecution: create.GpuExecution, GpuDisplay: create.GpuDisplay,
+	if _, err := pool.Exec(ctx, "UPDATE inference_operations SET phase='succeeded',step='complete',completed_at=now() WHERE tenant_id=$1 AND id=$2", tenant, uuid.MustParse(create.Context.OperationId)); err != nil {
+		t.Fatal(err)
 	}
+	update := &inferencev1.UpdateInferenceServiceRequest{RequestId: uuid.NewString(), ResourceId: resource.String(), ExpectedGeneration: 1, ServedModelName: "renamed", UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"served_model_name"}}, Context: &inferencev1.CommandContext{TenantId: tenant.String(), ResourceId: resource.String(), OperationId: uuid.NewString()}}
 	var err error
-	update.Context.RequestDigest, err = inferencev1.ManagedUpdateRequestHash(update, tenant.String(), "user", "42")
+	update.Context.RequestDigest, err = inferencev1.ManagedUpdateCommandHash(update, tenant.String(), "user", "42")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +204,7 @@ func TestPostgresManagedGPUFrozenSnapshotProjectsSharedAndWholeReplicas(t *testi
 			}
 			req.Replicas, req.Resource.Gpu.Replicas = 2, 2
 			refreshManagedFixtureDigests(t, req)
-			if _, err := service.NewInferenceServer(NewCreateUseCase(NewRepository(pool))).CreateInferenceService(ctx, req); err != nil {
+			if _, err := managedFixtureServer(pool, req.ClusterId).CreateInferenceService(ctx, req); err != nil {
 				t.Fatal(err)
 			}
 			var persistedDigest string
@@ -234,6 +239,7 @@ func TestPostgresManagedGPUDeleteFirstClosesLateCreate(t *testing.T) {
 	req := managedCreateFixture(t, tenant, resource)
 	repo := NewRepository(pool)
 	server := service.NewInferenceServerWithCommands(NewCreateUseCase(repo), nil, NewCommandUseCase(repo))
+	server.SetManagedGPUClusterID(req.ClusterId)
 	deletion := managedDeleteFixture(t, req)
 	accepted, err := server.DeleteInferenceService(ctx, deletion)
 	if err != nil || !accepted.GetDurableOwnerAck().GetAccepted() {
@@ -258,7 +264,7 @@ func TestPostgresManagedGPURejectsForgedIdentityDigestAndCharge(t *testing.T) {
 	// cover the command identity, business digest and frozen execution.
 	ctx, pool, tenant, resource := lifecycleDatabase(t)
 	req := managedCreateFixture(t, tenant, resource)
-	server := service.NewInferenceServer(NewCreateUseCase(NewRepository(pool)))
+	server := managedFixtureServer(pool, req.ClusterId)
 	scoped := service.WithActor(service.WithTenantID(gpu.WithGovernanceIdentity(ctx), tenant.String()), "user:42")
 	tests := []struct {
 		name   string
@@ -295,4 +301,10 @@ func TestManagedGPUContextJSONContainsOnlyExecutionSelection(t *testing.T) {
 	if err := json.Unmarshal(encoded, &decoded); err != nil || decoded.Snapshot == nil || !reflect.DeepEqual(decoded.Snapshot.Execution, snapshot.Execution) {
 		t.Fatalf("context roundtrip=%+v error=%v", decoded, err)
 	}
+}
+
+func managedFixtureServer(pool *pgxpool.Pool, clusterID string) *service.InferenceServer {
+	server := service.NewInferenceServer(NewCreateUseCase(NewRepository(pool)))
+	server.SetManagedGPUClusterID(clusterID)
+	return server
 }

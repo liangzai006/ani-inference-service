@@ -190,7 +190,12 @@ func TestReadUseCasePageQueriesKeepCountAndRowsScoped(t *testing.T) {
 	cleanupOther := func() {
 		for _, query := range []string{
 			"UPDATE inference_services SET current_operation_id=NULL WHERE tenant_id=$1",
+			"DELETE FROM inference_audit_events WHERE tenant_id=$1",
+			"DELETE FROM inference_idempotency_requests WHERE tenant_id=$1",
+			"DELETE FROM inference_quota_reservations WHERE tenant_id=$1",
 			"DELETE FROM inference_resource_work WHERE tenant_id=$1",
+			"DELETE FROM inference_runtime WHERE tenant_id=$1",
+			"DELETE FROM inference_specs WHERE tenant_id=$1",
 			"DELETE FROM inference_operations WHERE tenant_id=$1",
 			"DELETE FROM inference_services WHERE tenant_id=$1",
 		} {
@@ -262,7 +267,7 @@ func TestReadUseCasePageFiltersBeforeCountAndOffset(t *testing.T) {
 		if i == 1 {
 			phase = "pending"
 		}
-		if _, err := pool.Exec(ctx, `INSERT INTO inference_runtime(tenant_id,service_id,generation,runtime_phase,publication_phase,invocation_health) VALUES($1,$2,1,$3,'withdrawn','unknown')`, tenant, sid, phase); err != nil {
+		if _, err := pool.Exec(ctx, `UPDATE inference_runtime SET runtime_phase=$3,publication_phase='withdrawn',invocation_health='unknown' WHERE tenant_id=$1 AND service_id=$2`, tenant, sid, phase); err != nil {
 			t.Fatal(err)
 		}
 	}

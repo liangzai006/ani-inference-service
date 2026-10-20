@@ -47,8 +47,9 @@ type RuntimeSpec struct {
 	// GPUSnapshot is an immutable accelerator resolution. GPU requests are invalid
 	// unless this plan is present and validated before rendering.
 	GPUSnapshot *gpu.Snapshot
-	// ManagedGPU is read from the accepted Governance command, never inferred
-	// from a GPU quantity or an unsigned runtime request.
+	// Managed is the accepted Governance identity. ManagedGPU separately marks
+	// an accepted GPU attachment; managed CPU never enters GPU rendering.
+	Managed    bool
 	ManagedGPU bool
 }
 

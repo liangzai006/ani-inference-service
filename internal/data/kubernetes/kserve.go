@@ -77,7 +77,7 @@ func (e *KServeRuntimeExecutor) ApplyRuntime(ctx context.Context, op inferencebi
 	if err != nil {
 		return err
 	}
-	if e.RequireQuota && !spec.ManagedGPU && !spec.QuotaReserved {
+	if e.RequireQuota && !spec.Managed && !spec.ManagedGPU && !spec.QuotaReserved {
 		return errors.New("quota reservation must be confirmed before runtime apply")
 	}
 	_, err = e.applyKServe(ctx, spec, kserveBindingForSpec(spec))
@@ -181,7 +181,7 @@ func (e *KServeRuntimeExecutor) Ensure(ctx context.Context, desired bizreconcile
 	spec.TenantID, spec.ServiceID, spec.Generation = desired.TenantID, desired.ServiceID, desired.Generation
 	switch spec.DesiredState {
 	case "", "running":
-		if e.RequireQuota && !spec.ManagedGPU && !spec.QuotaReserved {
+		if e.RequireQuota && !spec.Managed && !spec.ManagedGPU && !spec.QuotaReserved {
 			return bizreconcile.Observation{}, errors.New("quota reservation must be confirmed before runtime apply")
 		}
 		if err := e.applyCR(ctx, spec.RuntimeSpec, spec.DesiredState, controlBindingForSpec(spec)); err != nil {

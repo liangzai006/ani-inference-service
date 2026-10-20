@@ -34,18 +34,29 @@ type InferenceIdempotencyRequest struct {
 }
 
 type InferenceManagedGpuCommand struct {
-	TenantID          pgtype.UUID
-	OperationID       pgtype.UUID
-	ResourceID        pgtype.UUID
-	CreateOperationID pgtype.UUID
-	Kind              string
-	PayloadHash       string
-	RequestHash       string
-	CommandPayload    []byte
-	ResponseSnapshot  []byte
-	DurableAck        []byte
-	ExecutionIntent   string
-	CreatedAt         pgtype.Timestamptz
+	TenantID              pgtype.UUID
+	OperationID           pgtype.UUID
+	ResourceID            pgtype.UUID
+	CreateOperationID     pgtype.UUID
+	Kind                  string
+	PayloadHash           string
+	RequestHash           string
+	CommandPayload        []byte
+	ResponseSnapshot      []byte
+	DurableAck            []byte
+	ExecutionIntent       string
+	CreatedAt             pgtype.Timestamptz
+	Actor                 string
+	CloseState            string
+	LeaseToken            pgtype.UUID
+	LeaseUntil            pgtype.Timestamptz
+	RetryAt               pgtype.Timestamptz
+	Attempt               int32
+	CloseError            string
+	ReleaseEvidenceID     string
+	ReleaseEvidenceDigest string
+	ReleaseReport         []byte
+	CompletedAt           pgtype.Timestamptz
 }
 
 type InferenceManagedGpuReleaseScope struct {
@@ -62,7 +73,7 @@ type InferenceManagedGpuResource struct {
 	ResourceID            pgtype.UUID
 	CreateOperationID     pgtype.UUID
 	OwnerService          string
-	MeteringVersion       string
+	MeteringVersion       pgtype.Text
 	OriginalContext       []byte
 	BusinessPayload       []byte
 	BusinessPayloadDigest string
@@ -72,6 +83,8 @@ type InferenceManagedGpuResource struct {
 	Closing               bool
 	CreatedAt             pgtype.Timestamptz
 	UpdatedAt             pgtype.Timestamptz
+	ResourceClass         string
+	CreateCommandDigest   string
 }
 
 type InferenceObservationEvent struct {
@@ -87,6 +100,28 @@ type InferenceObservationEvent struct {
 }
 
 type InferenceOperation struct {
+	TenantID         pgtype.UUID
+	ID               pgtype.UUID
+	ServiceID        pgtype.UUID
+	Kind             string
+	Phase            string
+	Step             string
+	TargetGeneration int64
+	RequestHash      string
+	Attempt          int32
+	RetryAt          pgtype.Timestamptz
+	LeaseOwner       pgtype.Text
+	LeaseUntil       pgtype.Timestamptz
+	LeaseToken       pgtype.UUID
+	ErrorCode        string
+	ErrorMessage     string
+	ResultSnapshot   []byte
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
+	CompletedAt      pgtype.Timestamptz
+}
+
+type InferenceOperationProjection struct {
 	TenantID         pgtype.UUID
 	ID               pgtype.UUID
 	ServiceID        pgtype.UUID

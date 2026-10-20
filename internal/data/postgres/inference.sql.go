@@ -317,7 +317,7 @@ func (q *Queries) CloneSpecWithRuntimeUpdate(ctx context.Context, arg CloneSpecW
 
 const countOperations = `-- name: CountOperations :one
 SELECT count(*)::bigint
-FROM inference_operations
+FROM inference_operation_projection
 WHERE tenant_id = $1 AND ($2::uuid IS NULL OR service_id = $2::uuid)
 `
 
@@ -694,6 +694,42 @@ func (q *Queries) GetOperationAuditContext(ctx context.Context, arg GetOperation
 	row := q.db.QueryRow(ctx, getOperationAuditContext, arg.TenantID, arg.OperationID)
 	var i GetOperationAuditContextRow
 	err := row.Scan(&i.Actor, &i.RequestID)
+	return i, err
+}
+
+const getOperationProjection = `-- name: GetOperationProjection :one
+SELECT tenant_id, id, service_id, kind, phase, step, target_generation, request_hash, attempt, retry_at, lease_owner, lease_until, lease_token, error_code, error_message, result_snapshot, created_at, updated_at, completed_at FROM inference_operation_projection WHERE tenant_id=$1 AND id=$2
+`
+
+type GetOperationProjectionParams struct {
+	TenantID pgtype.UUID
+	ID       pgtype.UUID
+}
+
+func (q *Queries) GetOperationProjection(ctx context.Context, arg GetOperationProjectionParams) (InferenceOperationProjection, error) {
+	row := q.db.QueryRow(ctx, getOperationProjection, arg.TenantID, arg.ID)
+	var i InferenceOperationProjection
+	err := row.Scan(
+		&i.TenantID,
+		&i.ID,
+		&i.ServiceID,
+		&i.Kind,
+		&i.Phase,
+		&i.Step,
+		&i.TargetGeneration,
+		&i.RequestHash,
+		&i.Attempt,
+		&i.RetryAt,
+		&i.LeaseOwner,
+		&i.LeaseUntil,
+		&i.LeaseToken,
+		&i.ErrorCode,
+		&i.ErrorMessage,
+		&i.ResultSnapshot,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CompletedAt,
+	)
 	return i, err
 }
 
@@ -1435,7 +1471,7 @@ SELECT tenant_id, id, service_id, kind, phase, step, target_generation,
        request_hash, attempt, retry_at, lease_owner, lease_until, lease_token,
        error_code, error_message, result_snapshot, created_at, updated_at,
        completed_at
-FROM inference_operations
+FROM inference_operation_projection
 WHERE tenant_id = $1
   AND ($2::uuid IS NULL OR service_id = $2::uuid)
   AND ($3::timestamptz IS NULL
@@ -1453,7 +1489,7 @@ type ListOperationsParams struct {
 	PageSize        int32
 }
 
-func (q *Queries) ListOperations(ctx context.Context, arg ListOperationsParams) ([]InferenceOperation, error) {
+func (q *Queries) ListOperations(ctx context.Context, arg ListOperationsParams) ([]InferenceOperationProjection, error) {
 	rows, err := q.db.Query(ctx, listOperations,
 		arg.TenantID,
 		arg.ServiceID,
@@ -1465,9 +1501,9 @@ func (q *Queries) ListOperations(ctx context.Context, arg ListOperationsParams) 
 		return nil, err
 	}
 	defer rows.Close()
-	var items []InferenceOperation
+	var items []InferenceOperationProjection
 	for rows.Next() {
-		var i InferenceOperation
+		var i InferenceOperationProjection
 		if err := rows.Scan(
 			&i.TenantID,
 			&i.ID,
@@ -1503,7 +1539,7 @@ const listOperationsPage = `-- name: ListOperationsPage :many
 SELECT tenant_id, id, service_id, kind, phase, step, target_generation,
        request_hash, attempt, retry_at, lease_owner, lease_until, lease_token,
        error_code, error_message, result_snapshot, created_at, updated_at, completed_at
-FROM inference_operations
+FROM inference_operation_projection
 WHERE tenant_id = $1 AND ($2::uuid IS NULL OR service_id = $2::uuid)
 ORDER BY created_at DESC, id DESC
 LIMIT $3 OFFSET $4
@@ -1516,7 +1552,7 @@ type ListOperationsPageParams struct {
 	Offset   int32
 }
 
-func (q *Queries) ListOperationsPage(ctx context.Context, arg ListOperationsPageParams) ([]InferenceOperation, error) {
+func (q *Queries) ListOperationsPage(ctx context.Context, arg ListOperationsPageParams) ([]InferenceOperationProjection, error) {
 	rows, err := q.db.Query(ctx, listOperationsPage,
 		arg.TenantID,
 		arg.Column2,
@@ -1527,9 +1563,9 @@ func (q *Queries) ListOperationsPage(ctx context.Context, arg ListOperationsPage
 		return nil, err
 	}
 	defer rows.Close()
-	var items []InferenceOperation
+	var items []InferenceOperationProjection
 	for rows.Next() {
-		var i InferenceOperation
+		var i InferenceOperationProjection
 		if err := rows.Scan(
 			&i.TenantID,
 			&i.ID,
@@ -2154,6 +2190,26 @@ func (q *Queries) SaveGPUPlanCAS(ctx context.Context, arg SaveGPUPlanCASParams) 
 		arg.OperationID,
 		arg.LeaseToken,
 	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const saveOperationAcceptanceResponse = `-- name: SaveOperationAcceptanceResponse :execrows
+UPDATE inference_operations SET result_snapshot=$1::jsonb
+WHERE tenant_id=$2 AND id=$3
+ AND result_snapshot IS NULL
+`
+
+type SaveOperationAcceptanceResponseParams struct {
+	Response    []byte
+	TenantID    pgtype.UUID
+	OperationID pgtype.UUID
+}
+
+func (q *Queries) SaveOperationAcceptanceResponse(ctx context.Context, arg SaveOperationAcceptanceResponseParams) (int64, error) {
+	result, err := q.db.Exec(ctx, saveOperationAcceptanceResponse, arg.Response, arg.TenantID, arg.OperationID)
 	if err != nil {
 		return 0, err
 	}

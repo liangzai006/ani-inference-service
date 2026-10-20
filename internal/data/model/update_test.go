@@ -56,3 +56,29 @@ func TestUpdatePreservesCallerEngineConfiguration(t *testing.T) {
 		t.Fatalf("caller engine configuration was changed: %+v", next.in)
 	}
 }
+
+type updateReplayCapture struct {
+	updateCapture
+	response *inferencev1.OperationResponse
+}
+
+func (c *updateReplayCapture) PrepareUpdate(context.Context, inference.UpdateInput) (*inferencev1.OperationResponse, bool, error) {
+	return c.response, true, nil
+}
+func TestUpdatePersistentReplayPrecedesModel(t *testing.T) {
+	api := &modelAPIFake{}
+	expected := &inferencev1.OperationResponse{Operation: &inferencev1.Operation{Id: "accepted-update"}}
+	next := &updateReplayCapture{response: expected}
+	out, err := NewUpdateUseCase(NewClient(api), next).Update(context.Background(), inference.UpdateInput{ModelVersionID: "original"})
+	if err != nil || out != expected || api.request != nil || next.called {
+		t.Fatalf("update replay visited Model: out=%v err=%v request=%v", out, err, api.request)
+	}
+}
+func TestEngineOnlyUpdateDoesNotReadModel(t *testing.T) {
+	api := &modelAPIFake{}
+	next := &updateCapture{}
+	_, err := NewUpdateUseCase(NewClient(api), next).Update(context.Background(), inference.UpdateInput{UpdateMask: []string{"engine"}, EngineRuntime: "vllm", ImageRef: "image:v1", EngineCommand: "serve /models"})
+	if err != nil || !next.called || api.request != nil {
+		t.Fatalf("engine-only update visited Model: err=%v request=%v called=%v", err, api.request, next.called)
+	}
+}

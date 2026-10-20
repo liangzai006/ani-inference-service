@@ -604,3 +604,20 @@ func TestRunnerRejectsInvalidOperationIdentity(t *testing.T) {
 		t.Fatal("identity error reached provider")
 	}
 }
+
+func TestManagedCPUQuotaNeverCallsInstalledProvider(t *testing.T) {
+	q := &runnerQuota{}
+	store := &runnerStore{}
+	r := &Runner{Store: store, Quota: q}
+	for _, kind := range []string{"create", "update", "start", "stop", "restart", "delete"} {
+		for _, step := range []OperationStep{StepReserveQuota, StepReleasePreviousQuota, StepReleaseQuota} {
+			_, err := r.runStep(context.Background(), OperationContext{Managed: true, ManagedGPU: false, Kind: kind, Step: string(step)})
+			if err != nil {
+				t.Fatalf("%s/%s: %v", kind, step, err)
+			}
+		}
+	}
+	if q.reserveCalls != 0 || q.confirmCalls != 0 || q.released || len(store.quotaSaved) != 0 {
+		t.Fatalf("managed CPU reached legacy quota: %+v saved=%v", q, store.quotaSaved)
+	}
+}
