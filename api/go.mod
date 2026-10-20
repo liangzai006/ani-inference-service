@@ -3,15 +3,12 @@ module github.com/liangzai006/ani-inference-service/api
 go 1.26.9
 
 require (
-	github.com/google/uuid v1.6.0
 	github.com/zhangzhe-ctrl/ani-accelerator-service v0.0.0-20261018033121-4f084c9f5f25
 	google.golang.org/grpc v1.83.2
 	google.golang.org/protobuf v1.36.12
 	k8s.io/api v0.36.3
 	k8s.io/apimachinery v0.36.3
 )
-
-replace github.com/liangzai006/ani-model-service/api => ../../ani-model-service/api
 
 require (
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
