@@ -28,6 +28,44 @@ func testGPUPlan(t *testing.T, container string) (*gpu.Request, *gpu.Snapshot) {
 	return request, snapshot
 }
 
+func assertKServeNonRoot(t *testing.T, component map[string]interface{}) {
+	t.Helper()
+	security, found, err := unstructured.NestedMap(component, "securityContext")
+	if err != nil || !found {
+		t.Fatalf("securityContext missing: found=%v err=%v", found, err)
+	}
+	if security["runAsUser"] != int64(65532) || security["runAsGroup"] != int64(65532) || security["runAsNonRoot"] != true {
+		t.Fatalf("securityContext = %#v", security)
+	}
+	seccomp, ok := security["seccompProfile"].(map[string]interface{})
+	if !ok || seccomp["type"] != "RuntimeDefault" {
+		t.Fatalf("seccompProfile = %#v", security["seccompProfile"])
+	}
+	if token, found, err := unstructured.NestedBool(component, "automountServiceAccountToken"); err != nil || !found || token {
+		t.Fatalf("automountServiceAccountToken = %v found=%v err=%v", token, found, err)
+	}
+	containers, found, err := unstructured.NestedSlice(component, "containers")
+	if err != nil || !found || len(containers) != 1 {
+		t.Fatalf("containers = %#v", containers)
+	}
+	container, ok := containers[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("container type = %T", containers[0])
+	}
+	containerSecurity, ok := container["securityContext"].(map[string]interface{})
+	if !ok || containerSecurity["allowPrivilegeEscalation"] != false {
+		t.Fatalf("container securityContext = %#v", container["securityContext"])
+	}
+	drops, ok := containerSecurity["capabilities"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("container capabilities = %#v", containerSecurity["capabilities"])
+	}
+	drop, ok := drops["drop"].([]interface{})
+	if !ok || len(drop) != 1 || drop[0] != "ALL" {
+		t.Fatalf("capability drop = %#v", drops["drop"])
+	}
+}
+
 func TestRenderKServeWrapsRawEngineCommandAndModelMount(t *testing.T) {
 	obj, err := renderKServeInferenceService(RuntimeSpec{
 		TenantID: "tenant", ServiceID: "service", Name: "model", Namespace: "models", Image: "registry/vllm:1",
@@ -53,6 +91,7 @@ func TestRenderKServeWrapsRawEngineCommandAndModelMount(t *testing.T) {
 	if got, _ := predictor["serviceAccountName"].(string); got != "ani-inference-runtime" {
 		t.Fatalf("predictor service account = %q, want ani-inference-runtime", got)
 	}
+	assertKServeNonRoot(t, predictor)
 	containers, found, err := unstructured.NestedSlice(predictor, "containers")
 	if err != nil || !found || len(containers) != 1 {
 		t.Fatalf("containers = %#v, found=%v, err=%v", containers, found, err)
@@ -154,6 +193,7 @@ func TestRenderKServeAppliesFrozenGPUPlan(t *testing.T) {
 	if got, _ := predictor["schedulerName"].(string); got != "volcano" {
 		t.Fatalf("schedulerName = %q", got)
 	}
+	assertKServeNonRoot(t, predictor)
 	nodeSelector, found, err := unstructured.NestedMap(predictor, "nodeSelector")
 	if err != nil || !found || nodeSelector["accelerator.ani.io/baseline-id"] != "baseline-a" {
 		t.Fatalf("nodeSelector = %#v, found=%v, err=%v", nodeSelector, found, err)
@@ -266,6 +306,7 @@ func TestRenderKServeLeaderWorkerSetUsesLLMInferenceService(t *testing.T) {
 		if err != nil || !found || pod["serviceAccountName"] != "ani-inference-runtime" {
 			t.Fatalf("service account at %v = %#v, found=%v, err=%v", path, pod["serviceAccountName"], found, err)
 		}
+		assertKServeNonRoot(t, pod)
 	}
 	model, found, err := unstructured.NestedMap(obj.Object, "spec", "model")
 	if err != nil || !found || model["uri"] != "pvc://ani-model-claim/data" || model["name"] != "qwen" {

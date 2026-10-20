@@ -438,7 +438,10 @@ func applyGPUSnapshotToPod(spec RuntimeSpec, pod *corev1.PodSpec, expectedContai
 	return annotations, nil
 }
 
-func applyGPUSnapshotToPredictor(predictor map[string]interface{}, pod *corev1.PodSpec, annotations map[string]string) {
+func applyGPUSnapshotToPredictor(predictor map[string]interface{}, pod *corev1.PodSpec, annotations map[string]string) error {
+	if pod == nil {
+		return errors.New("KServe predictor pod is nil")
+	}
 	if pod.SchedulerName != "" {
 		predictor["schedulerName"] = pod.SchedulerName
 	}
@@ -455,11 +458,22 @@ func applyGPUSnapshotToPredictor(predictor map[string]interface{}, pod *corev1.P
 	if strings.TrimSpace(pod.ServiceAccountName) != "" {
 		predictor["serviceAccountName"] = pod.ServiceAccountName
 	}
+	if pod.SecurityContext != nil {
+		securityContext, err := runtime.DefaultUnstructuredConverter.ToUnstructured(pod.SecurityContext)
+		if err != nil {
+			return fmt.Errorf("convert KServe pod security context: %w", err)
+		}
+		predictor["securityContext"] = securityContext
+	}
+	if pod.AutomountServiceAccountToken != nil {
+		predictor["automountServiceAccountToken"] = *pod.AutomountServiceAccountToken
+	}
 	if len(annotations) > 0 {
 		// PredictorSpec embeds ComponentExtensionSpec, whose annotations are
 		// copied to the generated predictor Pod template by KServe.
 		predictor["annotations"] = mapStringInterface(annotations)
 	}
+	return nil
 }
 
 func mapStringInterface(values map[string]string) map[string]interface{} {
@@ -498,6 +512,7 @@ func renderKServeInferenceService(spec RuntimeSpec) (*unstructured.Unstructured,
 	}
 	pod := corev1.PodSpec{Containers: []corev1.Container{container}}
 	pod.ServiceAccountName = strings.TrimSpace(spec.ServiceAccountName)
+	ApplyNonRootSecurity(&pod)
 	// KServe owns the predictor Service for an InferenceService, so an
 	// explicit Inference-owned endpoint is optional on this path. Keep the
 	// health probes only when the caller supplied a port; mounting the
@@ -521,7 +536,9 @@ func renderKServeInferenceService(spec RuntimeSpec) (*unstructured.Unstructured,
 		return nil, fmt.Errorf("convert KServe container: %w", err)
 	}
 	predictor := map[string]interface{}{"containers": []interface{}{containerMap}, "minReplicas": int64(spec.Replicas), "maxReplicas": int64(spec.Replicas)}
-	applyGPUSnapshotToPredictor(predictor, &pod, gpuAnnotations)
+	if err := applyGPUSnapshotToPredictor(predictor, &pod, gpuAnnotations); err != nil {
+		return nil, err
+	}
 	if len(pod.Volumes) > 0 {
 		volumes := make([]interface{}, 0, len(pod.Volumes))
 		for i := range pod.Volumes {
@@ -604,6 +621,8 @@ func renderKServeLLMInferenceService(spec RuntimeSpec) (*unstructured.Unstructur
 	// endpoint is still renderable; KServe receives the model URI below and the
 	// caller-provided container remains untouched.
 	pod := corev1.PodSpec{Containers: []corev1.Container{container}}
+	pod.ServiceAccountName = strings.TrimSpace(spec.ServiceAccountName)
+	ApplyNonRootSecurity(&pod)
 	if spec.ContainerPort > 0 {
 		if err := mountModel(&pod, spec); err != nil {
 			return nil, err
@@ -655,8 +674,12 @@ func renderKServeLLMInferenceService(spec RuntimeSpec) (*unstructured.Unstructur
 		serviceSpec["template"].(map[string]interface{})["serviceAccountName"] = serviceAccountName
 		serviceSpec["worker"].(map[string]interface{})["serviceAccountName"] = serviceAccountName
 	}
-	applyGPUSnapshotToPredictor(serviceSpec["template"].(map[string]interface{}), &pod, nil)
-	applyGPUSnapshotToPredictor(serviceSpec["worker"].(map[string]interface{}), &pod, nil)
+	if err := applyGPUSnapshotToPredictor(serviceSpec["template"].(map[string]interface{}), &pod, nil); err != nil {
+		return nil, err
+	}
+	if err := applyGPUSnapshotToPredictor(serviceSpec["worker"].(map[string]interface{}), &pod, nil); err != nil {
+		return nil, err
+	}
 	// KServe v0.16 requires parallelism whenever worker is present. The
 	// existing API models WorkerReplicas as workers excluding the leader, so a
 	// pipeline-parallel group of worker+leader pods preserves that topology.
