@@ -35,10 +35,10 @@ Inference 创建的下列工作负载统一使用同一安全策略：
 Pod 级安全上下文：
 
 ```yaml
-runAsUser: 65532
-runAsGroup: 65532
+runAsUser: 65534
+runAsGroup: 65534
 runAsNonRoot: true
-fsGroup: 65532
+fsGroup: 65534
 seccompProfile:
   type: RuntimeDefault
 ```
@@ -74,8 +74,8 @@ capabilities:
 
 集群验证：
 
-1. 用真实 CPU vLLM 镜像以 UID/GID `65532` 启动探针，确认 `/tmp` 可写。
-2. 用真实模型物化镜像以 UID/GID `65532` 启动探针，确认导入脚本可运行。
+1. 用真实 CPU vLLM 镜像以 UID/GID `65534`（镜像内的 `nobody`）启动探针，确认 Python 用户解析、CLI 初始化和 `/tmp` 可写。
+2. 用真实模型物化镜像以 UID/GID `65534` 启动探针，确认导入脚本可运行。
 3. 通过 Governance/Console 导入或选择模型并创建推理服务。
 4. 检查 KServe CR、Deployment、Pod 的 `runAsNonRoot/runAsUser/allowPrivilegeEscalation`。
 5. 通过 Higress 的 `/v1/completions` 或 `/v1/chat/completions` 调用 `served_model_name`。

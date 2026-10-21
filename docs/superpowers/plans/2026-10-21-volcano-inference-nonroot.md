@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Keep Volcano as an independently installed scheduler and make every workload created by Inference run as UID/GID 65532 without changing the caller's engine command, then verify the CPU inference path in the new cluster.
+**Goal:** Keep Volcano as an independently installed scheduler and make every workload created by Inference run as a non-root image-defined UID/GID (65534, the `nobody` user) without changing the caller's engine command, then verify the CPU inference path in the new cluster.
 
 **Architecture:** Add one Kubernetes adapter helper that applies the shared pod/container security contract. Use it in the legacy Deployment/LWS renderers, KServe InferenceService/LLMInferenceService projections, and the model materializer Job. Keep the control-plane ServiceAccount able to access Kubernetes while disabling token mounting for runtime Pods and materializer Jobs; keep CPU on the default scheduler and project Volcano only from a validated GPU execution snapshot.
 
@@ -12,7 +12,7 @@
 
 - The repository gateway boundary remains unchanged: Higress only serves OpenAI-compatible `/v1/...`; Governance serves management `/api/v1/...`.
 - Volcano remains a separately installed platform component and is not added to `charts/ani-inference`.
-- Every Inference-created runtime workload and materializer Job uses `runAsUser: 65532`, `runAsGroup: 65532`, `runAsNonRoot: true`, `fsGroup: 65532`, and `seccompProfile.type: RuntimeDefault`; the control-plane Deployment receives the same pod/container hardening but keeps its Kubernetes API token.
+- Every Inference-created runtime workload and materializer Job uses `runAsUser: 65534`, `runAsGroup: 65534`, `runAsNonRoot: true`, `fsGroup: 65534`, and `seccompProfile.type: RuntimeDefault`; the control-plane Deployment receives the same pod/container hardening but keeps its Kubernetes API token.
 - Every Inference-created container uses `allowPrivilegeEscalation: false` and drops capability `ALL`.
 - Runtime Pods and materializer Jobs set `automountServiceAccountToken: false`; the control-plane Deployment keeps `automountServiceAccountToken: true` because it calls the Kubernetes API.
 - Do not set `readOnlyRootFilesystem`; preserve writable `/tmp` and `/dev/shm` mounts needed by inference engines and import scripts.
@@ -44,13 +44,13 @@ func TestApplyNonRootSecurity(t *testing.T) {
 
 	ApplyNonRootSecurity(pod)
 
-	if pod.SecurityContext == nil || pod.SecurityContext.RunAsUser == nil || *pod.SecurityContext.RunAsUser != 65532 {
-		t.Fatalf("RunAsUser = %#v, want 65532", pod.SecurityContext)
+	if pod.SecurityContext == nil || pod.SecurityContext.RunAsUser == nil || *pod.SecurityContext.RunAsUser != 65534 {
+		t.Fatalf("RunAsUser = %#v, want 65534", pod.SecurityContext)
 	}
-	if pod.SecurityContext.RunAsGroup == nil || *pod.SecurityContext.RunAsGroup != 65532 ||
+	if pod.SecurityContext.RunAsGroup == nil || *pod.SecurityContext.RunAsGroup != 65534 ||
 		pod.SecurityContext.RunAsNonRoot == nil || !*pod.SecurityContext.RunAsNonRoot ||
-		pod.SecurityContext.FSGroup == nil || *pod.SecurityContext.FSGroup != 65532 {
-		t.Fatalf("pod security context = %#v, want non-root 65532", pod.SecurityContext)
+		pod.SecurityContext.FSGroup == nil || *pod.SecurityContext.FSGroup != 65534 {
+		t.Fatalf("pod security context = %#v, want non-root 65534", pod.SecurityContext)
 	}
 	if pod.SecurityContext.SeccompProfile == nil || pod.SecurityContext.SeccompProfile.Type != corev1.SeccompProfileTypeRuntimeDefault {
 		t.Fatalf("seccomp profile = %#v, want RuntimeDefault", pod.SecurityContext.SeccompProfile)
@@ -87,7 +87,7 @@ import (
 	 "k8s.io/utils/ptr"
 )
 
-const inferenceRuntimeUID int64 = 65532
+const inferenceRuntimeUID int64 = 65534
 
 func ApplyNonRootSecurity(pod *corev1.PodSpec) {
 	if pod == nil {
@@ -145,7 +145,7 @@ Add a table-driven assertion helper in `renderer_test.go`:
 ```go
 func assertNonRootPod(t *testing.T, pod *corev1.PodSpec) {
 	t.Helper()
-	if pod.SecurityContext == nil || pod.SecurityContext.RunAsUser == nil || *pod.SecurityContext.RunAsUser != 65532 {
+	if pod.SecurityContext == nil || pod.SecurityContext.RunAsUser == nil || *pod.SecurityContext.RunAsUser != 65534 {
 		t.Fatalf("pod security context = %#v", pod.SecurityContext)
 	}
 	if pod.AutomountServiceAccountToken == nil || *pod.AutomountServiceAccountToken {
@@ -205,7 +205,7 @@ func assertKServeNonRoot(t *testing.T, component map[string]interface{}) {
 	if err != nil || !found {
 		t.Fatalf("securityContext missing: found=%v err=%v", found, err)
 	}
-	if security["runAsUser"] != int64(65532) || security["runAsGroup"] != int64(65532) ||
+	if security["runAsUser"] != int64(65534) || security["runAsGroup"] != int64(65534) ||
 		security["runAsNonRoot"] != true {
 		t.Fatalf("securityContext = %#v", security)
 	}
@@ -284,7 +284,7 @@ After the first `EnsureModel` call in `TestMaterializerRequiresVerifiedJobBefore
 
 ```go
 pod := job.Spec.Template.Spec
-if pod.SecurityContext == nil || pod.SecurityContext.RunAsUser == nil || *pod.SecurityContext.RunAsUser != 65532 {
+if pod.SecurityContext == nil || pod.SecurityContext.RunAsUser == nil || *pod.SecurityContext.RunAsUser != 65534 {
 	t.Fatalf("pod security context = %#v", pod.SecurityContext)
 }
 if pod.AutomountServiceAccountToken == nil || *pod.AutomountServiceAccountToken {
@@ -352,10 +352,10 @@ Keep the existing certificate duration fields untouched and set:
 
 ```yaml
 podSecurityContext:
-  runAsUser: 65532
-  runAsGroup: 65532
+  runAsUser: 65534
+  runAsGroup: 65534
   runAsNonRoot: true
-  fsGroup: 65532
+  fsGroup: 65534
   seccompProfile:
     type: RuntimeDefault
 
@@ -380,7 +380,7 @@ helm template ani-inference charts/ani-inference --namespace ani-system \
   --set model.tls.existingSecret=inference-model-mtls \
   --set serverTLS.existingSecret=ani-inference-server-tls \
   > /tmp/ani-inference-rendered.yaml
-rg -n 'runAsUser: 65532|runAsGroup: 65532|runAsNonRoot: true|fsGroup: 65532|RuntimeDefault|allowPrivilegeEscalation: false|drop:' /tmp/ani-inference-rendered.yaml
+rg -n 'runAsUser: 65534|runAsGroup: 65534|runAsNonRoot: true|fsGroup: 65534|RuntimeDefault|allowPrivilegeEscalation: false|drop:' /tmp/ani-inference-rendered.yaml
 ```
 
 Expected: lint passes and the rendered control-plane Deployment contains all listed security fields; `automountServiceAccountToken: true` remains present for the control-plane Pod.
@@ -456,8 +456,8 @@ metadata:
 spec:
   restartPolicy: Never
   securityContext:
-    runAsUser: 65532
-    runAsGroup: 65532
+    runAsUser: 65534
+    runAsGroup: 65534
     runAsNonRoot: true
     seccompProfile:
       type: RuntimeDefault
@@ -471,7 +471,7 @@ spec:
       capabilities: {drop: ["ALL"]}
 ```
 
-Run the same probe with `docker.changqingyun.cn/ani/model-import-worker:model-search-20261014-r1`, then delete both Pods. Expected logs contain UID/GID 65532 and `tmp-writable`, and no probe Pods remain.
+Run the same probe with `docker.changqingyun.cn/ani/model-import-worker:model-search-20261014-r1`, then delete both Pods. Expected logs contain UID/GID 65534 and `tmp-writable`, and no probe Pods remain.
 
 - [ ] **Step 2: Build and push the updated inference image**
 

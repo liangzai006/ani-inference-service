@@ -34,7 +34,7 @@ func assertKServeNonRoot(t *testing.T, component map[string]interface{}) {
 	if err != nil || !found {
 		t.Fatalf("securityContext missing: found=%v err=%v", found, err)
 	}
-	if security["runAsUser"] != int64(65532) || security["runAsGroup"] != int64(65532) || security["runAsNonRoot"] != true {
+	if security["runAsUser"] != int64(65534) || security["runAsGroup"] != int64(65534) || security["runAsNonRoot"] != true {
 		t.Fatalf("securityContext = %#v", security)
 	}
 	seccomp, ok := security["seccompProfile"].(map[string]interface{})

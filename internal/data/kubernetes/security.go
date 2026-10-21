@@ -5,7 +5,10 @@ import (
 	"k8s.io/utils/ptr"
 )
 
-const inferenceRuntimeUID int64 = 65532
+// 65534 is the image-independent nobody user present in the runtime images.
+// Using it instead of an arbitrary numeric UID keeps Python runtimes that call
+// getpass.getuser() functional while still enforcing non-root execution.
+const inferenceRuntimeUID int64 = 65534
 
 // ApplyNonRootSecurity applies the runtime security contract to a workload pod.
 // It intentionally leaves commands, resources, mounts, scheduling fields and

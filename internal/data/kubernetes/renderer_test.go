@@ -16,12 +16,12 @@ import (
 
 func assertNonRootPod(t *testing.T, pod *corev1.PodSpec) {
 	t.Helper()
-	if pod.SecurityContext == nil || pod.SecurityContext.RunAsUser == nil || *pod.SecurityContext.RunAsUser != 65532 {
+	if pod.SecurityContext == nil || pod.SecurityContext.RunAsUser == nil || *pod.SecurityContext.RunAsUser != 65534 {
 		t.Fatalf("pod security context = %#v", pod.SecurityContext)
 	}
-	if pod.SecurityContext.RunAsGroup == nil || *pod.SecurityContext.RunAsGroup != 65532 ||
+	if pod.SecurityContext.RunAsGroup == nil || *pod.SecurityContext.RunAsGroup != 65534 ||
 		pod.SecurityContext.RunAsNonRoot == nil || !*pod.SecurityContext.RunAsNonRoot ||
-		pod.SecurityContext.FSGroup == nil || *pod.SecurityContext.FSGroup != 65532 {
+		pod.SecurityContext.FSGroup == nil || *pod.SecurityContext.FSGroup != 65534 {
 		t.Fatalf("pod security context = %#v", pod.SecurityContext)
 	}
 	if pod.SecurityContext.SeccompProfile == nil || pod.SecurityContext.SeccompProfile.Type != corev1.SeccompProfileTypeRuntimeDefault {

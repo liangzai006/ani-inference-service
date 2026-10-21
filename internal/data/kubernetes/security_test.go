@@ -16,13 +16,13 @@ func TestApplyNonRootSecurity(t *testing.T) {
 
 	ApplyNonRootSecurity(pod)
 
-	if pod.SecurityContext == nil || pod.SecurityContext.RunAsUser == nil || *pod.SecurityContext.RunAsUser != 65532 {
-		t.Fatalf("RunAsUser = %#v, want 65532", pod.SecurityContext)
+	if pod.SecurityContext == nil || pod.SecurityContext.RunAsUser == nil || *pod.SecurityContext.RunAsUser != 65534 {
+		t.Fatalf("RunAsUser = %#v, want 65534", pod.SecurityContext)
 	}
-	if pod.SecurityContext.RunAsGroup == nil || *pod.SecurityContext.RunAsGroup != 65532 ||
+	if pod.SecurityContext.RunAsGroup == nil || *pod.SecurityContext.RunAsGroup != 65534 ||
 		pod.SecurityContext.RunAsNonRoot == nil || !*pod.SecurityContext.RunAsNonRoot ||
-		pod.SecurityContext.FSGroup == nil || *pod.SecurityContext.FSGroup != 65532 {
-		t.Fatalf("pod security context = %#v, want non-root 65532", pod.SecurityContext)
+		pod.SecurityContext.FSGroup == nil || *pod.SecurityContext.FSGroup != 65534 {
+		t.Fatalf("pod security context = %#v, want non-root 65534", pod.SecurityContext)
 	}
 	if pod.SecurityContext.SeccompProfile == nil || pod.SecurityContext.SeccompProfile.Type != corev1.SeccompProfileTypeRuntimeDefault {
 		t.Fatalf("seccomp profile = %#v, want RuntimeDefault", pod.SecurityContext.SeccompProfile)

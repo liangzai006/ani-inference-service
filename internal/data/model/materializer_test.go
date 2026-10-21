@@ -99,12 +99,12 @@ func TestMaterializerRequiresVerifiedJobBeforeReady(t *testing.T) {
 		t.Fatalf("materialization Job service account = %q, want ani-inference-runtime", job.Spec.Template.Spec.ServiceAccountName)
 	}
 	pod := job.Spec.Template.Spec
-	if pod.SecurityContext == nil || pod.SecurityContext.RunAsUser == nil || *pod.SecurityContext.RunAsUser != 65532 {
+	if pod.SecurityContext == nil || pod.SecurityContext.RunAsUser == nil || *pod.SecurityContext.RunAsUser != 65534 {
 		t.Fatalf("materialization pod security context = %#v", pod.SecurityContext)
 	}
-	if pod.SecurityContext.RunAsGroup == nil || *pod.SecurityContext.RunAsGroup != 65532 ||
+	if pod.SecurityContext.RunAsGroup == nil || *pod.SecurityContext.RunAsGroup != 65534 ||
 		pod.SecurityContext.RunAsNonRoot == nil || !*pod.SecurityContext.RunAsNonRoot ||
-		pod.SecurityContext.FSGroup == nil || *pod.SecurityContext.FSGroup != 65532 {
+		pod.SecurityContext.FSGroup == nil || *pod.SecurityContext.FSGroup != 65534 {
 		t.Fatalf("materialization pod security context = %#v", pod.SecurityContext)
 	}
 	if pod.SecurityContext.SeccompProfile == nil || pod.SecurityContext.SeccompProfile.Type != corev1.SeccompProfileTypeRuntimeDefault {
