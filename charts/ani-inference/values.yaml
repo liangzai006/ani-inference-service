@@ -61,6 +61,9 @@ model:
     certificate:
       create: true
       dnsName: ani-inference.ani.internal
+      # 10 years. The client reads this key pair once at startup.
+      duration: 87600h
+      renewBefore: 720h
     issuer:
       name: ani-internal
       kind: ClusterIssuer
@@ -117,6 +120,9 @@ serverTLS:
   certificate:
     create: true
     dnsName: ani-inference.ani.internal
+    # 10 years. The server reads this key pair once at startup.
+    duration: 87600h
+    renewBefore: 720h
     issuer:
       name: ani-internal
       kind: ClusterIssuer

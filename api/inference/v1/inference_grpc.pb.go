@@ -29,12 +29,21 @@ const (
 	InferenceServiceManager_DeleteInferenceService_FullMethodName  = "/inference.v1.InferenceServiceManager/DeleteInferenceService"
 	InferenceServiceManager_GetOperation_FullMethodName            = "/inference.v1.InferenceServiceManager/GetOperation"
 	InferenceServiceManager_ListOperations_FullMethodName          = "/inference.v1.InferenceServiceManager/ListOperations"
+	InferenceServiceManager_GetServiceHealth_FullMethodName        = "/inference.v1.InferenceServiceManager/GetServiceHealth"
+	InferenceServiceManager_GetServicePolicy_FullMethodName        = "/inference.v1.InferenceServiceManager/GetServicePolicy"
+	InferenceServiceManager_UpdateServicePolicy_FullMethodName     = "/inference.v1.InferenceServiceManager/UpdateServicePolicy"
+	InferenceServiceManager_TestInvocation_FullMethodName          = "/inference.v1.InferenceServiceManager/TestInvocation"
+	InferenceServiceManager_TestStreamInvocation_FullMethodName    = "/inference.v1.InferenceServiceManager/TestStreamInvocation"
+	InferenceServiceManager_GetServiceMetrics_FullMethodName       = "/inference.v1.InferenceServiceManager/GetServiceMetrics"
+	InferenceServiceManager_GetServiceLogs_FullMethodName          = "/inference.v1.InferenceServiceManager/GetServiceLogs"
+	InferenceServiceManager_ListServiceEvents_FullMethodName       = "/inference.v1.InferenceServiceManager/ListServiceEvents"
 )
 
 // InferenceServiceManagerClient is the client API for InferenceServiceManager service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type InferenceServiceManagerClient interface {
+	// Lifecycle management
 	CreateInferenceService(ctx context.Context, in *CreateInferenceServiceRequest, opts ...grpc.CallOption) (*OperationResponse, error)
 	GetInferenceService(ctx context.Context, in *GetInferenceServiceRequest, opts ...grpc.CallOption) (*InferenceService, error)
 	ListInferenceServices(ctx context.Context, in *ListInferenceServicesRequest, opts ...grpc.CallOption) (*ListInferenceServicesResponse, error)
@@ -43,8 +52,21 @@ type InferenceServiceManagerClient interface {
 	StopInferenceService(ctx context.Context, in *ServiceCommandRequest, opts ...grpc.CallOption) (*OperationResponse, error)
 	RestartInferenceService(ctx context.Context, in *ServiceCommandRequest, opts ...grpc.CallOption) (*OperationResponse, error)
 	DeleteInferenceService(ctx context.Context, in *DeleteInferenceServiceRequest, opts ...grpc.CallOption) (*OperationResponse, error)
+	// Operations tracking
 	GetOperation(ctx context.Context, in *GetOperationRequest, opts ...grpc.CallOption) (*Operation, error)
 	ListOperations(ctx context.Context, in *ListOperationsRequest, opts ...grpc.CallOption) (*ListOperationsResponse, error)
+	// Health monitoring
+	GetServiceHealth(ctx context.Context, in *GetServiceHealthRequest, opts ...grpc.CallOption) (*GetServiceHealthResponse, error)
+	// Access policy (service-level, not gateway routes)
+	GetServicePolicy(ctx context.Context, in *GetServicePolicyRequest, opts ...grpc.CallOption) (*GetServicePolicyResponse, error)
+	UpdateServicePolicy(ctx context.Context, in *UpdateServicePolicyRequest, opts ...grpc.CallOption) (*UpdateServicePolicyResponse, error)
+	// Manual invocation testing
+	TestInvocation(ctx context.Context, in *TestInvocationRequest, opts ...grpc.CallOption) (*TestInvocationResponse, error)
+	TestStreamInvocation(ctx context.Context, in *TestInvocationRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[TestInvocationChunk], error)
+	// Metrics and observability
+	GetServiceMetrics(ctx context.Context, in *GetServiceMetricsRequest, opts ...grpc.CallOption) (*GetServiceMetricsResponse, error)
+	GetServiceLogs(ctx context.Context, in *GetServiceLogsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[LogEntry], error)
+	ListServiceEvents(ctx context.Context, in *ListServiceEventsRequest, opts ...grpc.CallOption) (*ListServiceEventsResponse, error)
 }
 
 type inferenceServiceManagerClient struct {
@@ -155,10 +177,109 @@ func (c *inferenceServiceManagerClient) ListOperations(ctx context.Context, in *
 	return out, nil
 }
 
+func (c *inferenceServiceManagerClient) GetServiceHealth(ctx context.Context, in *GetServiceHealthRequest, opts ...grpc.CallOption) (*GetServiceHealthResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetServiceHealthResponse)
+	err := c.cc.Invoke(ctx, InferenceServiceManager_GetServiceHealth_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *inferenceServiceManagerClient) GetServicePolicy(ctx context.Context, in *GetServicePolicyRequest, opts ...grpc.CallOption) (*GetServicePolicyResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetServicePolicyResponse)
+	err := c.cc.Invoke(ctx, InferenceServiceManager_GetServicePolicy_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *inferenceServiceManagerClient) UpdateServicePolicy(ctx context.Context, in *UpdateServicePolicyRequest, opts ...grpc.CallOption) (*UpdateServicePolicyResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdateServicePolicyResponse)
+	err := c.cc.Invoke(ctx, InferenceServiceManager_UpdateServicePolicy_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *inferenceServiceManagerClient) TestInvocation(ctx context.Context, in *TestInvocationRequest, opts ...grpc.CallOption) (*TestInvocationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TestInvocationResponse)
+	err := c.cc.Invoke(ctx, InferenceServiceManager_TestInvocation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *inferenceServiceManagerClient) TestStreamInvocation(ctx context.Context, in *TestInvocationRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[TestInvocationChunk], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &InferenceServiceManager_ServiceDesc.Streams[0], InferenceServiceManager_TestStreamInvocation_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[TestInvocationRequest, TestInvocationChunk]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type InferenceServiceManager_TestStreamInvocationClient = grpc.ServerStreamingClient[TestInvocationChunk]
+
+func (c *inferenceServiceManagerClient) GetServiceMetrics(ctx context.Context, in *GetServiceMetricsRequest, opts ...grpc.CallOption) (*GetServiceMetricsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetServiceMetricsResponse)
+	err := c.cc.Invoke(ctx, InferenceServiceManager_GetServiceMetrics_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *inferenceServiceManagerClient) GetServiceLogs(ctx context.Context, in *GetServiceLogsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[LogEntry], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &InferenceServiceManager_ServiceDesc.Streams[1], InferenceServiceManager_GetServiceLogs_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[GetServiceLogsRequest, LogEntry]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type InferenceServiceManager_GetServiceLogsClient = grpc.ServerStreamingClient[LogEntry]
+
+func (c *inferenceServiceManagerClient) ListServiceEvents(ctx context.Context, in *ListServiceEventsRequest, opts ...grpc.CallOption) (*ListServiceEventsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListServiceEventsResponse)
+	err := c.cc.Invoke(ctx, InferenceServiceManager_ListServiceEvents_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // InferenceServiceManagerServer is the server API for InferenceServiceManager service.
 // All implementations must embed UnimplementedInferenceServiceManagerServer
 // for forward compatibility.
 type InferenceServiceManagerServer interface {
+	// Lifecycle management
 	CreateInferenceService(context.Context, *CreateInferenceServiceRequest) (*OperationResponse, error)
 	GetInferenceService(context.Context, *GetInferenceServiceRequest) (*InferenceService, error)
 	ListInferenceServices(context.Context, *ListInferenceServicesRequest) (*ListInferenceServicesResponse, error)
@@ -167,8 +288,21 @@ type InferenceServiceManagerServer interface {
 	StopInferenceService(context.Context, *ServiceCommandRequest) (*OperationResponse, error)
 	RestartInferenceService(context.Context, *ServiceCommandRequest) (*OperationResponse, error)
 	DeleteInferenceService(context.Context, *DeleteInferenceServiceRequest) (*OperationResponse, error)
+	// Operations tracking
 	GetOperation(context.Context, *GetOperationRequest) (*Operation, error)
 	ListOperations(context.Context, *ListOperationsRequest) (*ListOperationsResponse, error)
+	// Health monitoring
+	GetServiceHealth(context.Context, *GetServiceHealthRequest) (*GetServiceHealthResponse, error)
+	// Access policy (service-level, not gateway routes)
+	GetServicePolicy(context.Context, *GetServicePolicyRequest) (*GetServicePolicyResponse, error)
+	UpdateServicePolicy(context.Context, *UpdateServicePolicyRequest) (*UpdateServicePolicyResponse, error)
+	// Manual invocation testing
+	TestInvocation(context.Context, *TestInvocationRequest) (*TestInvocationResponse, error)
+	TestStreamInvocation(*TestInvocationRequest, grpc.ServerStreamingServer[TestInvocationChunk]) error
+	// Metrics and observability
+	GetServiceMetrics(context.Context, *GetServiceMetricsRequest) (*GetServiceMetricsResponse, error)
+	GetServiceLogs(*GetServiceLogsRequest, grpc.ServerStreamingServer[LogEntry]) error
+	ListServiceEvents(context.Context, *ListServiceEventsRequest) (*ListServiceEventsResponse, error)
 	mustEmbedUnimplementedInferenceServiceManagerServer()
 }
 
@@ -208,6 +342,30 @@ func (UnimplementedInferenceServiceManagerServer) GetOperation(context.Context, 
 }
 func (UnimplementedInferenceServiceManagerServer) ListOperations(context.Context, *ListOperationsRequest) (*ListOperationsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListOperations not implemented")
+}
+func (UnimplementedInferenceServiceManagerServer) GetServiceHealth(context.Context, *GetServiceHealthRequest) (*GetServiceHealthResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetServiceHealth not implemented")
+}
+func (UnimplementedInferenceServiceManagerServer) GetServicePolicy(context.Context, *GetServicePolicyRequest) (*GetServicePolicyResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetServicePolicy not implemented")
+}
+func (UnimplementedInferenceServiceManagerServer) UpdateServicePolicy(context.Context, *UpdateServicePolicyRequest) (*UpdateServicePolicyResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateServicePolicy not implemented")
+}
+func (UnimplementedInferenceServiceManagerServer) TestInvocation(context.Context, *TestInvocationRequest) (*TestInvocationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method TestInvocation not implemented")
+}
+func (UnimplementedInferenceServiceManagerServer) TestStreamInvocation(*TestInvocationRequest, grpc.ServerStreamingServer[TestInvocationChunk]) error {
+	return status.Error(codes.Unimplemented, "method TestStreamInvocation not implemented")
+}
+func (UnimplementedInferenceServiceManagerServer) GetServiceMetrics(context.Context, *GetServiceMetricsRequest) (*GetServiceMetricsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetServiceMetrics not implemented")
+}
+func (UnimplementedInferenceServiceManagerServer) GetServiceLogs(*GetServiceLogsRequest, grpc.ServerStreamingServer[LogEntry]) error {
+	return status.Error(codes.Unimplemented, "method GetServiceLogs not implemented")
+}
+func (UnimplementedInferenceServiceManagerServer) ListServiceEvents(context.Context, *ListServiceEventsRequest) (*ListServiceEventsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListServiceEvents not implemented")
 }
 func (UnimplementedInferenceServiceManagerServer) mustEmbedUnimplementedInferenceServiceManagerServer() {
 }
@@ -411,6 +569,136 @@ func _InferenceServiceManager_ListOperations_Handler(srv interface{}, ctx contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _InferenceServiceManager_GetServiceHealth_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetServiceHealthRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InferenceServiceManagerServer).GetServiceHealth(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InferenceServiceManager_GetServiceHealth_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InferenceServiceManagerServer).GetServiceHealth(ctx, req.(*GetServiceHealthRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _InferenceServiceManager_GetServicePolicy_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetServicePolicyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InferenceServiceManagerServer).GetServicePolicy(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InferenceServiceManager_GetServicePolicy_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InferenceServiceManagerServer).GetServicePolicy(ctx, req.(*GetServicePolicyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _InferenceServiceManager_UpdateServicePolicy_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateServicePolicyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InferenceServiceManagerServer).UpdateServicePolicy(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InferenceServiceManager_UpdateServicePolicy_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InferenceServiceManagerServer).UpdateServicePolicy(ctx, req.(*UpdateServicePolicyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _InferenceServiceManager_TestInvocation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TestInvocationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InferenceServiceManagerServer).TestInvocation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InferenceServiceManager_TestInvocation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InferenceServiceManagerServer).TestInvocation(ctx, req.(*TestInvocationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _InferenceServiceManager_TestStreamInvocation_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(TestInvocationRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(InferenceServiceManagerServer).TestStreamInvocation(m, &grpc.GenericServerStream[TestInvocationRequest, TestInvocationChunk]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type InferenceServiceManager_TestStreamInvocationServer = grpc.ServerStreamingServer[TestInvocationChunk]
+
+func _InferenceServiceManager_GetServiceMetrics_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetServiceMetricsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InferenceServiceManagerServer).GetServiceMetrics(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InferenceServiceManager_GetServiceMetrics_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InferenceServiceManagerServer).GetServiceMetrics(ctx, req.(*GetServiceMetricsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _InferenceServiceManager_GetServiceLogs_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(GetServiceLogsRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(InferenceServiceManagerServer).GetServiceLogs(m, &grpc.GenericServerStream[GetServiceLogsRequest, LogEntry]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type InferenceServiceManager_GetServiceLogsServer = grpc.ServerStreamingServer[LogEntry]
+
+func _InferenceServiceManager_ListServiceEvents_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListServiceEventsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InferenceServiceManagerServer).ListServiceEvents(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InferenceServiceManager_ListServiceEvents_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InferenceServiceManagerServer).ListServiceEvents(ctx, req.(*ListServiceEventsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // InferenceServiceManager_ServiceDesc is the grpc.ServiceDesc for InferenceServiceManager service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -458,7 +746,42 @@ var InferenceServiceManager_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "ListOperations",
 			Handler:    _InferenceServiceManager_ListOperations_Handler,
 		},
+		{
+			MethodName: "GetServiceHealth",
+			Handler:    _InferenceServiceManager_GetServiceHealth_Handler,
+		},
+		{
+			MethodName: "GetServicePolicy",
+			Handler:    _InferenceServiceManager_GetServicePolicy_Handler,
+		},
+		{
+			MethodName: "UpdateServicePolicy",
+			Handler:    _InferenceServiceManager_UpdateServicePolicy_Handler,
+		},
+		{
+			MethodName: "TestInvocation",
+			Handler:    _InferenceServiceManager_TestInvocation_Handler,
+		},
+		{
+			MethodName: "GetServiceMetrics",
+			Handler:    _InferenceServiceManager_GetServiceMetrics_Handler,
+		},
+		{
+			MethodName: "ListServiceEvents",
+			Handler:    _InferenceServiceManager_ListServiceEvents_Handler,
+		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "TestStreamInvocation",
+			Handler:       _InferenceServiceManager_TestStreamInvocation_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "GetServiceLogs",
+			Handler:       _InferenceServiceManager_GetServiceLogs_Handler,
+			ServerStreams: true,
+		},
+	},
 	Metadata: "inference/v1/inference.proto",
 }

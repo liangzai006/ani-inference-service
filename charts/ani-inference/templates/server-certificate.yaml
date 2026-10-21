@@ -15,6 +15,10 @@ spec:
     - digital signature
     - key encipherment
     - server auth
+  # The server loads this key pair once at startup and never reloads it, so a
+  # rotation would silently break every mTLS peer until the pod restarts.
+  duration: {{ .Values.serverTLS.certificate.duration }}
+  renewBefore: {{ .Values.serverTLS.certificate.renewBefore }}
   issuerRef:
     name: {{ required "serverTLS.issuer.name is required" (trim .Values.serverTLS.certificate.issuer.name) }}
     kind: {{ required "serverTLS.issuer.kind is required" .Values.serverTLS.certificate.issuer.kind }}

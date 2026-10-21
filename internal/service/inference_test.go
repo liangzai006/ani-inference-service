@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	contractv1 "github.com/liangzai006/ani-inference-service/api/inference/contract/v1"
 	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
 	gpubiz "github.com/liangzai006/ani-inference-service/internal/biz/gpu"
 	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
@@ -198,7 +199,7 @@ func TestManagedCreatePersistsACCExecutionDigest(t *testing.T) {
 		ClusterId: cluster.String(), GpuExecution: execution,
 		GpuDisplay: &acceleratorv1.GpuDisplay{ProfileId: profile.String(), ProfileVersion: 1, ProfileName: "test", ModelKey: "nvidia-test", Mode: acceleratorv1.SupplyMode_SHARED_FIXED},
 	}
-	req.Context.RequestDigest, err = inferencev1.ManagedCreateCommandHash(req, tenant.String(), "user", "42")
+	req.Context.RequestDigest, err = contractv1.ManagedCreateCommandHash(req, tenant.String(), "user", "42")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -645,7 +646,7 @@ func TestManagedUpdateValidatesPatchDigestAndOperation(t *testing.T) {
 	tenant, resource, operation := uuid.NewString(), uuid.NewString(), uuid.NewString()
 	req := &inferencev1.UpdateInferenceServiceRequest{RequestId: "managed-patch", ResourceId: resource, ExpectedGeneration: 1, Engine: validEngine(), UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"engine"}}, Context: &inferencev1.CommandContext{TenantId: tenant, ResourceId: resource, OperationId: operation}}
 	var err error
-	req.Context.RequestDigest, err = inferencev1.ManagedUpdateCommandHash(req, tenant, "user", "42")
+	req.Context.RequestDigest, err = contractv1.ManagedUpdateCommandHash(req, tenant, "user", "42")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -668,7 +669,7 @@ func TestManagedCPUNeedsNoGPUReadinessOrAttachment(t *testing.T) {
 	tenant, resource, operation := uuid.NewString(), uuid.NewString(), uuid.NewString()
 	req := &inferencev1.CreateInferenceServiceRequest{RequestId: uuid.NewString(), Name: "managed-cpu", ModelVersionId: uuid.NewString(), Replicas: 1, Engine: validEngine(), Resource: &inferencev1.ResourceSpec{Requests: map[string]string{"cpu": "500m", "memory": "1024Mi"}, Limits: map[string]string{"cpu": "500m", "memory": "1024Mi"}}, Context: &inferencev1.CommandContext{TenantId: tenant, ResourceId: resource, OperationId: operation}}
 	var err error
-	req.Context.RequestDigest, err = inferencev1.ManagedCreateCommandHash(req, tenant, "user", "42")
+	req.Context.RequestDigest, err = contractv1.ManagedCreateCommandHash(req, tenant, "user", "42")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -677,7 +678,7 @@ func TestManagedCPUNeedsNoGPUReadinessOrAttachment(t *testing.T) {
 	owner.SetManagedGPUReady(false)
 	for _, tc := range []struct{ actor, kind, id string }{{"user:42", "user", "42"}, {"governance:user:42", "user", "42"}, {"governance:access-key:1", "api_key", "1"}, {"governance:api_key:1", "api_key", "1"}} {
 		actor := tc.actor
-		req.Context.RequestDigest, err = inferencev1.ManagedCreateCommandHash(req, tenant, tc.kind, tc.id)
+		req.Context.RequestDigest, err = contractv1.ManagedCreateCommandHash(req, tenant, tc.kind, tc.id)
 		if err != nil {
 			t.Fatal(err)
 		}

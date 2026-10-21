@@ -4,6 +4,14 @@ version: v2
 # generated contracts from drifting from the pinned API module.
 modules:
   - path: api
+  - path: internal
+    # Private configuration has its own protobuf namespace while the Go
+    # package remains internal/conf.
+    lint:
+      use:
+        - MINIMAL
+      except:
+        - PACKAGE_DIRECTORY_MATCH
 lint:
   use:
     - MINIMAL

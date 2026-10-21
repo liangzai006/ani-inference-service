@@ -1,0 +1,219 @@
+--- a/internal/data/postgres/managed_gpu_test.go
++++ b/internal/data/postgres/managed_gpu_test.go
+@@ -14,6 +14,7 @@
+ 
+ 	"github.com/google/uuid"
+ 	"github.com/jackc/pgx/v5/pgxpool"
++	contractv1 "github.com/liangzai006/ani-inference-service/api/inference/contract/v1"
+ 	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
+ 	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
+ 	"github.com/liangzai006/ani-inference-service/internal/data/kubernetes"
+@@ -57,7 +58,7 @@
+ 
+ func refreshManagedFixtureDigests(t *testing.T, req *inferencev1.CreateInferenceServiceRequest) {
+ 	t.Helper()
+-	digest, err := inferencev1.ManagedCreateCommandHash(req, req.Context.TenantId, "user", "42")
++	digest, err := contractv1.ManagedCreateCommandHash(req, req.Context.TenantId, "user", "42")
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+@@ -71,7 +72,7 @@
+ 	if req.Resource.Gpu == nil {
+ 		out.ManagedDeleteScope.ResourceClass = inferencev1.ManagedResourceClass_MANAGED_RESOURCE_CLASS_CPU
+ 	}
+-	digest, err := inferencev1.ManagedDeleteCommandHash(out, req.Context.TenantId, "user", "42")
++	digest, err := contractv1.ManagedDeleteCommandHash(out, req.Context.TenantId, "user", "42")
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+@@ -166,7 +167,7 @@
+ 	}
+ 	update := &inferencev1.UpdateInferenceServiceRequest{RequestId: uuid.NewString(), ResourceId: resource.String(), ExpectedGeneration: 1, ServedModelName: "renamed", UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"served_model_name"}}, Context: &inferencev1.CommandContext{TenantId: tenant.String(), ResourceId: resource.String(), OperationId: uuid.NewString()}}
+ 	var err error
+-	update.Context.RequestDigest, err = inferencev1.ManagedUpdateCommandHash(update, tenant.String(), "user", "42")
++	update.Context.RequestDigest, err = contractv1.ManagedUpdateCommandHash(update, tenant.String(), "user", "42")
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+--- a/internal/service/inference.go
++++ b/internal/service/inference.go
+@@ -10,6 +10,7 @@
+ 	"strings"
+ 
+ 	"github.com/jackc/pgx/v5"
++	contractv1 "github.com/liangzai006/ani-inference-service/api/inference/contract/v1"
+ 	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
+ 	"github.com/liangzai006/ani-inference-service/internal/biz/admission"
+ 	gpubiz "github.com/liangzai006/ani-inference-service/internal/biz/gpu"
+@@ -262,7 +263,7 @@
+ 	if req.GetRequestId() == "" || req.GetResourceId() == "" || req.GetExpectedGeneration() < 1 {
+ 		return nil, status.Error(codes.InvalidArgument, "request_id, resource_id and positive expected_generation are required")
+ 	}
+-	if err := inferencev1.ValidateUpdatePatch(req); err != nil {
++	if err := contractv1.ValidateUpdatePatch(req); err != nil {
+ 		return nil, status.Error(codes.InvalidArgument, err.Error())
+ 	}
+ 	if s.update == nil {
+@@ -273,7 +274,7 @@
+ 		if !gpubiz.GovernanceIdentity(ctx) {
+ 			return nil, status.Error(codes.PermissionDenied, "managed updates require Governance")
+ 		}
+-		if err := inferencev1.ValidateCommandContext(req.GetContext()); err != nil {
++		if err := contractv1.ValidateCommandContext(req.GetContext()); err != nil {
+ 			return nil, status.Error(codes.InvalidArgument, err.Error())
+ 		}
+ 		if req.GetContext().GetTenantId() != tenantID || req.GetContext().GetResourceId() != req.GetResourceId() {
+@@ -302,7 +303,7 @@
+ 	}
+ 	requestHash := hashBytes(append([]byte(Actor(ctx)+"\x00"), encoded...))
+ 	if managed {
+-		expected, err := inferencev1.ManagedUpdateCommandHash(req, tenantID, actorType(Actor(ctx)), actorID(Actor(ctx)))
++		expected, err := contractv1.ManagedUpdateCommandHash(req, tenantID, actorType(Actor(ctx)), actorID(Actor(ctx)))
+ 		if err != nil {
+ 			return nil, status.Error(codes.InvalidArgument, err.Error())
+ 		}
+@@ -517,7 +518,7 @@
+ 	if req.GetRequestId() == "" || req.GetName() == "" || req.GetModelVersionId() == "" {
+ 		return nil, status.Error(codes.InvalidArgument, "request_id, name and model_version_id are required")
+ 	}
+-	if err := inferencev1.ValidateKubernetesName(req.GetName()); err != nil {
++	if err := contractv1.ValidateKubernetesName(req.GetName()); err != nil {
+ 		return nil, status.Error(codes.InvalidArgument, err.Error())
+ 	}
+ 	if err := validateEngineInput(req.GetEngine()); err != nil {
+--- a/internal/service/inference_test.go
++++ b/internal/service/inference_test.go
+@@ -7,6 +7,7 @@
+ 	"testing"
+ 
+ 	"github.com/google/uuid"
++	contractv1 "github.com/liangzai006/ani-inference-service/api/inference/contract/v1"
+ 	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
+ 	gpubiz "github.com/liangzai006/ani-inference-service/internal/biz/gpu"
+ 	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
+@@ -198,7 +199,7 @@
+ 		ClusterId: cluster.String(), GpuExecution: execution,
+ 		GpuDisplay: &acceleratorv1.GpuDisplay{ProfileId: profile.String(), ProfileVersion: 1, ProfileName: "test", ModelKey: "nvidia-test", Mode: acceleratorv1.SupplyMode_SHARED_FIXED},
+ 	}
+-	req.Context.RequestDigest, err = inferencev1.ManagedCreateCommandHash(req, tenant.String(), "user", "42")
++	req.Context.RequestDigest, err = contractv1.ManagedCreateCommandHash(req, tenant.String(), "user", "42")
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+@@ -645,7 +646,7 @@
+ 	tenant, resource, operation := uuid.NewString(), uuid.NewString(), uuid.NewString()
+ 	req := &inferencev1.UpdateInferenceServiceRequest{RequestId: "managed-patch", ResourceId: resource, ExpectedGeneration: 1, Engine: validEngine(), UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"engine"}}, Context: &inferencev1.CommandContext{TenantId: tenant, ResourceId: resource, OperationId: operation}}
+ 	var err error
+-	req.Context.RequestDigest, err = inferencev1.ManagedUpdateCommandHash(req, tenant, "user", "42")
++	req.Context.RequestDigest, err = contractv1.ManagedUpdateCommandHash(req, tenant, "user", "42")
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+@@ -668,7 +669,7 @@
+ 	tenant, resource, operation := uuid.NewString(), uuid.NewString(), uuid.NewString()
+ 	req := &inferencev1.CreateInferenceServiceRequest{RequestId: uuid.NewString(), Name: "managed-cpu", ModelVersionId: uuid.NewString(), Replicas: 1, Engine: validEngine(), Resource: &inferencev1.ResourceSpec{Requests: map[string]string{"cpu": "500m", "memory": "1024Mi"}, Limits: map[string]string{"cpu": "500m", "memory": "1024Mi"}}, Context: &inferencev1.CommandContext{TenantId: tenant, ResourceId: resource, OperationId: operation}}
+ 	var err error
+-	req.Context.RequestDigest, err = inferencev1.ManagedCreateCommandHash(req, tenant, "user", "42")
++	req.Context.RequestDigest, err = contractv1.ManagedCreateCommandHash(req, tenant, "user", "42")
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+@@ -677,7 +678,7 @@
+ 	owner.SetManagedGPUReady(false)
+ 	for _, tc := range []struct{ actor, kind, id string }{{"user:42", "user", "42"}, {"governance:user:42", "user", "42"}, {"governance:access-key:1", "api_key", "1"}, {"governance:api_key:1", "api_key", "1"}} {
+ 		actor := tc.actor
+-		req.Context.RequestDigest, err = inferencev1.ManagedCreateCommandHash(req, tenant, tc.kind, tc.id)
++		req.Context.RequestDigest, err = contractv1.ManagedCreateCommandHash(req, tenant, tc.kind, tc.id)
+ 		if err != nil {
+ 			t.Fatal(err)
+ 		}
+--- a/internal/service/managed_gpu.go
++++ b/internal/service/managed_gpu.go
+@@ -5,6 +5,7 @@
+ 	"fmt"
+ 	"strings"
+ 
++	contractv1 "github.com/liangzai006/ani-inference-service/api/inference/contract/v1"
+ 	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
+ 	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
+ 	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
+@@ -37,14 +38,14 @@
+ 		return nil, status.Error(codes.PermissionDenied, "GPU commands require the authenticated Governance service")
+ 	}
+ 	context := req.GetContext()
+-	if err := inferencev1.ValidateCommandContext(context); err != nil {
++	if err := contractv1.ValidateCommandContext(context); err != nil {
+ 		return nil, status.Error(codes.InvalidArgument, err.Error())
+ 	}
+ 	tenant, ok := TenantID(ctx)
+ 	if !ok || tenant != context.GetTenantId() {
+ 		return nil, status.Error(codes.PermissionDenied, "GPU command tenant does not match authenticated scope")
+ 	}
+-	if err := inferencev1.ValidateManagedCreate(req); err != nil {
++	if err := contractv1.ValidateManagedCreate(req); err != nil {
+ 		return nil, status.Error(codes.InvalidArgument, err.Error())
+ 	}
+ 	class := "cpu"
+@@ -63,19 +64,19 @@
+ 			return nil, err
+ 		}
+ 	}
+-	if err := inferencev1.ValidateBusinessPayload(req); err != nil {
+-		return nil, status.Error(codes.InvalidArgument, err.Error())
+-	}
+-	business, err := inferencev1.CanonicalBusinessPayload(req)
+-	if err != nil {
+-		return nil, status.Error(codes.InvalidArgument, err.Error())
+-	}
+-	digest, err := inferencev1.BusinessPayloadDigest(req)
++	if err := contractv1.ValidateBusinessPayload(req); err != nil {
++		return nil, status.Error(codes.InvalidArgument, err.Error())
++	}
++	business, err := contractv1.CanonicalBusinessPayload(req)
++	if err != nil {
++		return nil, status.Error(codes.InvalidArgument, err.Error())
++	}
++	digest, err := contractv1.BusinessPayloadDigest(req)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+ 	actor := Actor(ctx)
+-	requestHash, err := inferencev1.ManagedCreateCommandHash(req, tenant, actorType(actor), actorID(actor))
++	requestHash, err := contractv1.ManagedCreateCommandHash(req, tenant, actorType(actor), actorID(actor))
+ 	if err != nil {
+ 		return nil, err
+ 	}
+@@ -100,7 +101,7 @@
+ 	if req == nil {
+ 		return nil, status.Error(codes.InvalidArgument, "update request is required")
+ 	}
+-	if err := inferencev1.ValidateFrozenGPU(req.GetClusterId(), req.GetGpuExecution(), req.GetGpuDisplay(), req.GetResource().GetGpu()); err != nil {
++	if err := contractv1.ValidateFrozenGPU(req.GetClusterId(), req.GetGpuExecution(), req.GetGpuDisplay(), req.GetResource().GetGpu()); err != nil {
+ 		return nil, status.Error(codes.InvalidArgument, err.Error())
+ 	}
+ 	create := &inferencev1.CreateInferenceServiceRequest{
+@@ -129,13 +130,13 @@
+ 		}
+ 		return s.acceptCommand(ctx, "delete", &inferencev1.ServiceCommandRequest{RequestId: req.GetRequestId(), ResourceId: req.GetResourceId(), ExpectedGeneration: req.GetExpectedGeneration()})
+ 	}
+-	if err := inferencev1.ValidateManagedDelete(req); err != nil {
++	if err := contractv1.ValidateManagedDelete(req); err != nil {
+ 		return nil, status.Error(codes.InvalidArgument, err.Error())
+ 	}
+ 	if req.GetManagedDeleteScope().GetResourceClass() == inferencev1.ManagedResourceClass_MANAGED_RESOURCE_CLASS_GPU && !s.managedGPUConfigured() {
+ 		return nil, status.Error(codes.FailedPrecondition, "managed GPU dependencies are not ready")
+ 	}
+-	if err := inferencev1.ValidateCommandContext(req.GetContext()); err != nil {
++	if err := contractv1.ValidateCommandContext(req.GetContext()); err != nil {
+ 		return nil, status.Error(codes.InvalidArgument, err.Error())
+ 	}
+ 	if !gpu.GovernanceIdentity(ctx) {
+@@ -149,7 +150,7 @@
+ 		return nil, status.Error(codes.InvalidArgument, "invalid managed DELETE identity")
+ 	}
+ 	actor := Actor(ctx)
+-	expected, err := inferencev1.ManagedDeleteCommandHash(req, tenant, actorType(actor), actorID(actor))
++	expected, err := contractv1.ManagedDeleteCommandHash(req, tenant, actorType(actor), actorID(actor))
+ 	if err != nil {
+ 		return nil, err
+ 	}

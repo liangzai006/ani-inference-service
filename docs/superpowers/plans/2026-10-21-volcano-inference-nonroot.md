@@ -4,7 +4,7 @@
 
 **Goal:** Keep Volcano as an independently installed scheduler and make every workload created by Inference run as a non-root image-defined UID/GID (65534, the `nobody` user) without changing the caller's engine command, then verify the CPU inference path in the new cluster.
 
-**Architecture:** Add one Kubernetes adapter helper that applies the shared pod/container security contract. Use it in the legacy Deployment/LWS renderers, KServe InferenceService/LLMInferenceService projections, and the model materializer Job. Keep the control-plane ServiceAccount able to access Kubernetes while disabling token mounting for runtime Pods and materializer Jobs; keep CPU on the default scheduler and project Volcano only from a validated GPU execution snapshot.
+**Architecture:** Add one Kubernetes adapter helper that applies the shared pod/container security contract. Use it in the legacy Deployment/LWS renderers, KServe InferenceService/LLMInferenceService projections, and the model materializer Job. Keep the control-plane ServiceAccount able to access Kubernetes while disabling token mounting for runtime Pods and materializer Jobs. Updated by the user's 2026-10-21 instruction: all CPU/GPU inference workloads use Volcano; CPU uses the default queue, while GPU placement and queue remain sourced from a validated Accelerator execution snapshot. Control-plane and download Jobs retain their default scheduler.
 
 **Tech Stack:** Go 1.26.9 module, client-go/corev1 typed objects, KServe unstructured rendering, LeaderWorkerSet, Kubernetes Jobs, Helm 3, Volcano 1.12.1, existing CPU vLLM and model-import-worker images.
 
@@ -426,7 +426,7 @@ kubectl config current-context
 helm status volcano -n volcano-system
 kubectl get pods -n volcano-system -o wide
 kubectl get crd podgroups.scheduling.volcano.sh queues.scheduling.volcano.sh
-kubectl get validatingwebhookconfiguration volcano-admission-service
+kubectl get validatingwebhookconfiguration volcano-admission-service-jobs-validate volcano-admission-service-podgroups-validate volcano-admission-service-queues-validate
 ```
 
 Expected: context is `kubernetes-admin@kubekey`, Volcano release is deployed, all three core Pods are Ready, CRDs and admission webhook exist. Record the scheduler ConfigMap name and do not create an alias in this task.

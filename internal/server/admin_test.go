@@ -16,7 +16,7 @@ import (
 	kratoshttp "github.com/go-kratos/kratos/v3/transport/http"
 	"google.golang.org/protobuf/types/known/durationpb"
 
-	conf "github.com/liangzai006/ani-inference-service/api/inference/v1"
+	"github.com/liangzai006/ani-inference-service/internal/conf"
 )
 
 type invalidRequest struct{}

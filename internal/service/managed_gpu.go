@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	contractv1 "github.com/liangzai006/ani-inference-service/api/inference/contract/v1"
 	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
 	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
 	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
@@ -37,14 +38,14 @@ func (s *InferenceServer) managedCreate(ctx context.Context, req *inferencev1.Cr
 		return nil, status.Error(codes.PermissionDenied, "GPU commands require the authenticated Governance service")
 	}
 	context := req.GetContext()
-	if err := inferencev1.ValidateCommandContext(context); err != nil {
+	if err := contractv1.ValidateCommandContext(context); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 	tenant, ok := TenantID(ctx)
 	if !ok || tenant != context.GetTenantId() {
 		return nil, status.Error(codes.PermissionDenied, "GPU command tenant does not match authenticated scope")
 	}
-	if err := inferencev1.ValidateManagedCreate(req); err != nil {
+	if err := contractv1.ValidateManagedCreate(req); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 	class := "cpu"
@@ -63,19 +64,19 @@ func (s *InferenceServer) managedCreate(ctx context.Context, req *inferencev1.Cr
 			return nil, err
 		}
 	}
-	if err := inferencev1.ValidateBusinessPayload(req); err != nil {
+	if err := contractv1.ValidateBusinessPayload(req); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	business, err := inferencev1.CanonicalBusinessPayload(req)
+	business, err := contractv1.CanonicalBusinessPayload(req)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	digest, err := inferencev1.BusinessPayloadDigest(req)
+	digest, err := contractv1.BusinessPayloadDigest(req)
 	if err != nil {
 		return nil, err
 	}
 	actor := Actor(ctx)
-	requestHash, err := inferencev1.ManagedCreateCommandHash(req, tenant, actorType(actor), actorID(actor))
+	requestHash, err := contractv1.ManagedCreateCommandHash(req, tenant, actorType(actor), actorID(actor))
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +101,7 @@ func managedUpdateSnapshot(req *inferencev1.UpdateInferenceServiceRequest) (*gpu
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "update request is required")
 	}
-	if err := inferencev1.ValidateFrozenGPU(req.GetClusterId(), req.GetGpuExecution(), req.GetGpuDisplay(), req.GetResource().GetGpu()); err != nil {
+	if err := contractv1.ValidateFrozenGPU(req.GetClusterId(), req.GetGpuExecution(), req.GetGpuDisplay(), req.GetResource().GetGpu()); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 	create := &inferencev1.CreateInferenceServiceRequest{
@@ -129,13 +130,13 @@ func (s *InferenceServer) DeleteInferenceService(ctx context.Context, req *infer
 		}
 		return s.acceptCommand(ctx, "delete", &inferencev1.ServiceCommandRequest{RequestId: req.GetRequestId(), ResourceId: req.GetResourceId(), ExpectedGeneration: req.GetExpectedGeneration()})
 	}
-	if err := inferencev1.ValidateManagedDelete(req); err != nil {
+	if err := contractv1.ValidateManagedDelete(req); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 	if req.GetManagedDeleteScope().GetResourceClass() == inferencev1.ManagedResourceClass_MANAGED_RESOURCE_CLASS_GPU && !s.managedGPUConfigured() {
 		return nil, status.Error(codes.FailedPrecondition, "managed GPU dependencies are not ready")
 	}
-	if err := inferencev1.ValidateCommandContext(req.GetContext()); err != nil {
+	if err := contractv1.ValidateCommandContext(req.GetContext()); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 	if !gpu.GovernanceIdentity(ctx) {
@@ -149,7 +150,7 @@ func (s *InferenceServer) DeleteInferenceService(ctx context.Context, req *infer
 		return nil, status.Error(codes.InvalidArgument, "invalid managed DELETE identity")
 	}
 	actor := Actor(ctx)
-	expected, err := inferencev1.ManagedDeleteCommandHash(req, tenant, actorType(actor), actorID(actor))
+	expected, err := contractv1.ManagedDeleteCommandHash(req, tenant, actorType(actor), actorID(actor))
 	if err != nil {
 		return nil, err
 	}

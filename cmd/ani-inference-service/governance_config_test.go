@@ -4,19 +4,19 @@ import (
 	"testing"
 	"time"
 
-	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
+	"github.com/liangzai006/ani-inference-service/internal/conf"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
-func validManagedConfig() *inferencev1.ManagedGPU {
-	return &inferencev1.ManagedGPU{Refund: &inferencev1.ManagedGPU_Refund{Address: "quota-address", CaFile: "quota-ca", CertFile: "refund-cert", KeyFile: "refund-key", ServerName: "quota-service", Timeout: durationpb.New(3 * time.Second)}}
+func validManagedConfig() *conf.ManagedGPU {
+	return &conf.ManagedGPU{Refund: &conf.ManagedGPU_Refund{Address: "quota-address", CaFile: "quota-ca", CertFile: "refund-cert", KeyFile: "refund-key", ServerName: "quota-service", Timeout: durationpb.New(3 * time.Second)}}
 }
 
 func TestManagedGPUConfigIsTypedCompleteAndOptional(t *testing.T) {
 	if _, enabled, err := governanceRefundConfig(nil); err != nil || enabled {
 		t.Fatalf("CPU configuration: enabled=%v err=%v", enabled, err)
 	}
-	if _, enabled, err := governanceRefundConfig(&inferencev1.ManagedGPU{Refund: &inferencev1.ManagedGPU_Refund{Timeout: durationpb.New(5 * time.Second)}}); err != nil || enabled {
+	if _, enabled, err := governanceRefundConfig(&conf.ManagedGPU{Refund: &conf.ManagedGPU_Refund{Timeout: durationpb.New(5 * time.Second)}}); err != nil || enabled {
 		t.Fatalf("empty YAML config: enabled=%v err=%v", enabled, err)
 	}
 	cfg, enabled, err := governanceRefundConfig(validManagedConfig())
@@ -25,14 +25,14 @@ func TestManagedGPUConfigIsTypedCompleteAndOptional(t *testing.T) {
 	}
 	for _, test := range []struct {
 		name  string
-		alter func(*inferencev1.ManagedGPU)
+		alter func(*conf.ManagedGPU)
 	}{
-		{"missing-address", func(c *inferencev1.ManagedGPU) { c.Refund.Address = "" }},
-		{"missing-client-ca", func(c *inferencev1.ManagedGPU) { c.Refund.CaFile = "" }},
-		{"missing-client-cert", func(c *inferencev1.ManagedGPU) { c.Refund.CertFile = "" }},
-		{"missing-client-key", func(c *inferencev1.ManagedGPU) { c.Refund.KeyFile = "" }},
-		{"missing-server-name", func(c *inferencev1.ManagedGPU) { c.Refund.ServerName = "" }},
-		{"negative-timeout", func(c *inferencev1.ManagedGPU) { c.Refund.Timeout = durationpb.New(-time.Second) }},
+		{"missing-address", func(c *conf.ManagedGPU) { c.Refund.Address = "" }},
+		{"missing-client-ca", func(c *conf.ManagedGPU) { c.Refund.CaFile = "" }},
+		{"missing-client-cert", func(c *conf.ManagedGPU) { c.Refund.CertFile = "" }},
+		{"missing-client-key", func(c *conf.ManagedGPU) { c.Refund.KeyFile = "" }},
+		{"missing-server-name", func(c *conf.ManagedGPU) { c.Refund.ServerName = "" }},
+		{"negative-timeout", func(c *conf.ManagedGPU) { c.Refund.Timeout = durationpb.New(-time.Second) }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			c := validManagedConfig()

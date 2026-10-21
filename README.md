@@ -47,8 +47,14 @@ ANI_MODEL_DOWNLOAD_CA_CONFIGMAP=  # optional; trusted CA bundle for HTTPS artifa
 ANI_MODEL_DOWNLOAD_CA_KEY=ca-certificates.crt  # ConfigMap data key; read-only in download Jobs
 ```
 
+Volcano must be installed independently before creating inference workloads.
+Both CPU and GPU inference Pods use `schedulerName: volcano`; CPU uses Volcano's
+built-in `default` queue. GPU queue, placement and device resources still come
+from the frozen Accelerator execution, which must select Volcano. Materializer
+Jobs and the control plane retain Kubernetes' default scheduler.
+
 GPU resolution is opt-in per request. A request without `resource.gpu` does
-not call the Accelerator service and does not add GPU scheduling fields. Only
+not call the Accelerator service and does not add GPU device resources. Only
 when that nested object is supplied may the following optional mTLS settings
 be configured:
 

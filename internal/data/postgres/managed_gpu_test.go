@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	contractv1 "github.com/liangzai006/ani-inference-service/api/inference/contract/v1"
 	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
 	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
 	"github.com/liangzai006/ani-inference-service/internal/data/kubernetes"
@@ -57,7 +58,7 @@ func managedCreateFixture(t *testing.T, tenant, resource uuid.UUID) *inferencev1
 
 func refreshManagedFixtureDigests(t *testing.T, req *inferencev1.CreateInferenceServiceRequest) {
 	t.Helper()
-	digest, err := inferencev1.ManagedCreateCommandHash(req, req.Context.TenantId, "user", "42")
+	digest, err := contractv1.ManagedCreateCommandHash(req, req.Context.TenantId, "user", "42")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +72,7 @@ func managedDeleteFixture(t *testing.T, req *inferencev1.CreateInferenceServiceR
 	if req.Resource.Gpu == nil {
 		out.ManagedDeleteScope.ResourceClass = inferencev1.ManagedResourceClass_MANAGED_RESOURCE_CLASS_CPU
 	}
-	digest, err := inferencev1.ManagedDeleteCommandHash(out, req.Context.TenantId, "user", "42")
+	digest, err := contractv1.ManagedDeleteCommandHash(out, req.Context.TenantId, "user", "42")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +167,7 @@ func TestPostgresManagedGPUUpdatePreservesOperationACKAndReplay(t *testing.T) {
 	}
 	update := &inferencev1.UpdateInferenceServiceRequest{RequestId: uuid.NewString(), ResourceId: resource.String(), ExpectedGeneration: 1, ServedModelName: "renamed", UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"served_model_name"}}, Context: &inferencev1.CommandContext{TenantId: tenant.String(), ResourceId: resource.String(), OperationId: uuid.NewString()}}
 	var err error
-	update.Context.RequestDigest, err = inferencev1.ManagedUpdateCommandHash(update, tenant.String(), "user", "42")
+	update.Context.RequestDigest, err = contractv1.ManagedUpdateCommandHash(update, tenant.String(), "user", "42")
 	if err != nil {
 		t.Fatal(err)
 	}

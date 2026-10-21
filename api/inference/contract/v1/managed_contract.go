@@ -1,4 +1,4 @@
-package inferencev1
+package contractv1
 
 import (
 	"fmt"
@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
 	acceleratorv1 "github.com/zhangzhe-ctrl/ani-accelerator-service/api/gen/go/accelerator/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 )
@@ -27,7 +28,7 @@ type ExecutionTopology struct {
 	TotalDevices      int64
 }
 
-func NormalizeTopology(runtime *RuntimeSpec, replicas int32, devicesPerUnit uint32) (*ExecutionTopology, error) {
+func NormalizeTopology(runtime *inferencev1.RuntimeSpec, replicas int32, devicesPerUnit uint32) (*ExecutionTopology, error) {
 	if replicas < 1 {
 		return nil, fmt.Errorf("replicas must be positive")
 	}
@@ -37,11 +38,11 @@ func NormalizeTopology(runtime *RuntimeSpec, replicas int32, devicesPerUnit uint
 	}
 	pods, container := int64(replicas), "kserve-container"
 	switch runtime.GetMode() {
-	case RuntimeMode_RUNTIME_MODE_UNSPECIFIED, RuntimeMode_RUNTIME_MODE_DEPLOYMENT:
+	case inferencev1.RuntimeMode_RUNTIME_MODE_UNSPECIFIED, inferencev1.RuntimeMode_RUNTIME_MODE_DEPLOYMENT:
 		if runtime.GetWorkerReplicas() < 0 || runtime.GetWorkerReplicas() > 1 {
 			return nil, fmt.Errorf("deployment cannot specify multiple workers")
 		}
-	case RuntimeMode_RUNTIME_MODE_LEADER_WORKER_SET:
+	case inferencev1.RuntimeMode_RUNTIME_MODE_LEADER_WORKER_SET:
 		if runtime.GetWorkerReplicas() < 1 {
 			return nil, fmt.Errorf("LWS worker_replicas must be positive")
 		}
@@ -67,23 +68,23 @@ func NormalizeTopology(runtime *RuntimeSpec, replicas int32, devicesPerUnit uint
 
 // ManagedResourceClassForCreate rejects mixed CPU/GPU attachments. It does not
 // infer classification from charges; those remain exclusively in Governance.
-func ManagedResourceClassForCreate(req *CreateInferenceServiceRequest) (ManagedResourceClass, error) {
+func ManagedResourceClassForCreate(req *inferencev1.CreateInferenceServiceRequest) (inferencev1.ManagedResourceClass, error) {
 	if req == nil || req.GetResource() == nil {
-		return ManagedResourceClass_MANAGED_RESOURCE_CLASS_UNSPECIFIED, fmt.Errorf("resource is required")
+		return inferencev1.ManagedResourceClass_MANAGED_RESOURCE_CLASS_UNSPECIFIED, fmt.Errorf("resource is required")
 	}
 	if req.GetResource().GetGpu() == nil {
 		if req.GetClusterId() != "" || req.GetGpuExecution() != nil || req.GetGpuDisplay() != nil {
-			return ManagedResourceClass_MANAGED_RESOURCE_CLASS_UNSPECIFIED, fmt.Errorf("CPU commands cannot carry GPU attachments")
+			return inferencev1.ManagedResourceClass_MANAGED_RESOURCE_CLASS_UNSPECIFIED, fmt.Errorf("CPU commands cannot carry GPU attachments")
 		}
-		return ManagedResourceClass_MANAGED_RESOURCE_CLASS_CPU, nil
+		return inferencev1.ManagedResourceClass_MANAGED_RESOURCE_CLASS_CPU, nil
 	}
 	if req.GetClusterId() == "" || req.GetGpuExecution() == nil || req.GetGpuDisplay() == nil {
-		return ManagedResourceClass_MANAGED_RESOURCE_CLASS_UNSPECIFIED, fmt.Errorf("GPU commands require frozen cluster, execution and display")
+		return inferencev1.ManagedResourceClass_MANAGED_RESOURCE_CLASS_UNSPECIFIED, fmt.Errorf("GPU commands require frozen cluster, execution and display")
 	}
-	return ManagedResourceClass_MANAGED_RESOURCE_CLASS_GPU, nil
+	return inferencev1.ManagedResourceClass_MANAGED_RESOURCE_CLASS_GPU, nil
 }
 
-func ValidateManagedCreate(req *CreateInferenceServiceRequest) error {
+func ValidateManagedCreate(req *inferencev1.CreateInferenceServiceRequest) error {
 	if req == nil {
 		return fmt.Errorf("create request is required")
 	}
@@ -124,14 +125,14 @@ func ValidateManagedCreate(req *CreateInferenceServiceRequest) error {
 		}
 	}
 	devices := uint32(0)
-	if class == ManagedResourceClass_MANAGED_RESOURCE_CLASS_GPU {
+	if class == inferencev1.ManagedResourceClass_MANAGED_RESOURCE_CLASS_GPU {
 		devices = req.GetResource().GetGpu().GetDevicesPerReplica()
 	}
 	topology, err := NormalizeTopology(req.GetRuntime(), req.GetReplicas(), devices)
 	if err != nil {
 		return err
 	}
-	if class == ManagedResourceClass_MANAGED_RESOURCE_CLASS_GPU {
+	if class == inferencev1.ManagedResourceClass_MANAGED_RESOURCE_CLASS_GPU {
 		gpu := req.GetResource().GetGpu()
 		if gpu.GetReplicas() != topology.ExecutionReplicas || gpu.GetContainerName() != topology.ContainerName {
 			return fmt.Errorf("GPU request differs from runtime topology")
@@ -149,7 +150,7 @@ func ValidateManagedCreate(req *CreateInferenceServiceRequest) error {
 	return nil
 }
 
-func ValidateManagedDelete(req *DeleteInferenceServiceRequest) error {
+func ValidateManagedDelete(req *inferencev1.DeleteInferenceServiceRequest) error {
 	if req == nil {
 		return fmt.Errorf("delete request is required")
 	}
@@ -165,7 +166,7 @@ func ValidateManagedDelete(req *DeleteInferenceServiceRequest) error {
 	return validateDeleteScope(req.GetManagedDeleteScope())
 }
 
-func validateDeleteIdentity(req *DeleteInferenceServiceRequest) error {
+func validateDeleteIdentity(req *inferencev1.DeleteInferenceServiceRequest) error {
 	if req.GetResourceId() != req.GetContext().GetResourceId() {
 		return fmt.Errorf("DELETE resource differs from command context")
 	}
@@ -181,7 +182,7 @@ func validateDeleteIdentity(req *DeleteInferenceServiceRequest) error {
 	return nil
 }
 
-func validateDeleteScope(scope *ManagedDeleteScope) error {
+func validateDeleteScope(scope *inferencev1.ManagedDeleteScope) error {
 	if scope == nil {
 		return fmt.Errorf("managed_delete_scope is required")
 	}
@@ -189,11 +190,11 @@ func validateDeleteScope(scope *ManagedDeleteScope) error {
 		return fmt.Errorf("create_command_digest must be a lowercase SHA-256 digest")
 	}
 	switch scope.GetResourceClass() {
-	case ManagedResourceClass_MANAGED_RESOURCE_CLASS_CPU:
+	case inferencev1.ManagedResourceClass_MANAGED_RESOURCE_CLASS_CPU:
 		if scope.GetClusterId() != "" {
 			return fmt.Errorf("CPU DELETE cannot carry cluster_id")
 		}
-	case ManagedResourceClass_MANAGED_RESOURCE_CLASS_GPU:
+	case inferencev1.ManagedResourceClass_MANAGED_RESOURCE_CLASS_GPU:
 		if err := canonicalUUID("cluster_id", scope.GetClusterId()); err != nil {
 			return err
 		}
@@ -206,7 +207,7 @@ func validateDeleteScope(scope *ManagedDeleteScope) error {
 // ValidateUpdatePatch validates an operation patch, never a synthetic CREATE.
 // Resource/provider/endpoint/artifact attachments are rejected even off-mask.
 // Off-mask business values are ignored by the digest and must not be merged.
-func ValidateUpdatePatch(req *UpdateInferenceServiceRequest) error {
+func ValidateUpdatePatch(req *inferencev1.UpdateInferenceServiceRequest) error {
 	if req == nil {
 		return fmt.Errorf("update request is required")
 	}
@@ -259,7 +260,7 @@ func ValidateUpdatePatch(req *UpdateInferenceServiceRequest) error {
 // ManagedCreateCommandHash is the new managed CPU/GPU owner command digest.
 // Correlation request_id and context.request_digest are excluded; fixed R/C
 // are bound explicitly, allowing the caller to calculate then attach digest.
-func ManagedCreateCommandHash(req *CreateInferenceServiceRequest, tenantID, actorType, actorID string) (string, error) {
+func ManagedCreateCommandHash(req *inferencev1.CreateInferenceServiceRequest, tenantID, actorType, actorID string) (string, error) {
 	if req == nil {
 		return "", fmt.Errorf("create request is required")
 	}
@@ -275,7 +276,7 @@ func ManagedCreateCommandHash(req *CreateInferenceServiceRequest, tenantID, acto
 	return governanceHash(identity)
 }
 
-func ManagedDeleteCommandHash(req *DeleteInferenceServiceRequest, tenantID, actorType, actorID string) (string, error) {
+func ManagedDeleteCommandHash(req *inferencev1.DeleteInferenceServiceRequest, tenantID, actorType, actorID string) (string, error) {
 	if req == nil {
 		return "", fmt.Errorf("delete request is required")
 	}
@@ -300,7 +301,7 @@ func ManagedDeleteCommandHash(req *DeleteInferenceServiceRequest, tenantID, acto
 	return governanceHash(identity)
 }
 
-func ManagedUpdateCommandHash(req *UpdateInferenceServiceRequest, tenantID, actorType, actorID string) (string, error) {
+func ManagedUpdateCommandHash(req *inferencev1.UpdateInferenceServiceRequest, tenantID, actorType, actorID string) (string, error) {
 	if err := ValidateUpdatePatch(req); err != nil {
 		return "", err
 	}
@@ -335,7 +336,7 @@ func ManagedUpdateCommandHash(req *UpdateInferenceServiceRequest, tenantID, acto
 	return governanceHash(map[string]any{"schema": ManagedUpdateSchema, "tenant_id": tenantID, "actor_type": actorType, "actor_id": actorID, "owner": "ani-inference", "action": "/inference.v1.InferenceServiceManager/UpdateInferenceService", "resource_id": req.GetResourceId(), "expected_generation": strconv.FormatInt(req.GetExpectedGeneration(), 10), "update_mask": paths, "patch": patch})
 }
 
-func managedCommandIdentity(context *CommandContext, tenantID, actorType, actorID string) (map[string]any, error) {
+func managedCommandIdentity(context *inferencev1.CommandContext, tenantID, actorType, actorID string) (map[string]any, error) {
 	if context == nil || context.GetTenantId() != tenantID {
 		return nil, fmt.Errorf("managed command tenant mismatch")
 	}

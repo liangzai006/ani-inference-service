@@ -105,6 +105,10 @@ func Deployment(spec RuntimeSpec) (*appsv1.Deployment, error) {
 		Containers:         []corev1.Container{container},
 	}
 	ApplyNonRootSecurity(&pod)
+	schedulingAnnotations, err := applyInferenceScheduling(spec, &pod, "inference")
+	if err != nil {
+		return nil, err
+	}
 	obj := &appsv1.Deployment{
 		TypeMeta: metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"},
 		ObjectMeta: metav1.ObjectMeta{
@@ -115,7 +119,7 @@ func Deployment(spec RuntimeSpec) (*appsv1.Deployment, error) {
 			Replicas: &spec.Replicas,
 			Selector: &metav1.LabelSelector{MatchLabels: stableLabels},
 			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Labels: labels},
+				ObjectMeta: metav1.ObjectMeta{Labels: labels, Annotations: schedulingAnnotations},
 				Spec:       pod,
 			},
 		},
@@ -151,6 +155,10 @@ func LeaderWorkerSet(spec RuntimeSpec) (*lwsv1.LeaderWorkerSet, error) {
 	groups, size := spec.Replicas, spec.WorkerReplicas+1
 	template := corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: labels}, Spec: corev1.PodSpec{ServiceAccountName: spec.ServiceAccountName, Containers: []corev1.Container{container}}}
 	ApplyNonRootSecurity(&template.Spec)
+	template.Annotations, err = applyInferenceScheduling(spec, &template.Spec, "inference")
+	if err != nil {
+		return nil, err
+	}
 	if err := mountModel(&template.Spec, spec); err != nil {
 		return nil, err
 	}

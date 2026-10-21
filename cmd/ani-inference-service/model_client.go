@@ -8,8 +8,8 @@ import (
 	"os"
 	"strings"
 
-	modelv1 "github.com/liangzai006/ani-model-service/api/model/v1"
 	modeldata "github.com/liangzai006/ani-inference-service/internal/data/model"
+	modelv1 "github.com/liangzai006/ani-model-service/api/model/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
@@ -71,6 +71,9 @@ func configuredModelClient() (*modeldata.Client, func(), error) {
 	}
 
 	// Verify client certificate contains exactly one DNS SAN matching ani-inference
+	if len(cert.Certificate) == 0 {
+		return nil, func() {}, errors.New("Inference client certificate chain is empty")
+	}
 	leaf, err := x509.ParseCertificate(cert.Certificate[0])
 	if err != nil {
 		return nil, func() {}, fmt.Errorf("parse Inference client certificate: %w", err)

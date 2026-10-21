@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
 	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
+	"github.com/liangzai006/ani-inference-service/internal/conf"
 	"github.com/liangzai006/ani-inference-service/internal/data/governance"
 	"github.com/liangzai006/ani-inference-service/internal/data/kubernetes"
 	"github.com/liangzai006/ani-inference-service/internal/data/postgres"
@@ -38,7 +39,7 @@ func TestManagedOwnerProcess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var bc inferencev1.Bootstrap
+	var bc conf.Bootstrap
 	if err := protojson.Unmarshal(configBytes, &bc); err != nil {
 		t.Fatal(err)
 	}

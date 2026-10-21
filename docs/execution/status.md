@@ -1,10 +1,34 @@
 # Inference 执行状态
 
-更新日期：2026-10-19。本文件是本设计包唯一当前进度入口。
+更新日期：2026-10-21。本文件是本设计包唯一当前进度入口。
 
 当前范围只包括 Model 协作、模型物化和 Inference 运行时；Notebook、Kubeflow
 用户工作流不属于当前交付范围。新集群先按请求中的 tenant 直接调用 Model/Inference，
 TLS、IAM 和可信身份接入暂不作为业务门禁。
+
+## 2026-10-21 Volcano 与非 root 推理
+
+- `pass`：`192.168.102.68:6443` 集群 Volcano 1.12.1 已安装，三个组件 Ready；
+  独立 CPU Job 的实际调度事件来源为 Volcano，任务成功完成。
+- `pass`：按用户要求，CPU/GPU 推理统一使用 Volcano。CPU 使用 `default` 队列；
+  GPU 保留 Accelerator 执行计划中的队列、设备资源和节点约束，不覆盖冻结计划。
+  下载 Job 与控制面继续使用默认调度器。
+- `pass`：Helm revision 37 已部署 `volcano-nonroot-20261021-r6`。通过 Governance
+  新建真实 CPU vLLM 推理服务，predictor Pod 的 scheduler 为 Volcano，Scheduled
+  event 来源为 Volcano，PodGroup queue 为 `default`，Pod `1/1 Running`。
+- `pass`：物化 Job 和推理进程实际 UID/GID 均为 65534；无 capabilities、禁止权限提升、
+  seccomp 启用，缓存可写，未挂载 runtime ServiceAccount token。
+- `pass`：创建 operation `succeeded`；Higress 使用 API key，通过 JSON model 路由
+  返回 HTTP 200 和非空生成结果；Governance 管理列表 HTTP 200，Higress 管理路径 404。
+- `pass`：删除 operation `succeeded`；测试服务的 CR、Pod、PVC、物化 Job/Secret、
+  Volcano PodGroup、Higress route/Service Source 全部清理，Governance 列表恢复为空。
+- `pass`：修改后的全量 Go 测试、vet、build、Helm lint/template 和 diff check 通过。
+- `limit`：集群无 GPU，未进行真实 GPU 推理；GPU LWS 仍是既有显式不支持路径。
+  CPU LLMI/LWS 的调度投影有测试覆盖，但本轮未进行多节点引擎端到端验证。
+  详情中的 `health` 仍为 `unknown`，与 ready/实际生成成功分开记录。
+
+完整 ID、调度事件、权限和清理证据见
+[本次实测记录](records/2026-10-21-volcano-inference-nonroot.md)。
 
 ## 2026-10-19 Higress 原生路由迁移
 

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	contractv1 "github.com/liangzai006/ani-inference-service/api/inference/contract/v1"
 	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
 	"github.com/liangzai006/ani-inference-service/internal/biz/admission"
 	gpubiz "github.com/liangzai006/ani-inference-service/internal/biz/gpu"
@@ -262,7 +263,7 @@ func (s *InferenceServer) UpdateInferenceService(ctx context.Context, req *infer
 	if req.GetRequestId() == "" || req.GetResourceId() == "" || req.GetExpectedGeneration() < 1 {
 		return nil, status.Error(codes.InvalidArgument, "request_id, resource_id and positive expected_generation are required")
 	}
-	if err := inferencev1.ValidateUpdatePatch(req); err != nil {
+	if err := contractv1.ValidateUpdatePatch(req); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 	if s.update == nil {
@@ -273,7 +274,7 @@ func (s *InferenceServer) UpdateInferenceService(ctx context.Context, req *infer
 		if !gpubiz.GovernanceIdentity(ctx) {
 			return nil, status.Error(codes.PermissionDenied, "managed updates require Governance")
 		}
-		if err := inferencev1.ValidateCommandContext(req.GetContext()); err != nil {
+		if err := contractv1.ValidateCommandContext(req.GetContext()); err != nil {
 			return nil, status.Error(codes.InvalidArgument, err.Error())
 		}
 		if req.GetContext().GetTenantId() != tenantID || req.GetContext().GetResourceId() != req.GetResourceId() {
@@ -302,7 +303,7 @@ func (s *InferenceServer) UpdateInferenceService(ctx context.Context, req *infer
 	}
 	requestHash := hashBytes(append([]byte(Actor(ctx)+"\x00"), encoded...))
 	if managed {
-		expected, err := inferencev1.ManagedUpdateCommandHash(req, tenantID, actorType(Actor(ctx)), actorID(Actor(ctx)))
+		expected, err := contractv1.ManagedUpdateCommandHash(req, tenantID, actorType(Actor(ctx)), actorID(Actor(ctx)))
 		if err != nil {
 			return nil, status.Error(codes.InvalidArgument, err.Error())
 		}
@@ -517,7 +518,7 @@ func (s *InferenceServer) CreateInferenceService(ctx context.Context, req *infer
 	if req.GetRequestId() == "" || req.GetName() == "" || req.GetModelVersionId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "request_id, name and model_version_id are required")
 	}
-	if err := inferencev1.ValidateKubernetesName(req.GetName()); err != nil {
+	if err := contractv1.ValidateKubernetesName(req.GetName()); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 	if err := validateEngineInput(req.GetEngine()); err != nil {
@@ -644,4 +645,84 @@ func managedOperationID(req *inferencev1.UpdateInferenceServiceRequest) string {
 		return ""
 	}
 	return req.GetContext().GetOperationId()
+}
+
+// GetServiceHealth returns the health status of an inference service
+func (s *InferenceServer) GetServiceHealth(ctx context.Context, req *inferencev1.GetServiceHealthRequest) (*inferencev1.GetServiceHealthResponse, error) {
+	if req == nil || req.GetResourceId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "resource_id is required")
+	}
+	tenant, ok := TenantID(ctx)
+	if !ok {
+		return nil, status.Error(codes.Unauthenticated, "tenant identity is required")
+	}
+	if s.read == nil {
+		return nil, status.Error(codes.FailedPrecondition, "inference read use case is not configured")
+	}
+	svc, err := s.read.GetService(ctx, tenant, req.GetResourceId())
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, status.Error(codes.NotFound, "inference service not found")
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// Use HealthChecker to evaluate comprehensive health
+	checker := &HealthChecker{}
+	return checker.CheckServiceHealth(ctx, svc)
+}
+
+// GetServiceMetrics returns metrics for an inference service
+func (s *InferenceServer) GetServiceMetrics(ctx context.Context, req *inferencev1.GetServiceMetricsRequest) (*inferencev1.GetServiceMetricsResponse, error) {
+	if req == nil || req.GetResourceId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "resource_id is required")
+	}
+	tenant, ok := TenantID(ctx)
+	if !ok {
+		return nil, status.Error(codes.Unauthenticated, "tenant identity is required")
+	}
+	if s.read == nil {
+		return nil, status.Error(codes.FailedPrecondition, "inference read use case is not configured")
+	}
+	svc, err := s.read.GetService(ctx, tenant, req.GetResourceId())
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, status.Error(codes.NotFound, "inference service not found")
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// Use MetricsCollector to gather service metrics
+	// TODO: In production, pass Prometheus address and namespace from config:
+	//   prometheusAddress := s.config.PrometheusURL  // e.g., "http://prometheus:9090"
+	//   namespace := s.config.Namespace              // e.g., "inference-system"
+	//   collector := NewMetricsCollector(prometheusAddress, namespace)
+	// For now, use simulated data (empty address)
+	collector := NewMetricsCollector("", "")
+	return collector.CollectServiceMetrics(ctx, tenant, svc)
+}
+
+// TestInvocation sends a test request to an inference service
+func (s *InferenceServer) TestInvocation(ctx context.Context, req *inferencev1.TestInvocationRequest) (*inferencev1.TestInvocationResponse, error) {
+	if req == nil || req.GetResourceId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "resource_id is required")
+	}
+	tenant, ok := TenantID(ctx)
+	if !ok {
+		return nil, status.Error(codes.Unauthenticated, "tenant identity is required")
+	}
+	if s.read == nil {
+		return nil, status.Error(codes.FailedPrecondition, "inference read use case is not configured")
+	}
+	svc, err := s.read.GetService(ctx, tenant, req.GetResourceId())
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, status.Error(codes.NotFound, "inference service not found")
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// Use InvocationTester to send test request
+	tester := NewInvocationTester()
+	return tester.TestServiceInvocation(ctx, svc, req)
 }

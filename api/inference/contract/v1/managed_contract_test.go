@@ -1,10 +1,11 @@
-package inferencev1
+package contractv1
 
 import (
 	"math"
 	"strings"
 	"testing"
 
+	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
 	acceleratorv1 "github.com/zhangzhe-ctrl/ani-accelerator-service/api/gen/go/accelerator/v1"
 	"github.com/zhangzhe-ctrl/ani-accelerator-service/pkg/gpuprotocol"
 	"google.golang.org/protobuf/proto"
@@ -16,10 +17,10 @@ const managedResource = "22222222-2222-4222-8222-222222222222"
 const managedCreate = "33333333-3333-4333-8333-333333333333"
 const managedDelete = "44444444-4444-4444-8444-444444444444"
 
-func managedCPU() *CreateInferenceServiceRequest {
+func managedCPU() *inferencev1.CreateInferenceServiceRequest {
 	req := validBusinessRequest()
-	req.Resource = &ResourceSpec{Requests: map[string]string{"cpu": "1500m", "memory": "1536Mi"}, Limits: map[string]string{"cpu": "1500m", "memory": "1536Mi"}}
-	req.Context = &CommandContext{TenantId: managedTenant, ResourceId: managedResource, OperationId: managedCreate, RequestDigest: strings.Repeat("a", 64)}
+	req.Resource = &inferencev1.ResourceSpec{Requests: map[string]string{"cpu": "1500m", "memory": "1536Mi"}, Limits: map[string]string{"cpu": "1500m", "memory": "1536Mi"}}
+	req.Context = &inferencev1.CommandContext{TenantId: managedTenant, ResourceId: managedResource, OperationId: managedCreate, RequestDigest: strings.Repeat("a", 64)}
 	return req
 }
 
@@ -28,18 +29,20 @@ func TestManagedIdentityIsIndependentOfGPU(t *testing.T) {
 	if err := ValidateManagedCreate(req); err != nil {
 		t.Fatal(err)
 	}
-	if class, err := ManagedResourceClassForCreate(req); err != nil || class != ManagedResourceClass_MANAGED_RESOURCE_CLASS_CPU {
+	if class, err := ManagedResourceClassForCreate(req); err != nil || class != inferencev1.ManagedResourceClass_MANAGED_RESOURCE_CLASS_CPU {
 		t.Fatalf("class=%v err=%v", class, err)
 	}
-	for _, mutate := range []func(*CreateInferenceServiceRequest){
-		func(r *CreateInferenceServiceRequest) { r.ClusterId = managedTenant },
-		func(r *CreateInferenceServiceRequest) { r.GpuDisplay = &acceleratorv1.GpuDisplay{} },
-		func(r *CreateInferenceServiceRequest) { r.GpuExecution = &acceleratorv1.GpuExecution{} },
-		func(r *CreateInferenceServiceRequest) { r.Resource.Limits["cpu"] = "2" },
-		func(r *CreateInferenceServiceRequest) { r.Resource.Requests["example.com/fpga"] = "1" },
-		func(r *CreateInferenceServiceRequest) { r.ModelArtifact = &ModelArtifact{Reference: "untrusted"} },
+	for _, mutate := range []func(*inferencev1.CreateInferenceServiceRequest){
+		func(r *inferencev1.CreateInferenceServiceRequest) { r.ClusterId = managedTenant },
+		func(r *inferencev1.CreateInferenceServiceRequest) { r.GpuDisplay = &acceleratorv1.GpuDisplay{} },
+		func(r *inferencev1.CreateInferenceServiceRequest) { r.GpuExecution = &acceleratorv1.GpuExecution{} },
+		func(r *inferencev1.CreateInferenceServiceRequest) { r.Resource.Limits["cpu"] = "2" },
+		func(r *inferencev1.CreateInferenceServiceRequest) { r.Resource.Requests["example.com/fpga"] = "1" },
+		func(r *inferencev1.CreateInferenceServiceRequest) {
+			r.ModelArtifact = &inferencev1.ModelArtifact{Reference: "untrusted"}
+		},
 	} {
-		candidate := proto.Clone(req).(*CreateInferenceServiceRequest)
+		candidate := proto.Clone(req).(*inferencev1.CreateInferenceServiceRequest)
 		mutate(candidate)
 		if err := ValidateManagedCreate(candidate); err == nil {
 			t.Fatalf("invalid mixed/resource override accepted: %v", candidate)
@@ -52,19 +55,19 @@ func TestManagedTopologyIsAuthoritative(t *testing.T) {
 	if err != nil || topology.ExecutionReplicas != 3 || topology.DevicesPerReplica != 2 || topology.TotalDevices != 6 || topology.ContainerName != "kserve-container" {
 		t.Fatalf("topology=%v err=%v", topology, err)
 	}
-	lws := &RuntimeSpec{Mode: RuntimeMode_RUNTIME_MODE_LEADER_WORKER_SET, WorkerReplicas: 2}
+	lws := &inferencev1.RuntimeSpec{Mode: inferencev1.RuntimeMode_RUNTIME_MODE_LEADER_WORKER_SET, WorkerReplicas: 2}
 	cpu, err := NormalizeTopology(lws, 2, 0)
 	if err != nil || cpu.ExecutionReplicas != 6 || cpu.TotalDevices != 0 || cpu.ContainerName != "main" {
 		t.Fatalf("CPU LWS=%v err=%v", cpu, err)
 	}
 	for _, test := range []struct {
-		runtime  *RuntimeSpec
+		runtime  *inferencev1.RuntimeSpec
 		replicas int32
 		devices  uint32
 	}{
 		{nil, 0, 0}, {nil, 17, 1}, {lws, 1, 1}, {lws, math.MaxInt32, 0},
-		{&RuntimeSpec{Mode: RuntimeMode_RUNTIME_MODE_DEPLOYMENT, WorkerReplicas: 2}, 1, 1},
-		{&RuntimeSpec{Mode: RuntimeMode(99)}, 1, 0},
+		{&inferencev1.RuntimeSpec{Mode: inferencev1.RuntimeMode_RUNTIME_MODE_DEPLOYMENT, WorkerReplicas: 2}, 1, 1},
+		{&inferencev1.RuntimeSpec{Mode: inferencev1.RuntimeMode(99)}, 1, 0},
 	} {
 		if _, err := NormalizeTopology(test.runtime, test.replicas, test.devices); err == nil {
 			t.Fatalf("unsupported topology accepted: %+v", test)
@@ -77,7 +80,7 @@ func TestManagedTopologyIsAuthoritative(t *testing.T) {
 
 func TestManagedGPURequiresCompleteFrozenDeviceCount(t *testing.T) {
 	req := managedCPU()
-	req.Resource.Gpu = &GpuRequest{ClusterId: managedTenant, PoolId: managedTenant, ProfileId: managedTenant, ProfileVersion: 1, Replicas: 1, DevicesPerReplica: 1, ContainerName: "kserve-container"}
+	req.Resource.Gpu = &inferencev1.GpuRequest{ClusterId: managedTenant, PoolId: managedTenant, ProfileId: managedTenant, ProfileVersion: 1, Replicas: 1, DevicesPerReplica: 1, ContainerName: "kserve-container"}
 	req.ClusterId = managedTenant
 	req.GpuExecution = validGPUExecution(t)
 	req.GpuDisplay = &acceleratorv1.GpuDisplay{ProfileId: managedTenant, ProfileVersion: 1, ProfileName: "t4", ModelKey: "t4", Mode: acceleratorv1.SupplyMode_SHARED_FIXED}
@@ -119,12 +122,12 @@ func TestManagedCreateHashBindsFixedIdentityAndKeepsLegacyVector(t *testing.T) {
 	if err := ValidateManagedCreate(req); err != nil {
 		t.Fatal(err)
 	}
-	for _, mutate := range []func(*CreateInferenceServiceRequest){
-		func(r *CreateInferenceServiceRequest) { r.Context.ResourceId = managedDelete },
-		func(r *CreateInferenceServiceRequest) { r.Context.OperationId = managedDelete },
-		func(r *CreateInferenceServiceRequest) { r.Engine.Command = "different complete command" },
+	for _, mutate := range []func(*inferencev1.CreateInferenceServiceRequest){
+		func(r *inferencev1.CreateInferenceServiceRequest) { r.Context.ResourceId = managedDelete },
+		func(r *inferencev1.CreateInferenceServiceRequest) { r.Context.OperationId = managedDelete },
+		func(r *inferencev1.CreateInferenceServiceRequest) { r.Engine.Command = "different complete command" },
 	} {
-		candidate := proto.Clone(req).(*CreateInferenceServiceRequest)
+		candidate := proto.Clone(req).(*inferencev1.CreateInferenceServiceRequest)
 		mutate(candidate)
 		other, err := ManagedCreateCommandHash(candidate, managedTenant, "user", managedTenant)
 		if err != nil || other == hash {
@@ -142,8 +145,8 @@ func TestManagedCreateHashBindsFixedIdentityAndKeepsLegacyVector(t *testing.T) {
 	t.Logf("managed CPU fixed command digest=%s", hash)
 }
 
-func managedDeleteRequest() *DeleteInferenceServiceRequest {
-	return &DeleteInferenceServiceRequest{ResourceId: managedResource, CreateOperationId: managedCreate, Context: &CommandContext{TenantId: managedTenant, ResourceId: managedResource, OperationId: managedDelete}, ManagedDeleteScope: &ManagedDeleteScope{ResourceClass: ManagedResourceClass_MANAGED_RESOURCE_CLASS_CPU, CreateCommandDigest: strings.Repeat("a", 64)}}
+func managedDeleteRequest() *inferencev1.DeleteInferenceServiceRequest {
+	return &inferencev1.DeleteInferenceServiceRequest{ResourceId: managedResource, CreateOperationId: managedCreate, Context: &inferencev1.CommandContext{TenantId: managedTenant, ResourceId: managedResource, OperationId: managedDelete}, ManagedDeleteScope: &inferencev1.ManagedDeleteScope{ResourceClass: inferencev1.ManagedResourceClass_MANAGED_RESOURCE_CLASS_CPU, CreateCommandDigest: strings.Repeat("a", 64)}}
 }
 
 func TestManagedDeleteHashBindsScopeAndCurrentActor(t *testing.T) {
@@ -162,17 +165,17 @@ func TestManagedDeleteHashBindsScopeAndCurrentActor(t *testing.T) {
 	if req.ProtoReflect().Descriptor().Fields().ByName("managed_delete_scope").Number() != 8 {
 		t.Fatal("DELETE scope changed field number")
 	}
-	for _, mutate := range []func(*DeleteInferenceServiceRequest){
-		func(r *DeleteInferenceServiceRequest) { r.Context.OperationId = managedTenant },
-		func(r *DeleteInferenceServiceRequest) {
+	for _, mutate := range []func(*inferencev1.DeleteInferenceServiceRequest){
+		func(r *inferencev1.DeleteInferenceServiceRequest) { r.Context.OperationId = managedTenant },
+		func(r *inferencev1.DeleteInferenceServiceRequest) {
 			r.ManagedDeleteScope.CreateCommandDigest = strings.Repeat("b", 64)
 		},
-		func(r *DeleteInferenceServiceRequest) {
-			r.ManagedDeleteScope.ResourceClass = ManagedResourceClass_MANAGED_RESOURCE_CLASS_GPU
+		func(r *inferencev1.DeleteInferenceServiceRequest) {
+			r.ManagedDeleteScope.ResourceClass = inferencev1.ManagedResourceClass_MANAGED_RESOURCE_CLASS_GPU
 			r.ManagedDeleteScope.ClusterId = managedTenant
 		},
 	} {
-		candidate := proto.Clone(req).(*DeleteInferenceServiceRequest)
+		candidate := proto.Clone(req).(*inferencev1.DeleteInferenceServiceRequest)
 		mutate(candidate)
 		other, err := ManagedDeleteCommandHash(candidate, managedTenant, "user", managedResource)
 		if err != nil || other == hash {
@@ -183,17 +186,21 @@ func TestManagedDeleteHashBindsScopeAndCurrentActor(t *testing.T) {
 	if err != nil || actorHash == hash {
 		t.Fatal("current actor unbound")
 	}
-	for _, mutate := range []func(*DeleteInferenceServiceRequest){
-		func(r *DeleteInferenceServiceRequest) { r.ManagedDeleteScope = nil },
-		func(r *DeleteInferenceServiceRequest) { r.ManagedDeleteScope.ClusterId = managedTenant },
-		func(r *DeleteInferenceServiceRequest) {
-			r.ManagedDeleteScope.ResourceClass = ManagedResourceClass_MANAGED_RESOURCE_CLASS_GPU
+	for _, mutate := range []func(*inferencev1.DeleteInferenceServiceRequest){
+		func(r *inferencev1.DeleteInferenceServiceRequest) { r.ManagedDeleteScope = nil },
+		func(r *inferencev1.DeleteInferenceServiceRequest) {
+			r.ManagedDeleteScope.ClusterId = managedTenant
 		},
-		func(r *DeleteInferenceServiceRequest) { r.ManagedDeleteScope.CreateCommandDigest = "bad" },
-		func(r *DeleteInferenceServiceRequest) { r.ResourceId = managedTenant },
-		func(r *DeleteInferenceServiceRequest) { r.ExpectedGeneration = 1 },
+		func(r *inferencev1.DeleteInferenceServiceRequest) {
+			r.ManagedDeleteScope.ResourceClass = inferencev1.ManagedResourceClass_MANAGED_RESOURCE_CLASS_GPU
+		},
+		func(r *inferencev1.DeleteInferenceServiceRequest) {
+			r.ManagedDeleteScope.CreateCommandDigest = "bad"
+		},
+		func(r *inferencev1.DeleteInferenceServiceRequest) { r.ResourceId = managedTenant },
+		func(r *inferencev1.DeleteInferenceServiceRequest) { r.ExpectedGeneration = 1 },
 	} {
-		candidate := proto.Clone(req).(*DeleteInferenceServiceRequest)
+		candidate := proto.Clone(req).(*inferencev1.DeleteInferenceServiceRequest)
 		mutate(candidate)
 		if err := ValidateManagedDelete(candidate); err == nil {
 			t.Fatalf("invalid close delegation accepted: %v", candidate)
@@ -202,8 +209,8 @@ func TestManagedDeleteHashBindsScopeAndCurrentActor(t *testing.T) {
 	t.Logf("managed CPU delete fixed digest=%s", hash)
 }
 
-func validPatch() *UpdateInferenceServiceRequest {
-	return &UpdateInferenceServiceRequest{RequestId: "update-key", ResourceId: managedResource, ExpectedGeneration: 2, UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"served_model_name"}}, ServedModelName: "new-name"}
+func validPatch() *inferencev1.UpdateInferenceServiceRequest {
+	return &inferencev1.UpdateInferenceServiceRequest{RequestId: "update-key", ResourceId: managedResource, ExpectedGeneration: 2, UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"served_model_name"}}, ServedModelName: "new-name"}
 }
 
 func TestUpdatePatchWhitelistAndDigest(t *testing.T) {
@@ -216,14 +223,14 @@ func TestUpdatePatchWhitelistAndDigest(t *testing.T) {
 		t.Fatal(err)
 	}
 	req.ModelVersionId = "off-mask-ignored"
-	req.Engine = &EngineSpec{Image: "off-mask"}
+	req.Engine = &inferencev1.EngineSpec{Image: "off-mask"}
 	other, err := ManagedUpdateCommandHash(req, managedTenant, "user", managedResource)
 	if err != nil || other != hash {
 		t.Fatalf("off-mask data changed patch hash: %v", err)
 	}
 	req = validPatch()
 	req.UpdateMask.Paths = []string{"engine", "served_model_name"}
-	req.Engine = &EngineSpec{Type: "vllm", Image: "new:v2", Command: "new complete command"}
+	req.Engine = &inferencev1.EngineSpec{Type: "vllm", Image: "new:v2", Command: "new complete command"}
 	ordered, err := ManagedUpdateCommandHash(req, managedTenant, "user", managedResource)
 	if err != nil {
 		t.Fatal(err)
@@ -233,21 +240,23 @@ func TestUpdatePatchWhitelistAndDigest(t *testing.T) {
 	if ordered != reordered {
 		t.Fatal("mask order changed semantic patch digest")
 	}
-	for _, mutate := range []func(*UpdateInferenceServiceRequest){
-		func(r *UpdateInferenceServiceRequest) { r.UpdateMask = nil },
-		func(r *UpdateInferenceServiceRequest) { r.UpdateMask.Paths = []string{"engine.image"} },
-		func(r *UpdateInferenceServiceRequest) {
+	for _, mutate := range []func(*inferencev1.UpdateInferenceServiceRequest){
+		func(r *inferencev1.UpdateInferenceServiceRequest) { r.UpdateMask = nil },
+		func(r *inferencev1.UpdateInferenceServiceRequest) { r.UpdateMask.Paths = []string{"engine.image"} },
+		func(r *inferencev1.UpdateInferenceServiceRequest) {
 			r.UpdateMask.Paths = []string{"engine"}
-			r.Engine = &EngineSpec{Type: "vllm", Image: "missing command"}
+			r.Engine = &inferencev1.EngineSpec{Type: "vllm", Image: "missing command"}
 		},
-		func(r *UpdateInferenceServiceRequest) { r.UpdateMask.Paths = []string{"name"} },
-		func(r *UpdateInferenceServiceRequest) { r.UpdateMask.Paths = []string{"model_version_id"} },
-		func(r *UpdateInferenceServiceRequest) { r.ServedModelName = "" },
-		func(r *UpdateInferenceServiceRequest) { r.Resource = &ResourceSpec{} },
-		func(r *UpdateInferenceServiceRequest) { r.Runtime = &RuntimeSpec{} },
-		func(r *UpdateInferenceServiceRequest) { r.Replicas = 1 },
-		func(r *UpdateInferenceServiceRequest) { r.ModelArtifact = &ModelArtifact{} },
-		func(r *UpdateInferenceServiceRequest) { r.GpuExecution = &acceleratorv1.GpuExecution{} },
+		func(r *inferencev1.UpdateInferenceServiceRequest) { r.UpdateMask.Paths = []string{"name"} },
+		func(r *inferencev1.UpdateInferenceServiceRequest) { r.UpdateMask.Paths = []string{"model_version_id"} },
+		func(r *inferencev1.UpdateInferenceServiceRequest) { r.ServedModelName = "" },
+		func(r *inferencev1.UpdateInferenceServiceRequest) { r.Resource = &inferencev1.ResourceSpec{} },
+		func(r *inferencev1.UpdateInferenceServiceRequest) { r.Runtime = &inferencev1.RuntimeSpec{} },
+		func(r *inferencev1.UpdateInferenceServiceRequest) { r.Replicas = 1 },
+		func(r *inferencev1.UpdateInferenceServiceRequest) {
+			r.ModelArtifact = &inferencev1.ModelArtifact{}
+		},
+		func(r *inferencev1.UpdateInferenceServiceRequest) { r.GpuExecution = &acceleratorv1.GpuExecution{} },
 	} {
 		candidate := validPatch()
 		mutate(candidate)

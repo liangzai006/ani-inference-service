@@ -19,6 +19,7 @@ import (
 
 	kratosgrpc "github.com/go-kratos/kratos/v3/transport/grpc"
 	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
+	"github.com/liangzai006/ani-inference-service/internal/conf"
 	"github.com/liangzai006/ani-inference-service/internal/server"
 	"github.com/liangzai006/ani-inference-service/internal/service"
 	"google.golang.org/grpc"
@@ -118,7 +119,7 @@ func newGovernanceIdentityReceiver(t *testing.T) (*receiverTestPKI, string) {
 	t.Setenv("ANI_SERVER_TLS_CA_FILE", pki.caFile)
 	t.Setenv("ANI_SERVER_TLS_CERT_FILE", serverCert)
 	t.Setenv("ANI_SERVER_TLS_KEY_FILE", serverKey)
-	config := &inferencev1.Server_GRPC{Network: "tcp", Addr: "127.0.0.1:0", Timeout: durationpb.New(time.Second)}
+	config := &conf.Server_GRPC{Network: "tcp", Addr: "127.0.0.1:0", Timeout: durationpb.New(time.Second)}
 	owner := service.NewInferenceServerWithAll(nil, nil, nil, nil)
 	policy := RPCPolicyMiddleware(InferenceServicePolicy())
 	ordinary, err := configuredInferenceGRPCServer(config, policy, server.DirectTenantMiddleware())

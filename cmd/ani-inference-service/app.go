@@ -11,8 +11,10 @@ import (
 	kratosTransport "github.com/go-kratos/kratos/v3/transport"
 	kratosgrpc "github.com/go-kratos/kratos/v3/transport/grpc"
 	kratoshttp "github.com/go-kratos/kratos/v3/transport/http"
+	"github.com/liangzai006/ani-inference-service/internal/conf"
 
 	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
+	diagnosticsbiz "github.com/liangzai006/ani-inference-service/internal/biz/diagnostics"
 	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
 	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
 	"github.com/liangzai006/ani-inference-service/internal/biz/work"
@@ -20,11 +22,11 @@ import (
 	"github.com/liangzai006/ani-inference-service/internal/service"
 )
 
-func buildAppWithAllDependenciesAndBackground(bc *inferencev1.Bootstrap, logger *slog.Logger, create service.CreateUseCase, read inferencebiz.ReadUseCase, command inferencebiz.CommandUseCase, update inferencebiz.UpdateUseCase, background ...kratosTransport.Server) (*kratos.App, error) {
+func buildAppWithAllDependenciesAndBackground(bc *conf.Bootstrap, logger *slog.Logger, create service.CreateUseCase, read inferencebiz.ReadUseCase, command inferencebiz.CommandUseCase, update inferencebiz.UpdateUseCase, background ...kratosTransport.Server) (*kratos.App, error) {
 	return buildAppWithAllDependenciesAndManagedGPU(bc, logger, create, read, command, update, nil, false, "", background...)
 }
 
-func buildAppWithAllDependenciesAndManagedGPU(bc *inferencev1.Bootstrap, logger *slog.Logger, create service.CreateUseCase, read inferencebiz.ReadUseCase, command inferencebiz.CommandUseCase, update inferencebiz.UpdateUseCase, refund gpu.RefundReporter, managedGPUReady bool, managedGPUClusterID string, background ...kratosTransport.Server) (*kratos.App, error) {
+func buildAppWithAllDependenciesAndManagedGPU(bc *conf.Bootstrap, logger *slog.Logger, create service.CreateUseCase, read inferencebiz.ReadUseCase, command inferencebiz.CommandUseCase, update inferencebiz.UpdateUseCase, refund gpu.RefundReporter, managedGPUReady bool, managedGPUClusterID string, background ...kratosTransport.Server) (*kratos.App, error) {
 	if err := bc.Validate(); err != nil {
 		return nil, err
 	}
@@ -64,6 +66,13 @@ func buildAppWithAllDependenciesAndManagedGPU(bc *inferencev1.Bootstrap, logger 
 		return nil, err
 	}
 	inferencev1.RegisterInferenceServiceManagerServer(grpcServer, owner)
+	diagnostics := &service.DiagnosticsServer{Read: read}
+	for _, backgroundServer := range background {
+		if provider, ok := backgroundServer.(interface{ DiagnosticsReader() diagnosticsbiz.Reader }); ok {
+			diagnostics.Runtime = provider.DiagnosticsReader()
+		}
+	}
+	inferencev1.RegisterInferenceDiagnosticsServer(grpcServer, diagnostics)
 	readyOnStart := readyOnStartForBackground(background)
 	referenceReader, _ := read.(inferencebiz.ModelReferenceReader)
 	inferencev1.RegisterModelReferenceServiceServer(grpcServer, service.NewModelReferenceServer(referenceReader))

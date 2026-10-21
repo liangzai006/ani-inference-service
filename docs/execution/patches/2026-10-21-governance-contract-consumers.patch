@@ -1,0 +1,107 @@
+--- a/app/admin/service/internal/service/gpu_usage_sync_worker.go
++++ b/app/admin/service/internal/service/gpu_usage_sync_worker.go
+@@ -10,7 +10,7 @@
+ 
+ 	kerrors "github.com/go-kratos/kratos/v2/errors"
+ 	"github.com/google/uuid"
+-	runtimev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
++	contractv1 "github.com/liangzai006/ani-inference-service/api/inference/contract/v1"
+ 	acc "github.com/zhangzhe-ctrl/ani-accelerator-service/api/gen/go/accelerator/v1"
+ 	res "github.com/zhangzhe-ctrl/ani-resource-service/api/instance/v1"
+ 	"go-wind-admin/app/admin/service/internal/data"
+@@ -206,11 +206,11 @@
+ 	var clusterID string
+ 	switch op.OwnerService {
+ 	case "ani-inference":
+-		business, decodeErr := runtimev1.DecodeBusinessPayload(c.BusinessPayload)
++		business, decodeErr := contractv1.DecodeBusinessPayload(c.BusinessPayload)
+ 		if decodeErr != nil || business == nil || business.GpuExecution == nil || business.GpuDisplay == nil {
+ 			return nil, quotapb.ErrorInvalidQuotaRequest("%s", "invalid inference GPU payload")
+ 		}
+-		if validateErr := runtimev1.ValidateBusinessPayload(business); validateErr != nil {
++		if validateErr := contractv1.ValidateBusinessPayload(business); validateErr != nil {
+ 			return nil, validateErr
+ 		}
+ 		g, d, clusterID = business.GpuExecution, business.GpuDisplay, business.ClusterId
+--- a/app/admin/service/internal/service/inference_service.go
++++ b/app/admin/service/internal/service/inference_service.go
+@@ -9,6 +9,7 @@
+ 	"github.com/google/uuid"
+ 
+ 	kratoserrors "github.com/go-kratos/kratos/v2/errors"
++	contractv1 "github.com/liangzai006/ani-inference-service/api/inference/contract/v1"
+ 	runtimev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
+ 	modelv1 "github.com/liangzai006/ani-model-service/api/model/v1"
+ 	commandv1 "github.com/zhangzhe-ctrl/ani-accelerator-service/api/gen/go/accelerator/command/v1"
+@@ -107,7 +108,7 @@
+ 	if !ok || request == nil || request.GetRequestId() != "" {
+ 		return nil, quotapb.ErrorInvalidQuotaRequest("%s", "invalid inference user business")
+ 	}
+-	return runtimev1.CanonicalBusinessPayload(request)
++	return contractv1.CanonicalBusinessPayload(request)
+ }
+ 
+ // Model readiness is a new-admission dependency. GpuAcceptance invokes this
+@@ -132,7 +133,7 @@
+ 	if !ok || r == nil || r.GetResource().GetGpu() == nil || r.GetRequestId() != "" {
+ 		return nil, quotapb.ErrorInvalidQuotaRequest("%s", "invalid inference user business")
+ 	}
+-	if err := runtimev1.ValidateBusinessPayload(r); err != nil {
++	if err := contractv1.ValidateBusinessPayload(r); err != nil {
+ 		return nil, quotapb.ErrorInvalidQuotaRequest("%s", "invalid inference business or GPU topology")
+ 	}
+ 	// This slice adds the established GPU meter. Dispatch below preserves all
+@@ -157,15 +158,15 @@
+ 	request.ClusterId = request.GetResource().GetGpu().GetClusterId()
+ 	request.GpuExecution = proto.Clone(plan.Execution).(*acc.GpuExecution)
+ 	request.GpuDisplay = proto.Clone(plan.Selection).(*acc.GpuDisplay)
+-	digest, err := runtimev1.ManagedCreateRequestHash(request, tenant, actorType, actorID)
++	digest, err := contractv1.ManagedCreateRequestHash(request, tenant, actorType, actorID)
+ 	if err != nil {
+ 		return nil, quotapb.ErrorInvalidQuotaRequest("%s", "invalid inference managed request")
+ 	}
+ 	request.Context.RequestDigest = digest
+-	if err := runtimev1.ValidateBusinessPayload(request); err != nil {
++	if err := contractv1.ValidateBusinessPayload(request); err != nil {
+ 		return nil, quotapb.ErrorInvalidQuotaRequest("%s", err.Error())
+ 	}
+-	return runtimev1.CanonicalBusinessPayload(request)
++	return contractv1.CanonicalBusinessPayload(request)
+ }
+ 
+ func (b *InferenceGpuBinding) Dispatch(ctx context.Context, command *QuotaDispatchCommand) ([]byte, error) {
+@@ -193,14 +194,14 @@
+ 		if command.CreateOperationID != "" {
+ 			return nil, quotapb.ErrorInvalidQuotaRequest("%s", "invalid inference create origin")
+ 		}
+-		business, err := runtimev1.DecodeBusinessPayload(frozen.BusinessPayload)
++		business, err := contractv1.DecodeBusinessPayload(frozen.BusinessPayload)
+ 		if err != nil {
+ 			return nil, err
+ 		}
+ 		// CanonicalBusinessPayload intentionally excludes command context. Rebind
+ 		// it from the durable Governance command and verify the exact managed
+ 		// request hash before sending the trusted owner RPC.
+-		managedHash, hashErr := runtimev1.ManagedCreateRequestHash(business, command.ResourceTenantID, actorType, actorID)
++		managedHash, hashErr := contractv1.ManagedCreateRequestHash(business, command.ResourceTenantID, actorType, actorID)
+ 		if hashErr != nil {
+ 			return nil, quotapb.ErrorInvalidQuotaRequest("%s", "invalid inference managed request")
+ 		}
+@@ -208,7 +209,7 @@
+ 		// idempotency. The owner digest is derived from the frozen payload and
+ 		// verified by Inference; comparing the two would reject a valid replay.
+ 		business.Context = &runtimev1.CommandContext{TenantId: command.ResourceTenantID, ResourceId: command.ResourceID, OperationId: command.OperationID, RequestDigest: managedHash}
+-		if err := runtimev1.ValidateBusinessPayload(business); err != nil {
++		if err := contractv1.ValidateBusinessPayload(business); err != nil {
+ 			return nil, quotapb.ErrorInvalidQuotaRequest("%s", "invalid inference GPU payload")
+ 		}
+ 		var gpuQuota *acc.GpuQuotaItem
+@@ -236,7 +237,7 @@
+ 		if command.CreateOperationID == "" {
+ 			return nil, quotapb.ErrorInvalidQuotaRequest("%s", "invalid inference delete origin")
+ 		}
+-		digest, err := runtimev1.ManagedDeleteRequestHash(command.ResourceTenantID, command.ResourceID, command.CreateOperationID, actorType, actorID)
++		digest, err := contractv1.ManagedDeleteRequestHash(command.ResourceTenantID, command.ResourceID, command.CreateOperationID, actorType, actorID)
+ 		if err != nil {
+ 			return nil, err
+ 		}

@@ -215,7 +215,203 @@ message ListOperationsResponse {
   int64 total = 4;
 }
 
+// ============================================================================
+// Health: Query invocation health status and diagnostics
+// ============================================================================
+
+message GetServiceHealthRequest {
+  string resource_id = 1;
+}
+
+message GetServiceHealthResponse {
+  // Canonical health states: healthy, unhealthy, unknown, degraded
+  string status = 1;
+  // Explains why status is unknown: no recent observations, service not ready, etc.
+  string reason = 2;
+  google.protobuf.Timestamp last_check_time = 3;
+  google.protobuf.Timestamp last_success_time = 4;
+  repeated HealthCheck checks = 5;
+}
+
+message HealthCheck {
+  string name = 1;
+  string status = 2;
+  string message = 3;
+  google.protobuf.Timestamp checked_at = 4;
+}
+
+// ============================================================================
+// Policy: Service-level access control (tenant allowlist, rate limits)
+// Does NOT manage Higress gateway routes or HTTPRoute resources
+// ============================================================================
+
+message GetServicePolicyRequest {
+  string resource_id = 1;
+}
+
+message GetServicePolicyResponse {
+  ServicePolicy policy = 1;
+}
+
+message UpdateServicePolicyRequest {
+  string resource_id = 1;
+  ServicePolicy policy = 2;
+}
+
+message UpdateServicePolicyResponse {
+  ServicePolicy policy = 1;
+}
+
+message ServicePolicy {
+  string resource_id = 1;
+  // Tenant allowlist for service-level authorization
+  repeated string allowed_tenants = 2;
+  // Rate limit configuration per tenant
+  map<string, RateLimitConfig> rate_limits = 3;
+  google.protobuf.Timestamp updated_at = 4;
+}
+
+message RateLimitConfig {
+  int32 requests_per_minute = 1;
+  int32 requests_per_hour = 2;
+}
+
+// ============================================================================
+// Test: Manual invocation testing with configurable auth and format
+// ============================================================================
+
+message TestInvocationRequest {
+  string resource_id = 1;
+  // Optional override endpoint; defaults to service's published endpoint
+  string endpoint_url = 2;
+  // Authentication method: none, bearer, api_key
+  string auth_method = 3;
+  map<string, string> headers = 4;
+  // Request body in JSON format for OpenAI-compatible completions
+  string request_body = 5;
+  // Enable streaming response
+  bool stream = 6;
+}
+
+message TestInvocationResponse {
+  int32 status_code = 1;
+  map<string, string> response_headers = 2;
+  string response_body = 3;
+  int64 latency_ms = 4;
+  string error_message = 5;
+}
+
+message TestInvocationChunk {
+  string chunk = 1;
+}
+
+// ============================================================================
+// Metrics: Query aggregated request volume, success rate, latency, resources
+// ============================================================================
+
+message GetServiceMetricsRequest {
+  string resource_id = 1;
+  google.protobuf.Timestamp start_time = 2;
+  google.protobuf.Timestamp end_time = 3;
+}
+
+message GetServiceMetricsResponse {
+  int64 total_requests = 1;
+  int64 successful_requests = 2;
+  int64 failed_requests = 3;
+  // Success rate as percentage (0-100)
+  double success_rate = 4;
+  LatencyStats latency = 5;
+  ResourceUsage resource_usage = 6;
+}
+
+message LatencyStats {
+  double p50_ms = 1;
+  double p95_ms = 2;
+  double p99_ms = 3;
+  double max_ms = 4;
+}
+
+message ResourceUsage {
+  CpuUsage cpu = 1;
+  MemoryUsage memory = 2;
+  GpuUsage gpu = 3;
+}
+
+message CpuUsage {
+  double average_cores = 1;
+  double peak_cores = 2;
+}
+
+message MemoryUsage {
+  int64 average_bytes = 1;
+  int64 peak_bytes = 2;
+}
+
+message GpuUsage {
+  double average_utilization_percent = 1;
+  double peak_utilization_percent = 2;
+  int64 average_memory_bytes = 3;
+  int64 peak_memory_bytes = 4;
+}
+
+// ============================================================================
+// Logs: Stream runtime logs with time range and pod filtering
+// ============================================================================
+
+message GetServiceLogsRequest {
+  string resource_id = 1;
+  google.protobuf.Timestamp since = 2;
+  google.protobuf.Timestamp until = 3;
+  // Filter by specific pod name; empty means all pods
+  string pod_name = 4;
+  // Stream new logs as they arrive
+  bool follow = 5;
+  // Limit initial lines; 0 means all available logs
+  int32 tail_lines = 6;
+}
+
+message LogEntry {
+  google.protobuf.Timestamp timestamp = 1;
+  string pod_name = 2;
+  string container_name = 3;
+  string message = 4;
+  // Log level: INFO, WARN, ERROR, DEBUG
+  string level = 5;
+}
+
+// ============================================================================
+// Events: Query Kubernetes events for this service's resources
+// ============================================================================
+
+message ListServiceEventsRequest {
+  string resource_id = 1;
+  optional int32 page = 2;
+  optional int32 page_size = 3 [json_name = "pageSize"];
+}
+
+message ListServiceEventsResponse {
+  repeated ServiceEvent items = 1;
+  int64 total = 2;
+}
+
+message ServiceEvent {
+  // Event type: Normal, Warning, Error
+  string type = 1;
+  google.protobuf.Timestamp timestamp = 2;
+  // Short machine-readable reason: Scheduled, Pulling, Started, Failed, etc.
+  string reason = 3;
+  // Human-readable description
+  string message = 4;
+  // Event source: kubelet, kserve-controller, volcano-scheduler, etc.
+  string source = 5;
+  // Involved object: Pod, Deployment, InferenceService
+  string object_kind = 6;
+  string object_name = 7;
+}
+
 service InferenceServiceManager {
+  // Lifecycle management
   rpc CreateInferenceService(CreateInferenceServiceRequest) returns (OperationResponse);
   rpc GetInferenceService(GetInferenceServiceRequest) returns (InferenceService);
   rpc ListInferenceServices(ListInferenceServicesRequest) returns (ListInferenceServicesResponse);
@@ -224,6 +420,24 @@ service InferenceServiceManager {
   rpc StopInferenceService(ServiceCommandRequest) returns (OperationResponse);
   rpc RestartInferenceService(ServiceCommandRequest) returns (OperationResponse);
   rpc DeleteInferenceService(DeleteInferenceServiceRequest) returns (OperationResponse);
+
+  // Operations tracking
   rpc GetOperation(GetOperationRequest) returns (Operation);
   rpc ListOperations(ListOperationsRequest) returns (ListOperationsResponse);
+
+  // Health monitoring
+  rpc GetServiceHealth(GetServiceHealthRequest) returns (GetServiceHealthResponse);
+
+  // Access policy (service-level, not gateway routes)
+  rpc GetServicePolicy(GetServicePolicyRequest) returns (GetServicePolicyResponse);
+  rpc UpdateServicePolicy(UpdateServicePolicyRequest) returns (UpdateServicePolicyResponse);
+
+  // Manual invocation testing
+  rpc TestInvocation(TestInvocationRequest) returns (TestInvocationResponse);
+  rpc TestStreamInvocation(TestInvocationRequest) returns (stream TestInvocationChunk);
+
+  // Metrics and observability
+  rpc GetServiceMetrics(GetServiceMetricsRequest) returns (GetServiceMetricsResponse);
+  rpc GetServiceLogs(GetServiceLogsRequest) returns (stream LogEntry);
+  rpc ListServiceEvents(ListServiceEventsRequest) returns (ListServiceEventsResponse);
 }

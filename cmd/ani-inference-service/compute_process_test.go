@@ -23,6 +23,7 @@ import (
 	"github.com/liangzai006/ani-inference-service/internal/biz/publication"
 	"github.com/liangzai006/ani-inference-service/internal/biz/quota"
 	"github.com/liangzai006/ani-inference-service/internal/biz/work"
+	"github.com/liangzai006/ani-inference-service/internal/conf"
 	modeldata "github.com/liangzai006/ani-inference-service/internal/data/model"
 	"github.com/liangzai006/ani-inference-service/internal/data/postgres"
 	"github.com/liangzai006/ani-inference-service/internal/server"
@@ -48,7 +49,7 @@ func TestComputeOwnerProcess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var bc inferencev1.Bootstrap
+	var bc conf.Bootstrap
 	if err = protojson.Unmarshal(raw, &bc); err != nil {
 		t.Fatal(err)
 	}

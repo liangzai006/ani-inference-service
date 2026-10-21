@@ -1786,6 +1786,1528 @@ func (x *ListOperationsResponse) GetTotal() int64 {
 	return 0
 }
 
+type GetServiceHealthRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ResourceId    string                 `protobuf:"bytes,1,opt,name=resource_id,json=resourceId,proto3" json:"resource_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetServiceHealthRequest) Reset() {
+	*x = GetServiceHealthRequest{}
+	mi := &file_inference_v1_inference_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetServiceHealthRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetServiceHealthRequest) ProtoMessage() {}
+
+func (x *GetServiceHealthRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_inference_v1_inference_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetServiceHealthRequest.ProtoReflect.Descriptor instead.
+func (*GetServiceHealthRequest) Descriptor() ([]byte, []int) {
+	return file_inference_v1_inference_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *GetServiceHealthRequest) GetResourceId() string {
+	if x != nil {
+		return x.ResourceId
+	}
+	return ""
+}
+
+type GetServiceHealthResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Canonical health states: healthy, unhealthy, unknown, degraded
+	Status string `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
+	// Explains why status is unknown: no recent observations, service not ready, etc.
+	Reason          string                 `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason,omitempty"`
+	LastCheckTime   *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=last_check_time,json=lastCheckTime,proto3" json:"last_check_time,omitempty"`
+	LastSuccessTime *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=last_success_time,json=lastSuccessTime,proto3" json:"last_success_time,omitempty"`
+	Checks          []*HealthCheck         `protobuf:"bytes,5,rep,name=checks,proto3" json:"checks,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *GetServiceHealthResponse) Reset() {
+	*x = GetServiceHealthResponse{}
+	mi := &file_inference_v1_inference_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetServiceHealthResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetServiceHealthResponse) ProtoMessage() {}
+
+func (x *GetServiceHealthResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_inference_v1_inference_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetServiceHealthResponse.ProtoReflect.Descriptor instead.
+func (*GetServiceHealthResponse) Descriptor() ([]byte, []int) {
+	return file_inference_v1_inference_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *GetServiceHealthResponse) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *GetServiceHealthResponse) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *GetServiceHealthResponse) GetLastCheckTime() *timestamppb.Timestamp {
+	if x != nil {
+		return x.LastCheckTime
+	}
+	return nil
+}
+
+func (x *GetServiceHealthResponse) GetLastSuccessTime() *timestamppb.Timestamp {
+	if x != nil {
+		return x.LastSuccessTime
+	}
+	return nil
+}
+
+func (x *GetServiceHealthResponse) GetChecks() []*HealthCheck {
+	if x != nil {
+		return x.Checks
+	}
+	return nil
+}
+
+type HealthCheck struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Status        string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
+	Message       string                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
+	CheckedAt     *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=checked_at,json=checkedAt,proto3" json:"checked_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HealthCheck) Reset() {
+	*x = HealthCheck{}
+	mi := &file_inference_v1_inference_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HealthCheck) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HealthCheck) ProtoMessage() {}
+
+func (x *HealthCheck) ProtoReflect() protoreflect.Message {
+	mi := &file_inference_v1_inference_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HealthCheck.ProtoReflect.Descriptor instead.
+func (*HealthCheck) Descriptor() ([]byte, []int) {
+	return file_inference_v1_inference_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *HealthCheck) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *HealthCheck) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *HealthCheck) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *HealthCheck) GetCheckedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CheckedAt
+	}
+	return nil
+}
+
+type GetServicePolicyRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ResourceId    string                 `protobuf:"bytes,1,opt,name=resource_id,json=resourceId,proto3" json:"resource_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetServicePolicyRequest) Reset() {
+	*x = GetServicePolicyRequest{}
+	mi := &file_inference_v1_inference_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetServicePolicyRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetServicePolicyRequest) ProtoMessage() {}
+
+func (x *GetServicePolicyRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_inference_v1_inference_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetServicePolicyRequest.ProtoReflect.Descriptor instead.
+func (*GetServicePolicyRequest) Descriptor() ([]byte, []int) {
+	return file_inference_v1_inference_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *GetServicePolicyRequest) GetResourceId() string {
+	if x != nil {
+		return x.ResourceId
+	}
+	return ""
+}
+
+type GetServicePolicyResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Policy        *ServicePolicy         `protobuf:"bytes,1,opt,name=policy,proto3" json:"policy,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetServicePolicyResponse) Reset() {
+	*x = GetServicePolicyResponse{}
+	mi := &file_inference_v1_inference_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetServicePolicyResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetServicePolicyResponse) ProtoMessage() {}
+
+func (x *GetServicePolicyResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_inference_v1_inference_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetServicePolicyResponse.ProtoReflect.Descriptor instead.
+func (*GetServicePolicyResponse) Descriptor() ([]byte, []int) {
+	return file_inference_v1_inference_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *GetServicePolicyResponse) GetPolicy() *ServicePolicy {
+	if x != nil {
+		return x.Policy
+	}
+	return nil
+}
+
+type UpdateServicePolicyRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ResourceId    string                 `protobuf:"bytes,1,opt,name=resource_id,json=resourceId,proto3" json:"resource_id,omitempty"`
+	Policy        *ServicePolicy         `protobuf:"bytes,2,opt,name=policy,proto3" json:"policy,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateServicePolicyRequest) Reset() {
+	*x = UpdateServicePolicyRequest{}
+	mi := &file_inference_v1_inference_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateServicePolicyRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateServicePolicyRequest) ProtoMessage() {}
+
+func (x *UpdateServicePolicyRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_inference_v1_inference_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateServicePolicyRequest.ProtoReflect.Descriptor instead.
+func (*UpdateServicePolicyRequest) Descriptor() ([]byte, []int) {
+	return file_inference_v1_inference_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *UpdateServicePolicyRequest) GetResourceId() string {
+	if x != nil {
+		return x.ResourceId
+	}
+	return ""
+}
+
+func (x *UpdateServicePolicyRequest) GetPolicy() *ServicePolicy {
+	if x != nil {
+		return x.Policy
+	}
+	return nil
+}
+
+type UpdateServicePolicyResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Policy        *ServicePolicy         `protobuf:"bytes,1,opt,name=policy,proto3" json:"policy,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateServicePolicyResponse) Reset() {
+	*x = UpdateServicePolicyResponse{}
+	mi := &file_inference_v1_inference_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateServicePolicyResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateServicePolicyResponse) ProtoMessage() {}
+
+func (x *UpdateServicePolicyResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_inference_v1_inference_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateServicePolicyResponse.ProtoReflect.Descriptor instead.
+func (*UpdateServicePolicyResponse) Descriptor() ([]byte, []int) {
+	return file_inference_v1_inference_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *UpdateServicePolicyResponse) GetPolicy() *ServicePolicy {
+	if x != nil {
+		return x.Policy
+	}
+	return nil
+}
+
+type ServicePolicy struct {
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	ResourceId string                 `protobuf:"bytes,1,opt,name=resource_id,json=resourceId,proto3" json:"resource_id,omitempty"`
+	// Tenant allowlist for service-level authorization
+	AllowedTenants []string `protobuf:"bytes,2,rep,name=allowed_tenants,json=allowedTenants,proto3" json:"allowed_tenants,omitempty"`
+	// Rate limit configuration per tenant
+	RateLimits    map[string]*RateLimitConfig `protobuf:"bytes,3,rep,name=rate_limits,json=rateLimits,proto3" json:"rate_limits,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	UpdatedAt     *timestamppb.Timestamp      `protobuf:"bytes,4,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ServicePolicy) Reset() {
+	*x = ServicePolicy{}
+	mi := &file_inference_v1_inference_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ServicePolicy) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ServicePolicy) ProtoMessage() {}
+
+func (x *ServicePolicy) ProtoReflect() protoreflect.Message {
+	mi := &file_inference_v1_inference_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ServicePolicy.ProtoReflect.Descriptor instead.
+func (*ServicePolicy) Descriptor() ([]byte, []int) {
+	return file_inference_v1_inference_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *ServicePolicy) GetResourceId() string {
+	if x != nil {
+		return x.ResourceId
+	}
+	return ""
+}
+
+func (x *ServicePolicy) GetAllowedTenants() []string {
+	if x != nil {
+		return x.AllowedTenants
+	}
+	return nil
+}
+
+func (x *ServicePolicy) GetRateLimits() map[string]*RateLimitConfig {
+	if x != nil {
+		return x.RateLimits
+	}
+	return nil
+}
+
+func (x *ServicePolicy) GetUpdatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return nil
+}
+
+type RateLimitConfig struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	RequestsPerMinute int32                  `protobuf:"varint,1,opt,name=requests_per_minute,json=requestsPerMinute,proto3" json:"requests_per_minute,omitempty"`
+	RequestsPerHour   int32                  `protobuf:"varint,2,opt,name=requests_per_hour,json=requestsPerHour,proto3" json:"requests_per_hour,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *RateLimitConfig) Reset() {
+	*x = RateLimitConfig{}
+	mi := &file_inference_v1_inference_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RateLimitConfig) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RateLimitConfig) ProtoMessage() {}
+
+func (x *RateLimitConfig) ProtoReflect() protoreflect.Message {
+	mi := &file_inference_v1_inference_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RateLimitConfig.ProtoReflect.Descriptor instead.
+func (*RateLimitConfig) Descriptor() ([]byte, []int) {
+	return file_inference_v1_inference_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *RateLimitConfig) GetRequestsPerMinute() int32 {
+	if x != nil {
+		return x.RequestsPerMinute
+	}
+	return 0
+}
+
+func (x *RateLimitConfig) GetRequestsPerHour() int32 {
+	if x != nil {
+		return x.RequestsPerHour
+	}
+	return 0
+}
+
+type TestInvocationRequest struct {
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	ResourceId string                 `protobuf:"bytes,1,opt,name=resource_id,json=resourceId,proto3" json:"resource_id,omitempty"`
+	// Optional override endpoint; defaults to service's published endpoint
+	EndpointUrl string `protobuf:"bytes,2,opt,name=endpoint_url,json=endpointUrl,proto3" json:"endpoint_url,omitempty"`
+	// Authentication method: none, bearer, api_key
+	AuthMethod string            `protobuf:"bytes,3,opt,name=auth_method,json=authMethod,proto3" json:"auth_method,omitempty"`
+	Headers    map[string]string `protobuf:"bytes,4,rep,name=headers,proto3" json:"headers,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// Request body in JSON format for OpenAI-compatible completions
+	RequestBody string `protobuf:"bytes,5,opt,name=request_body,json=requestBody,proto3" json:"request_body,omitempty"`
+	// Enable streaming response
+	Stream        bool `protobuf:"varint,6,opt,name=stream,proto3" json:"stream,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TestInvocationRequest) Reset() {
+	*x = TestInvocationRequest{}
+	mi := &file_inference_v1_inference_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TestInvocationRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TestInvocationRequest) ProtoMessage() {}
+
+func (x *TestInvocationRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_inference_v1_inference_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TestInvocationRequest.ProtoReflect.Descriptor instead.
+func (*TestInvocationRequest) Descriptor() ([]byte, []int) {
+	return file_inference_v1_inference_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *TestInvocationRequest) GetResourceId() string {
+	if x != nil {
+		return x.ResourceId
+	}
+	return ""
+}
+
+func (x *TestInvocationRequest) GetEndpointUrl() string {
+	if x != nil {
+		return x.EndpointUrl
+	}
+	return ""
+}
+
+func (x *TestInvocationRequest) GetAuthMethod() string {
+	if x != nil {
+		return x.AuthMethod
+	}
+	return ""
+}
+
+func (x *TestInvocationRequest) GetHeaders() map[string]string {
+	if x != nil {
+		return x.Headers
+	}
+	return nil
+}
+
+func (x *TestInvocationRequest) GetRequestBody() string {
+	if x != nil {
+		return x.RequestBody
+	}
+	return ""
+}
+
+func (x *TestInvocationRequest) GetStream() bool {
+	if x != nil {
+		return x.Stream
+	}
+	return false
+}
+
+type TestInvocationResponse struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	StatusCode      int32                  `protobuf:"varint,1,opt,name=status_code,json=statusCode,proto3" json:"status_code,omitempty"`
+	ResponseHeaders map[string]string      `protobuf:"bytes,2,rep,name=response_headers,json=responseHeaders,proto3" json:"response_headers,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	ResponseBody    string                 `protobuf:"bytes,3,opt,name=response_body,json=responseBody,proto3" json:"response_body,omitempty"`
+	LatencyMs       int64                  `protobuf:"varint,4,opt,name=latency_ms,json=latencyMs,proto3" json:"latency_ms,omitempty"`
+	ErrorMessage    string                 `protobuf:"bytes,5,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *TestInvocationResponse) Reset() {
+	*x = TestInvocationResponse{}
+	mi := &file_inference_v1_inference_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TestInvocationResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TestInvocationResponse) ProtoMessage() {}
+
+func (x *TestInvocationResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_inference_v1_inference_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TestInvocationResponse.ProtoReflect.Descriptor instead.
+func (*TestInvocationResponse) Descriptor() ([]byte, []int) {
+	return file_inference_v1_inference_proto_rawDescGZIP(), []int{31}
+}
+
+func (x *TestInvocationResponse) GetStatusCode() int32 {
+	if x != nil {
+		return x.StatusCode
+	}
+	return 0
+}
+
+func (x *TestInvocationResponse) GetResponseHeaders() map[string]string {
+	if x != nil {
+		return x.ResponseHeaders
+	}
+	return nil
+}
+
+func (x *TestInvocationResponse) GetResponseBody() string {
+	if x != nil {
+		return x.ResponseBody
+	}
+	return ""
+}
+
+func (x *TestInvocationResponse) GetLatencyMs() int64 {
+	if x != nil {
+		return x.LatencyMs
+	}
+	return 0
+}
+
+func (x *TestInvocationResponse) GetErrorMessage() string {
+	if x != nil {
+		return x.ErrorMessage
+	}
+	return ""
+}
+
+type TestInvocationChunk struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Chunk         string                 `protobuf:"bytes,1,opt,name=chunk,proto3" json:"chunk,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TestInvocationChunk) Reset() {
+	*x = TestInvocationChunk{}
+	mi := &file_inference_v1_inference_proto_msgTypes[32]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TestInvocationChunk) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TestInvocationChunk) ProtoMessage() {}
+
+func (x *TestInvocationChunk) ProtoReflect() protoreflect.Message {
+	mi := &file_inference_v1_inference_proto_msgTypes[32]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TestInvocationChunk.ProtoReflect.Descriptor instead.
+func (*TestInvocationChunk) Descriptor() ([]byte, []int) {
+	return file_inference_v1_inference_proto_rawDescGZIP(), []int{32}
+}
+
+func (x *TestInvocationChunk) GetChunk() string {
+	if x != nil {
+		return x.Chunk
+	}
+	return ""
+}
+
+type GetServiceMetricsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ResourceId    string                 `protobuf:"bytes,1,opt,name=resource_id,json=resourceId,proto3" json:"resource_id,omitempty"`
+	StartTime     *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=start_time,json=startTime,proto3" json:"start_time,omitempty"`
+	EndTime       *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=end_time,json=endTime,proto3" json:"end_time,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetServiceMetricsRequest) Reset() {
+	*x = GetServiceMetricsRequest{}
+	mi := &file_inference_v1_inference_proto_msgTypes[33]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetServiceMetricsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetServiceMetricsRequest) ProtoMessage() {}
+
+func (x *GetServiceMetricsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_inference_v1_inference_proto_msgTypes[33]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetServiceMetricsRequest.ProtoReflect.Descriptor instead.
+func (*GetServiceMetricsRequest) Descriptor() ([]byte, []int) {
+	return file_inference_v1_inference_proto_rawDescGZIP(), []int{33}
+}
+
+func (x *GetServiceMetricsRequest) GetResourceId() string {
+	if x != nil {
+		return x.ResourceId
+	}
+	return ""
+}
+
+func (x *GetServiceMetricsRequest) GetStartTime() *timestamppb.Timestamp {
+	if x != nil {
+		return x.StartTime
+	}
+	return nil
+}
+
+func (x *GetServiceMetricsRequest) GetEndTime() *timestamppb.Timestamp {
+	if x != nil {
+		return x.EndTime
+	}
+	return nil
+}
+
+type GetServiceMetricsResponse struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	TotalRequests      int64                  `protobuf:"varint,1,opt,name=total_requests,json=totalRequests,proto3" json:"total_requests,omitempty"`
+	SuccessfulRequests int64                  `protobuf:"varint,2,opt,name=successful_requests,json=successfulRequests,proto3" json:"successful_requests,omitempty"`
+	FailedRequests     int64                  `protobuf:"varint,3,opt,name=failed_requests,json=failedRequests,proto3" json:"failed_requests,omitempty"`
+	// Success rate as percentage (0-100)
+	SuccessRate   float64        `protobuf:"fixed64,4,opt,name=success_rate,json=successRate,proto3" json:"success_rate,omitempty"`
+	Latency       *LatencyStats  `protobuf:"bytes,5,opt,name=latency,proto3" json:"latency,omitempty"`
+	ResourceUsage *ResourceUsage `protobuf:"bytes,6,opt,name=resource_usage,json=resourceUsage,proto3" json:"resource_usage,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetServiceMetricsResponse) Reset() {
+	*x = GetServiceMetricsResponse{}
+	mi := &file_inference_v1_inference_proto_msgTypes[34]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetServiceMetricsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetServiceMetricsResponse) ProtoMessage() {}
+
+func (x *GetServiceMetricsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_inference_v1_inference_proto_msgTypes[34]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetServiceMetricsResponse.ProtoReflect.Descriptor instead.
+func (*GetServiceMetricsResponse) Descriptor() ([]byte, []int) {
+	return file_inference_v1_inference_proto_rawDescGZIP(), []int{34}
+}
+
+func (x *GetServiceMetricsResponse) GetTotalRequests() int64 {
+	if x != nil {
+		return x.TotalRequests
+	}
+	return 0
+}
+
+func (x *GetServiceMetricsResponse) GetSuccessfulRequests() int64 {
+	if x != nil {
+		return x.SuccessfulRequests
+	}
+	return 0
+}
+
+func (x *GetServiceMetricsResponse) GetFailedRequests() int64 {
+	if x != nil {
+		return x.FailedRequests
+	}
+	return 0
+}
+
+func (x *GetServiceMetricsResponse) GetSuccessRate() float64 {
+	if x != nil {
+		return x.SuccessRate
+	}
+	return 0
+}
+
+func (x *GetServiceMetricsResponse) GetLatency() *LatencyStats {
+	if x != nil {
+		return x.Latency
+	}
+	return nil
+}
+
+func (x *GetServiceMetricsResponse) GetResourceUsage() *ResourceUsage {
+	if x != nil {
+		return x.ResourceUsage
+	}
+	return nil
+}
+
+type LatencyStats struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	P50Ms         float64                `protobuf:"fixed64,1,opt,name=p50_ms,json=p50Ms,proto3" json:"p50_ms,omitempty"`
+	P95Ms         float64                `protobuf:"fixed64,2,opt,name=p95_ms,json=p95Ms,proto3" json:"p95_ms,omitempty"`
+	P99Ms         float64                `protobuf:"fixed64,3,opt,name=p99_ms,json=p99Ms,proto3" json:"p99_ms,omitempty"`
+	MaxMs         float64                `protobuf:"fixed64,4,opt,name=max_ms,json=maxMs,proto3" json:"max_ms,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LatencyStats) Reset() {
+	*x = LatencyStats{}
+	mi := &file_inference_v1_inference_proto_msgTypes[35]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LatencyStats) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LatencyStats) ProtoMessage() {}
+
+func (x *LatencyStats) ProtoReflect() protoreflect.Message {
+	mi := &file_inference_v1_inference_proto_msgTypes[35]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LatencyStats.ProtoReflect.Descriptor instead.
+func (*LatencyStats) Descriptor() ([]byte, []int) {
+	return file_inference_v1_inference_proto_rawDescGZIP(), []int{35}
+}
+
+func (x *LatencyStats) GetP50Ms() float64 {
+	if x != nil {
+		return x.P50Ms
+	}
+	return 0
+}
+
+func (x *LatencyStats) GetP95Ms() float64 {
+	if x != nil {
+		return x.P95Ms
+	}
+	return 0
+}
+
+func (x *LatencyStats) GetP99Ms() float64 {
+	if x != nil {
+		return x.P99Ms
+	}
+	return 0
+}
+
+func (x *LatencyStats) GetMaxMs() float64 {
+	if x != nil {
+		return x.MaxMs
+	}
+	return 0
+}
+
+type ResourceUsage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Cpu           *CpuUsage              `protobuf:"bytes,1,opt,name=cpu,proto3" json:"cpu,omitempty"`
+	Memory        *MemoryUsage           `protobuf:"bytes,2,opt,name=memory,proto3" json:"memory,omitempty"`
+	Gpu           *GpuUsage              `protobuf:"bytes,3,opt,name=gpu,proto3" json:"gpu,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResourceUsage) Reset() {
+	*x = ResourceUsage{}
+	mi := &file_inference_v1_inference_proto_msgTypes[36]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResourceUsage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResourceUsage) ProtoMessage() {}
+
+func (x *ResourceUsage) ProtoReflect() protoreflect.Message {
+	mi := &file_inference_v1_inference_proto_msgTypes[36]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResourceUsage.ProtoReflect.Descriptor instead.
+func (*ResourceUsage) Descriptor() ([]byte, []int) {
+	return file_inference_v1_inference_proto_rawDescGZIP(), []int{36}
+}
+
+func (x *ResourceUsage) GetCpu() *CpuUsage {
+	if x != nil {
+		return x.Cpu
+	}
+	return nil
+}
+
+func (x *ResourceUsage) GetMemory() *MemoryUsage {
+	if x != nil {
+		return x.Memory
+	}
+	return nil
+}
+
+func (x *ResourceUsage) GetGpu() *GpuUsage {
+	if x != nil {
+		return x.Gpu
+	}
+	return nil
+}
+
+type CpuUsage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	AverageCores  float64                `protobuf:"fixed64,1,opt,name=average_cores,json=averageCores,proto3" json:"average_cores,omitempty"`
+	PeakCores     float64                `protobuf:"fixed64,2,opt,name=peak_cores,json=peakCores,proto3" json:"peak_cores,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CpuUsage) Reset() {
+	*x = CpuUsage{}
+	mi := &file_inference_v1_inference_proto_msgTypes[37]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CpuUsage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CpuUsage) ProtoMessage() {}
+
+func (x *CpuUsage) ProtoReflect() protoreflect.Message {
+	mi := &file_inference_v1_inference_proto_msgTypes[37]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CpuUsage.ProtoReflect.Descriptor instead.
+func (*CpuUsage) Descriptor() ([]byte, []int) {
+	return file_inference_v1_inference_proto_rawDescGZIP(), []int{37}
+}
+
+func (x *CpuUsage) GetAverageCores() float64 {
+	if x != nil {
+		return x.AverageCores
+	}
+	return 0
+}
+
+func (x *CpuUsage) GetPeakCores() float64 {
+	if x != nil {
+		return x.PeakCores
+	}
+	return 0
+}
+
+type MemoryUsage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	AverageBytes  int64                  `protobuf:"varint,1,opt,name=average_bytes,json=averageBytes,proto3" json:"average_bytes,omitempty"`
+	PeakBytes     int64                  `protobuf:"varint,2,opt,name=peak_bytes,json=peakBytes,proto3" json:"peak_bytes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MemoryUsage) Reset() {
+	*x = MemoryUsage{}
+	mi := &file_inference_v1_inference_proto_msgTypes[38]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MemoryUsage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MemoryUsage) ProtoMessage() {}
+
+func (x *MemoryUsage) ProtoReflect() protoreflect.Message {
+	mi := &file_inference_v1_inference_proto_msgTypes[38]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MemoryUsage.ProtoReflect.Descriptor instead.
+func (*MemoryUsage) Descriptor() ([]byte, []int) {
+	return file_inference_v1_inference_proto_rawDescGZIP(), []int{38}
+}
+
+func (x *MemoryUsage) GetAverageBytes() int64 {
+	if x != nil {
+		return x.AverageBytes
+	}
+	return 0
+}
+
+func (x *MemoryUsage) GetPeakBytes() int64 {
+	if x != nil {
+		return x.PeakBytes
+	}
+	return 0
+}
+
+type GpuUsage struct {
+	state                     protoimpl.MessageState `protogen:"open.v1"`
+	AverageUtilizationPercent float64                `protobuf:"fixed64,1,opt,name=average_utilization_percent,json=averageUtilizationPercent,proto3" json:"average_utilization_percent,omitempty"`
+	PeakUtilizationPercent    float64                `protobuf:"fixed64,2,opt,name=peak_utilization_percent,json=peakUtilizationPercent,proto3" json:"peak_utilization_percent,omitempty"`
+	AverageMemoryBytes        int64                  `protobuf:"varint,3,opt,name=average_memory_bytes,json=averageMemoryBytes,proto3" json:"average_memory_bytes,omitempty"`
+	PeakMemoryBytes           int64                  `protobuf:"varint,4,opt,name=peak_memory_bytes,json=peakMemoryBytes,proto3" json:"peak_memory_bytes,omitempty"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
+}
+
+func (x *GpuUsage) Reset() {
+	*x = GpuUsage{}
+	mi := &file_inference_v1_inference_proto_msgTypes[39]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GpuUsage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GpuUsage) ProtoMessage() {}
+
+func (x *GpuUsage) ProtoReflect() protoreflect.Message {
+	mi := &file_inference_v1_inference_proto_msgTypes[39]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GpuUsage.ProtoReflect.Descriptor instead.
+func (*GpuUsage) Descriptor() ([]byte, []int) {
+	return file_inference_v1_inference_proto_rawDescGZIP(), []int{39}
+}
+
+func (x *GpuUsage) GetAverageUtilizationPercent() float64 {
+	if x != nil {
+		return x.AverageUtilizationPercent
+	}
+	return 0
+}
+
+func (x *GpuUsage) GetPeakUtilizationPercent() float64 {
+	if x != nil {
+		return x.PeakUtilizationPercent
+	}
+	return 0
+}
+
+func (x *GpuUsage) GetAverageMemoryBytes() int64 {
+	if x != nil {
+		return x.AverageMemoryBytes
+	}
+	return 0
+}
+
+func (x *GpuUsage) GetPeakMemoryBytes() int64 {
+	if x != nil {
+		return x.PeakMemoryBytes
+	}
+	return 0
+}
+
+type GetServiceLogsRequest struct {
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	ResourceId string                 `protobuf:"bytes,1,opt,name=resource_id,json=resourceId,proto3" json:"resource_id,omitempty"`
+	Since      *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=since,proto3" json:"since,omitempty"`
+	Until      *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=until,proto3" json:"until,omitempty"`
+	// Filter by specific pod name; empty means all pods
+	PodName string `protobuf:"bytes,4,opt,name=pod_name,json=podName,proto3" json:"pod_name,omitempty"`
+	// Stream new logs as they arrive
+	Follow bool `protobuf:"varint,5,opt,name=follow,proto3" json:"follow,omitempty"`
+	// Limit initial lines; 0 means all available logs
+	TailLines     int32 `protobuf:"varint,6,opt,name=tail_lines,json=tailLines,proto3" json:"tail_lines,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetServiceLogsRequest) Reset() {
+	*x = GetServiceLogsRequest{}
+	mi := &file_inference_v1_inference_proto_msgTypes[40]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetServiceLogsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetServiceLogsRequest) ProtoMessage() {}
+
+func (x *GetServiceLogsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_inference_v1_inference_proto_msgTypes[40]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetServiceLogsRequest.ProtoReflect.Descriptor instead.
+func (*GetServiceLogsRequest) Descriptor() ([]byte, []int) {
+	return file_inference_v1_inference_proto_rawDescGZIP(), []int{40}
+}
+
+func (x *GetServiceLogsRequest) GetResourceId() string {
+	if x != nil {
+		return x.ResourceId
+	}
+	return ""
+}
+
+func (x *GetServiceLogsRequest) GetSince() *timestamppb.Timestamp {
+	if x != nil {
+		return x.Since
+	}
+	return nil
+}
+
+func (x *GetServiceLogsRequest) GetUntil() *timestamppb.Timestamp {
+	if x != nil {
+		return x.Until
+	}
+	return nil
+}
+
+func (x *GetServiceLogsRequest) GetPodName() string {
+	if x != nil {
+		return x.PodName
+	}
+	return ""
+}
+
+func (x *GetServiceLogsRequest) GetFollow() bool {
+	if x != nil {
+		return x.Follow
+	}
+	return false
+}
+
+func (x *GetServiceLogsRequest) GetTailLines() int32 {
+	if x != nil {
+		return x.TailLines
+	}
+	return 0
+}
+
+type LogEntry struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Timestamp     *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	PodName       string                 `protobuf:"bytes,2,opt,name=pod_name,json=podName,proto3" json:"pod_name,omitempty"`
+	ContainerName string                 `protobuf:"bytes,3,opt,name=container_name,json=containerName,proto3" json:"container_name,omitempty"`
+	Message       string                 `protobuf:"bytes,4,opt,name=message,proto3" json:"message,omitempty"`
+	// Log level: INFO, WARN, ERROR, DEBUG
+	Level         string `protobuf:"bytes,5,opt,name=level,proto3" json:"level,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LogEntry) Reset() {
+	*x = LogEntry{}
+	mi := &file_inference_v1_inference_proto_msgTypes[41]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LogEntry) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LogEntry) ProtoMessage() {}
+
+func (x *LogEntry) ProtoReflect() protoreflect.Message {
+	mi := &file_inference_v1_inference_proto_msgTypes[41]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LogEntry.ProtoReflect.Descriptor instead.
+func (*LogEntry) Descriptor() ([]byte, []int) {
+	return file_inference_v1_inference_proto_rawDescGZIP(), []int{41}
+}
+
+func (x *LogEntry) GetTimestamp() *timestamppb.Timestamp {
+	if x != nil {
+		return x.Timestamp
+	}
+	return nil
+}
+
+func (x *LogEntry) GetPodName() string {
+	if x != nil {
+		return x.PodName
+	}
+	return ""
+}
+
+func (x *LogEntry) GetContainerName() string {
+	if x != nil {
+		return x.ContainerName
+	}
+	return ""
+}
+
+func (x *LogEntry) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *LogEntry) GetLevel() string {
+	if x != nil {
+		return x.Level
+	}
+	return ""
+}
+
+type ListServiceEventsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ResourceId    string                 `protobuf:"bytes,1,opt,name=resource_id,json=resourceId,proto3" json:"resource_id,omitempty"`
+	Page          *int32                 `protobuf:"varint,2,opt,name=page,proto3,oneof" json:"page,omitempty"`
+	PageSize      *int32                 `protobuf:"varint,3,opt,name=page_size,json=pageSize,proto3,oneof" json:"page_size,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListServiceEventsRequest) Reset() {
+	*x = ListServiceEventsRequest{}
+	mi := &file_inference_v1_inference_proto_msgTypes[42]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListServiceEventsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListServiceEventsRequest) ProtoMessage() {}
+
+func (x *ListServiceEventsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_inference_v1_inference_proto_msgTypes[42]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListServiceEventsRequest.ProtoReflect.Descriptor instead.
+func (*ListServiceEventsRequest) Descriptor() ([]byte, []int) {
+	return file_inference_v1_inference_proto_rawDescGZIP(), []int{42}
+}
+
+func (x *ListServiceEventsRequest) GetResourceId() string {
+	if x != nil {
+		return x.ResourceId
+	}
+	return ""
+}
+
+func (x *ListServiceEventsRequest) GetPage() int32 {
+	if x != nil && x.Page != nil {
+		return *x.Page
+	}
+	return 0
+}
+
+func (x *ListServiceEventsRequest) GetPageSize() int32 {
+	if x != nil && x.PageSize != nil {
+		return *x.PageSize
+	}
+	return 0
+}
+
+type ListServiceEventsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Items         []*ServiceEvent        `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
+	Total         int64                  `protobuf:"varint,2,opt,name=total,proto3" json:"total,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListServiceEventsResponse) Reset() {
+	*x = ListServiceEventsResponse{}
+	mi := &file_inference_v1_inference_proto_msgTypes[43]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListServiceEventsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListServiceEventsResponse) ProtoMessage() {}
+
+func (x *ListServiceEventsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_inference_v1_inference_proto_msgTypes[43]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListServiceEventsResponse.ProtoReflect.Descriptor instead.
+func (*ListServiceEventsResponse) Descriptor() ([]byte, []int) {
+	return file_inference_v1_inference_proto_rawDescGZIP(), []int{43}
+}
+
+func (x *ListServiceEventsResponse) GetItems() []*ServiceEvent {
+	if x != nil {
+		return x.Items
+	}
+	return nil
+}
+
+func (x *ListServiceEventsResponse) GetTotal() int64 {
+	if x != nil {
+		return x.Total
+	}
+	return 0
+}
+
+type ServiceEvent struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Event type: Normal, Warning, Error
+	Type      string                 `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"`
+	Timestamp *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	// Short machine-readable reason: Scheduled, Pulling, Started, Failed, etc.
+	Reason string `protobuf:"bytes,3,opt,name=reason,proto3" json:"reason,omitempty"`
+	// Human-readable description
+	Message string `protobuf:"bytes,4,opt,name=message,proto3" json:"message,omitempty"`
+	// Event source: kubelet, kserve-controller, volcano-scheduler, etc.
+	Source string `protobuf:"bytes,5,opt,name=source,proto3" json:"source,omitempty"`
+	// Involved object: Pod, Deployment, InferenceService
+	ObjectKind    string `protobuf:"bytes,6,opt,name=object_kind,json=objectKind,proto3" json:"object_kind,omitempty"`
+	ObjectName    string `protobuf:"bytes,7,opt,name=object_name,json=objectName,proto3" json:"object_name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ServiceEvent) Reset() {
+	*x = ServiceEvent{}
+	mi := &file_inference_v1_inference_proto_msgTypes[44]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ServiceEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ServiceEvent) ProtoMessage() {}
+
+func (x *ServiceEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_inference_v1_inference_proto_msgTypes[44]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ServiceEvent.ProtoReflect.Descriptor instead.
+func (*ServiceEvent) Descriptor() ([]byte, []int) {
+	return file_inference_v1_inference_proto_rawDescGZIP(), []int{44}
+}
+
+func (x *ServiceEvent) GetType() string {
+	if x != nil {
+		return x.Type
+	}
+	return ""
+}
+
+func (x *ServiceEvent) GetTimestamp() *timestamppb.Timestamp {
+	if x != nil {
+		return x.Timestamp
+	}
+	return nil
+}
+
+func (x *ServiceEvent) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *ServiceEvent) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *ServiceEvent) GetSource() string {
+	if x != nil {
+		return x.Source
+	}
+	return ""
+}
+
+func (x *ServiceEvent) GetObjectKind() string {
+	if x != nil {
+		return x.ObjectKind
+	}
+	return ""
+}
+
+func (x *ServiceEvent) GetObjectName() string {
+	if x != nil {
+		return x.ObjectName
+	}
+	return ""
+}
+
 var File_inference_v1_inference_proto protoreflect.FileDescriptor
 
 const file_inference_v1_inference_proto_rawDesc = "" +
@@ -1967,7 +3489,143 @@ const file_inference_v1_inference_proto_rawDesc = "" +
 	"\x16ListOperationsResponse\x12-\n" +
 	"\x05items\x18\x03 \x03(\v2\x17.inference.v1.OperationR\x05items\x12\x14\n" +
 	"\x05total\x18\x04 \x01(\x03R\x05totalJ\x04\b\x01\x10\x02J\x04\b\x02\x10\x03R\n" +
-	"operationsR\x0fnext_page_token*l\n" +
+	"operationsR\x0fnext_page_token\":\n" +
+	"\x17GetServiceHealthRequest\x12\x1f\n" +
+	"\vresource_id\x18\x01 \x01(\tR\n" +
+	"resourceId\"\x89\x02\n" +
+	"\x18GetServiceHealthResponse\x12\x16\n" +
+	"\x06status\x18\x01 \x01(\tR\x06status\x12\x16\n" +
+	"\x06reason\x18\x02 \x01(\tR\x06reason\x12B\n" +
+	"\x0flast_check_time\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\rlastCheckTime\x12F\n" +
+	"\x11last_success_time\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\x0flastSuccessTime\x121\n" +
+	"\x06checks\x18\x05 \x03(\v2\x19.inference.v1.HealthCheckR\x06checks\"\x8e\x01\n" +
+	"\vHealthCheck\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x16\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\x12\x18\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage\x129\n" +
+	"\n" +
+	"checked_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcheckedAt\":\n" +
+	"\x17GetServicePolicyRequest\x12\x1f\n" +
+	"\vresource_id\x18\x01 \x01(\tR\n" +
+	"resourceId\"O\n" +
+	"\x18GetServicePolicyResponse\x123\n" +
+	"\x06policy\x18\x01 \x01(\v2\x1b.inference.v1.ServicePolicyR\x06policy\"r\n" +
+	"\x1aUpdateServicePolicyRequest\x12\x1f\n" +
+	"\vresource_id\x18\x01 \x01(\tR\n" +
+	"resourceId\x123\n" +
+	"\x06policy\x18\x02 \x01(\v2\x1b.inference.v1.ServicePolicyR\x06policy\"R\n" +
+	"\x1bUpdateServicePolicyResponse\x123\n" +
+	"\x06policy\x18\x01 \x01(\v2\x1b.inference.v1.ServicePolicyR\x06policy\"\xc0\x02\n" +
+	"\rServicePolicy\x12\x1f\n" +
+	"\vresource_id\x18\x01 \x01(\tR\n" +
+	"resourceId\x12'\n" +
+	"\x0fallowed_tenants\x18\x02 \x03(\tR\x0eallowedTenants\x12L\n" +
+	"\vrate_limits\x18\x03 \x03(\v2+.inference.v1.ServicePolicy.RateLimitsEntryR\n" +
+	"rateLimits\x129\n" +
+	"\n" +
+	"updated_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x1a\\\n" +
+	"\x0fRateLimitsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x123\n" +
+	"\x05value\x18\x02 \x01(\v2\x1d.inference.v1.RateLimitConfigR\x05value:\x028\x01\"m\n" +
+	"\x0fRateLimitConfig\x12.\n" +
+	"\x13requests_per_minute\x18\x01 \x01(\x05R\x11requestsPerMinute\x12*\n" +
+	"\x11requests_per_hour\x18\x02 \x01(\x05R\x0frequestsPerHour\"\xbf\x02\n" +
+	"\x15TestInvocationRequest\x12\x1f\n" +
+	"\vresource_id\x18\x01 \x01(\tR\n" +
+	"resourceId\x12!\n" +
+	"\fendpoint_url\x18\x02 \x01(\tR\vendpointUrl\x12\x1f\n" +
+	"\vauth_method\x18\x03 \x01(\tR\n" +
+	"authMethod\x12J\n" +
+	"\aheaders\x18\x04 \x03(\v20.inference.v1.TestInvocationRequest.HeadersEntryR\aheaders\x12!\n" +
+	"\frequest_body\x18\x05 \x01(\tR\vrequestBody\x12\x16\n" +
+	"\x06stream\x18\x06 \x01(\bR\x06stream\x1a:\n" +
+	"\fHeadersEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xcc\x02\n" +
+	"\x16TestInvocationResponse\x12\x1f\n" +
+	"\vstatus_code\x18\x01 \x01(\x05R\n" +
+	"statusCode\x12d\n" +
+	"\x10response_headers\x18\x02 \x03(\v29.inference.v1.TestInvocationResponse.ResponseHeadersEntryR\x0fresponseHeaders\x12#\n" +
+	"\rresponse_body\x18\x03 \x01(\tR\fresponseBody\x12\x1d\n" +
+	"\n" +
+	"latency_ms\x18\x04 \x01(\x03R\tlatencyMs\x12#\n" +
+	"\rerror_message\x18\x05 \x01(\tR\ferrorMessage\x1aB\n" +
+	"\x14ResponseHeadersEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"+\n" +
+	"\x13TestInvocationChunk\x12\x14\n" +
+	"\x05chunk\x18\x01 \x01(\tR\x05chunk\"\xad\x01\n" +
+	"\x18GetServiceMetricsRequest\x12\x1f\n" +
+	"\vresource_id\x18\x01 \x01(\tR\n" +
+	"resourceId\x129\n" +
+	"\n" +
+	"start_time\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tstartTime\x125\n" +
+	"\bend_time\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\aendTime\"\xb9\x02\n" +
+	"\x19GetServiceMetricsResponse\x12%\n" +
+	"\x0etotal_requests\x18\x01 \x01(\x03R\rtotalRequests\x12/\n" +
+	"\x13successful_requests\x18\x02 \x01(\x03R\x12successfulRequests\x12'\n" +
+	"\x0ffailed_requests\x18\x03 \x01(\x03R\x0efailedRequests\x12!\n" +
+	"\fsuccess_rate\x18\x04 \x01(\x01R\vsuccessRate\x124\n" +
+	"\alatency\x18\x05 \x01(\v2\x1a.inference.v1.LatencyStatsR\alatency\x12B\n" +
+	"\x0eresource_usage\x18\x06 \x01(\v2\x1b.inference.v1.ResourceUsageR\rresourceUsage\"j\n" +
+	"\fLatencyStats\x12\x15\n" +
+	"\x06p50_ms\x18\x01 \x01(\x01R\x05p50Ms\x12\x15\n" +
+	"\x06p95_ms\x18\x02 \x01(\x01R\x05p95Ms\x12\x15\n" +
+	"\x06p99_ms\x18\x03 \x01(\x01R\x05p99Ms\x12\x15\n" +
+	"\x06max_ms\x18\x04 \x01(\x01R\x05maxMs\"\x96\x01\n" +
+	"\rResourceUsage\x12(\n" +
+	"\x03cpu\x18\x01 \x01(\v2\x16.inference.v1.CpuUsageR\x03cpu\x121\n" +
+	"\x06memory\x18\x02 \x01(\v2\x19.inference.v1.MemoryUsageR\x06memory\x12(\n" +
+	"\x03gpu\x18\x03 \x01(\v2\x16.inference.v1.GpuUsageR\x03gpu\"N\n" +
+	"\bCpuUsage\x12#\n" +
+	"\raverage_cores\x18\x01 \x01(\x01R\faverageCores\x12\x1d\n" +
+	"\n" +
+	"peak_cores\x18\x02 \x01(\x01R\tpeakCores\"Q\n" +
+	"\vMemoryUsage\x12#\n" +
+	"\raverage_bytes\x18\x01 \x01(\x03R\faverageBytes\x12\x1d\n" +
+	"\n" +
+	"peak_bytes\x18\x02 \x01(\x03R\tpeakBytes\"\xe2\x01\n" +
+	"\bGpuUsage\x12>\n" +
+	"\x1baverage_utilization_percent\x18\x01 \x01(\x01R\x19averageUtilizationPercent\x128\n" +
+	"\x18peak_utilization_percent\x18\x02 \x01(\x01R\x16peakUtilizationPercent\x120\n" +
+	"\x14average_memory_bytes\x18\x03 \x01(\x03R\x12averageMemoryBytes\x12*\n" +
+	"\x11peak_memory_bytes\x18\x04 \x01(\x03R\x0fpeakMemoryBytes\"\xee\x01\n" +
+	"\x15GetServiceLogsRequest\x12\x1f\n" +
+	"\vresource_id\x18\x01 \x01(\tR\n" +
+	"resourceId\x120\n" +
+	"\x05since\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\x05since\x120\n" +
+	"\x05until\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x05until\x12\x19\n" +
+	"\bpod_name\x18\x04 \x01(\tR\apodName\x12\x16\n" +
+	"\x06follow\x18\x05 \x01(\bR\x06follow\x12\x1d\n" +
+	"\n" +
+	"tail_lines\x18\x06 \x01(\x05R\ttailLines\"\xb6\x01\n" +
+	"\bLogEntry\x128\n" +
+	"\ttimestamp\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\ttimestamp\x12\x19\n" +
+	"\bpod_name\x18\x02 \x01(\tR\apodName\x12%\n" +
+	"\x0econtainer_name\x18\x03 \x01(\tR\rcontainerName\x12\x18\n" +
+	"\amessage\x18\x04 \x01(\tR\amessage\x12\x14\n" +
+	"\x05level\x18\x05 \x01(\tR\x05level\"\x8d\x01\n" +
+	"\x18ListServiceEventsRequest\x12\x1f\n" +
+	"\vresource_id\x18\x01 \x01(\tR\n" +
+	"resourceId\x12\x17\n" +
+	"\x04page\x18\x02 \x01(\x05H\x00R\x04page\x88\x01\x01\x12 \n" +
+	"\tpage_size\x18\x03 \x01(\x05H\x01R\bpageSize\x88\x01\x01B\a\n" +
+	"\x05_pageB\f\n" +
+	"\n" +
+	"_page_size\"c\n" +
+	"\x19ListServiceEventsResponse\x120\n" +
+	"\x05items\x18\x01 \x03(\v2\x1a.inference.v1.ServiceEventR\x05items\x12\x14\n" +
+	"\x05total\x18\x02 \x01(\x03R\x05total\"\xe8\x01\n" +
+	"\fServiceEvent\x12\x12\n" +
+	"\x04type\x18\x01 \x01(\tR\x04type\x128\n" +
+	"\ttimestamp\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\ttimestamp\x12\x16\n" +
+	"\x06reason\x18\x03 \x01(\tR\x06reason\x12\x18\n" +
+	"\amessage\x18\x04 \x01(\tR\amessage\x12\x16\n" +
+	"\x06source\x18\x05 \x01(\tR\x06source\x12\x1f\n" +
+	"\vobject_kind\x18\x06 \x01(\tR\n" +
+	"objectKind\x12\x1f\n" +
+	"\vobject_name\x18\a \x01(\tR\n" +
+	"objectName*l\n" +
 	"\vRuntimeMode\x12\x1c\n" +
 	"\x18RUNTIME_MODE_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17RUNTIME_MODE_DEPLOYMENT\x10\x01\x12\"\n" +
@@ -1975,7 +3633,7 @@ const file_inference_v1_inference_proto_rawDesc = "" +
 	"\x14ManagedResourceClass\x12&\n" +
 	"\"MANAGED_RESOURCE_CLASS_UNSPECIFIED\x10\x00\x12\x1e\n" +
 	"\x1aMANAGED_RESOURCE_CLASS_CPU\x10\x01\x12\x1e\n" +
-	"\x1aMANAGED_RESOURCE_CLASS_GPU\x10\x022\xeb\a\n" +
+	"\x1aMANAGED_RESOURCE_CLASS_GPU\x10\x022\xf9\r\n" +
 	"\x17InferenceServiceManager\x12f\n" +
 	"\x16CreateInferenceService\x12+.inference.v1.CreateInferenceServiceRequest\x1a\x1f.inference.v1.OperationResponse\x12_\n" +
 	"\x13GetInferenceService\x12(.inference.v1.GetInferenceServiceRequest\x1a\x1e.inference.v1.InferenceService\x12p\n" +
@@ -1986,7 +3644,15 @@ const file_inference_v1_inference_proto_rawDesc = "" +
 	"\x17RestartInferenceService\x12#.inference.v1.ServiceCommandRequest\x1a\x1f.inference.v1.OperationResponse\x12f\n" +
 	"\x16DeleteInferenceService\x12+.inference.v1.DeleteInferenceServiceRequest\x1a\x1f.inference.v1.OperationResponse\x12J\n" +
 	"\fGetOperation\x12!.inference.v1.GetOperationRequest\x1a\x17.inference.v1.Operation\x12[\n" +
-	"\x0eListOperations\x12#.inference.v1.ListOperationsRequest\x1a$.inference.v1.ListOperationsResponseBKZIgithub.com/liangzai006/ani-inference-service/api/inference/v1;inferencev1b\x06proto3"
+	"\x0eListOperations\x12#.inference.v1.ListOperationsRequest\x1a$.inference.v1.ListOperationsResponse\x12a\n" +
+	"\x10GetServiceHealth\x12%.inference.v1.GetServiceHealthRequest\x1a&.inference.v1.GetServiceHealthResponse\x12a\n" +
+	"\x10GetServicePolicy\x12%.inference.v1.GetServicePolicyRequest\x1a&.inference.v1.GetServicePolicyResponse\x12j\n" +
+	"\x13UpdateServicePolicy\x12(.inference.v1.UpdateServicePolicyRequest\x1a).inference.v1.UpdateServicePolicyResponse\x12[\n" +
+	"\x0eTestInvocation\x12#.inference.v1.TestInvocationRequest\x1a$.inference.v1.TestInvocationResponse\x12`\n" +
+	"\x14TestStreamInvocation\x12#.inference.v1.TestInvocationRequest\x1a!.inference.v1.TestInvocationChunk0\x01\x12d\n" +
+	"\x11GetServiceMetrics\x12&.inference.v1.GetServiceMetricsRequest\x1a'.inference.v1.GetServiceMetricsResponse\x12O\n" +
+	"\x0eGetServiceLogs\x12#.inference.v1.GetServiceLogsRequest\x1a\x16.inference.v1.LogEntry0\x01\x12d\n" +
+	"\x11ListServiceEvents\x12&.inference.v1.ListServiceEventsRequest\x1a'.inference.v1.ListServiceEventsResponseBKZIgithub.com/liangzai006/ani-inference-service/api/inference/v1;inferencev1b\x06proto3"
 
 var (
 	file_inference_v1_inference_proto_rawDescOnce sync.Once
@@ -2001,7 +3667,7 @@ func file_inference_v1_inference_proto_rawDescGZIP() []byte {
 }
 
 var file_inference_v1_inference_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_inference_v1_inference_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
+var file_inference_v1_inference_proto_msgTypes = make([]protoimpl.MessageInfo, 50)
 var file_inference_v1_inference_proto_goTypes = []any{
 	(RuntimeMode)(0),                      // 0: inference.v1.RuntimeMode
 	(ManagedResourceClass)(0),             // 1: inference.v1.ManagedResourceClass
@@ -2026,75 +3692,142 @@ var file_inference_v1_inference_proto_goTypes = []any{
 	(*GetOperationRequest)(nil),           // 20: inference.v1.GetOperationRequest
 	(*ListOperationsRequest)(nil),         // 21: inference.v1.ListOperationsRequest
 	(*ListOperationsResponse)(nil),        // 22: inference.v1.ListOperationsResponse
-	nil,                                   // 23: inference.v1.ResourceSpec.RequestsEntry
-	nil,                                   // 24: inference.v1.ResourceSpec.LimitsEntry
-	(*timestamppb.Timestamp)(nil),         // 25: google.protobuf.Timestamp
-	(*v1.GpuExecution)(nil),               // 26: accelerator.v1.GpuExecution
-	(*v1.GpuDisplay)(nil),                 // 27: accelerator.v1.GpuDisplay
-	(*fieldmaskpb.FieldMask)(nil),         // 28: google.protobuf.FieldMask
-	(*v11.DurableOwnerAck)(nil),           // 29: accelerator.command.v1.DurableOwnerAck
+	(*GetServiceHealthRequest)(nil),       // 23: inference.v1.GetServiceHealthRequest
+	(*GetServiceHealthResponse)(nil),      // 24: inference.v1.GetServiceHealthResponse
+	(*HealthCheck)(nil),                   // 25: inference.v1.HealthCheck
+	(*GetServicePolicyRequest)(nil),       // 26: inference.v1.GetServicePolicyRequest
+	(*GetServicePolicyResponse)(nil),      // 27: inference.v1.GetServicePolicyResponse
+	(*UpdateServicePolicyRequest)(nil),    // 28: inference.v1.UpdateServicePolicyRequest
+	(*UpdateServicePolicyResponse)(nil),   // 29: inference.v1.UpdateServicePolicyResponse
+	(*ServicePolicy)(nil),                 // 30: inference.v1.ServicePolicy
+	(*RateLimitConfig)(nil),               // 31: inference.v1.RateLimitConfig
+	(*TestInvocationRequest)(nil),         // 32: inference.v1.TestInvocationRequest
+	(*TestInvocationResponse)(nil),        // 33: inference.v1.TestInvocationResponse
+	(*TestInvocationChunk)(nil),           // 34: inference.v1.TestInvocationChunk
+	(*GetServiceMetricsRequest)(nil),      // 35: inference.v1.GetServiceMetricsRequest
+	(*GetServiceMetricsResponse)(nil),     // 36: inference.v1.GetServiceMetricsResponse
+	(*LatencyStats)(nil),                  // 37: inference.v1.LatencyStats
+	(*ResourceUsage)(nil),                 // 38: inference.v1.ResourceUsage
+	(*CpuUsage)(nil),                      // 39: inference.v1.CpuUsage
+	(*MemoryUsage)(nil),                   // 40: inference.v1.MemoryUsage
+	(*GpuUsage)(nil),                      // 41: inference.v1.GpuUsage
+	(*GetServiceLogsRequest)(nil),         // 42: inference.v1.GetServiceLogsRequest
+	(*LogEntry)(nil),                      // 43: inference.v1.LogEntry
+	(*ListServiceEventsRequest)(nil),      // 44: inference.v1.ListServiceEventsRequest
+	(*ListServiceEventsResponse)(nil),     // 45: inference.v1.ListServiceEventsResponse
+	(*ServiceEvent)(nil),                  // 46: inference.v1.ServiceEvent
+	nil,                                   // 47: inference.v1.ResourceSpec.RequestsEntry
+	nil,                                   // 48: inference.v1.ResourceSpec.LimitsEntry
+	nil,                                   // 49: inference.v1.ServicePolicy.RateLimitsEntry
+	nil,                                   // 50: inference.v1.TestInvocationRequest.HeadersEntry
+	nil,                                   // 51: inference.v1.TestInvocationResponse.ResponseHeadersEntry
+	(*timestamppb.Timestamp)(nil),         // 52: google.protobuf.Timestamp
+	(*v1.GpuExecution)(nil),               // 53: accelerator.v1.GpuExecution
+	(*v1.GpuDisplay)(nil),                 // 54: accelerator.v1.GpuDisplay
+	(*fieldmaskpb.FieldMask)(nil),         // 55: google.protobuf.FieldMask
+	(*v11.DurableOwnerAck)(nil),           // 56: accelerator.command.v1.DurableOwnerAck
 }
 var file_inference_v1_inference_proto_depIdxs = []int32{
-	23, // 0: inference.v1.ResourceSpec.requests:type_name -> inference.v1.ResourceSpec.RequestsEntry
-	24, // 1: inference.v1.ResourceSpec.limits:type_name -> inference.v1.ResourceSpec.LimitsEntry
+	47, // 0: inference.v1.ResourceSpec.requests:type_name -> inference.v1.ResourceSpec.RequestsEntry
+	48, // 1: inference.v1.ResourceSpec.limits:type_name -> inference.v1.ResourceSpec.LimitsEntry
 	3,  // 2: inference.v1.ResourceSpec.gpu:type_name -> inference.v1.GpuRequest
 	0,  // 3: inference.v1.RuntimeSpec.mode:type_name -> inference.v1.RuntimeMode
 	5,  // 4: inference.v1.RuntimeSpec.endpoint:type_name -> inference.v1.EndpointSpec
 	1,  // 5: inference.v1.ManagedDeleteScope.resource_class:type_name -> inference.v1.ManagedResourceClass
 	2,  // 6: inference.v1.InferenceService.resource:type_name -> inference.v1.ResourceSpec
-	25, // 7: inference.v1.InferenceService.observed_at:type_name -> google.protobuf.Timestamp
+	52, // 7: inference.v1.InferenceService.observed_at:type_name -> google.protobuf.Timestamp
 	4,  // 8: inference.v1.InferenceService.runtime:type_name -> inference.v1.RuntimeSpec
 	6,  // 9: inference.v1.InferenceService.model_artifact:type_name -> inference.v1.ModelArtifact
 	7,  // 10: inference.v1.InferenceService.engine:type_name -> inference.v1.EngineSpec
-	25, // 11: inference.v1.Operation.created_at:type_name -> google.protobuf.Timestamp
-	25, // 12: inference.v1.Operation.completed_at:type_name -> google.protobuf.Timestamp
+	52, // 11: inference.v1.Operation.created_at:type_name -> google.protobuf.Timestamp
+	52, // 12: inference.v1.Operation.completed_at:type_name -> google.protobuf.Timestamp
 	2,  // 13: inference.v1.CreateInferenceServiceRequest.resource:type_name -> inference.v1.ResourceSpec
 	4,  // 14: inference.v1.CreateInferenceServiceRequest.runtime:type_name -> inference.v1.RuntimeSpec
 	6,  // 15: inference.v1.CreateInferenceServiceRequest.model_artifact:type_name -> inference.v1.ModelArtifact
 	7,  // 16: inference.v1.CreateInferenceServiceRequest.engine:type_name -> inference.v1.EngineSpec
 	8,  // 17: inference.v1.CreateInferenceServiceRequest.context:type_name -> inference.v1.CommandContext
-	26, // 18: inference.v1.CreateInferenceServiceRequest.gpu_execution:type_name -> accelerator.v1.GpuExecution
-	27, // 19: inference.v1.CreateInferenceServiceRequest.gpu_display:type_name -> accelerator.v1.GpuDisplay
-	28, // 20: inference.v1.UpdateInferenceServiceRequest.update_mask:type_name -> google.protobuf.FieldMask
+	53, // 18: inference.v1.CreateInferenceServiceRequest.gpu_execution:type_name -> accelerator.v1.GpuExecution
+	54, // 19: inference.v1.CreateInferenceServiceRequest.gpu_display:type_name -> accelerator.v1.GpuDisplay
+	55, // 20: inference.v1.UpdateInferenceServiceRequest.update_mask:type_name -> google.protobuf.FieldMask
 	2,  // 21: inference.v1.UpdateInferenceServiceRequest.resource:type_name -> inference.v1.ResourceSpec
 	4,  // 22: inference.v1.UpdateInferenceServiceRequest.runtime:type_name -> inference.v1.RuntimeSpec
 	6,  // 23: inference.v1.UpdateInferenceServiceRequest.model_artifact:type_name -> inference.v1.ModelArtifact
 	7,  // 24: inference.v1.UpdateInferenceServiceRequest.engine:type_name -> inference.v1.EngineSpec
 	8,  // 25: inference.v1.UpdateInferenceServiceRequest.context:type_name -> inference.v1.CommandContext
-	26, // 26: inference.v1.UpdateInferenceServiceRequest.gpu_execution:type_name -> accelerator.v1.GpuExecution
-	27, // 27: inference.v1.UpdateInferenceServiceRequest.gpu_display:type_name -> accelerator.v1.GpuDisplay
+	53, // 26: inference.v1.UpdateInferenceServiceRequest.gpu_execution:type_name -> accelerator.v1.GpuExecution
+	54, // 27: inference.v1.UpdateInferenceServiceRequest.gpu_display:type_name -> accelerator.v1.GpuDisplay
 	8,  // 28: inference.v1.DeleteInferenceServiceRequest.context:type_name -> inference.v1.CommandContext
 	9,  // 29: inference.v1.DeleteInferenceServiceRequest.managed_delete_scope:type_name -> inference.v1.ManagedDeleteScope
 	10, // 30: inference.v1.ListInferenceServicesResponse.items:type_name -> inference.v1.InferenceService
 	10, // 31: inference.v1.OperationResponse.resource:type_name -> inference.v1.InferenceService
 	11, // 32: inference.v1.OperationResponse.operation:type_name -> inference.v1.Operation
-	29, // 33: inference.v1.OperationResponse.durable_owner_ack:type_name -> accelerator.command.v1.DurableOwnerAck
+	56, // 33: inference.v1.OperationResponse.durable_owner_ack:type_name -> accelerator.command.v1.DurableOwnerAck
 	11, // 34: inference.v1.ListOperationsResponse.items:type_name -> inference.v1.Operation
-	12, // 35: inference.v1.InferenceServiceManager.CreateInferenceService:input_type -> inference.v1.CreateInferenceServiceRequest
-	16, // 36: inference.v1.InferenceServiceManager.GetInferenceService:input_type -> inference.v1.GetInferenceServiceRequest
-	17, // 37: inference.v1.InferenceServiceManager.ListInferenceServices:input_type -> inference.v1.ListInferenceServicesRequest
-	13, // 38: inference.v1.InferenceServiceManager.UpdateInferenceService:input_type -> inference.v1.UpdateInferenceServiceRequest
-	14, // 39: inference.v1.InferenceServiceManager.StartInferenceService:input_type -> inference.v1.ServiceCommandRequest
-	14, // 40: inference.v1.InferenceServiceManager.StopInferenceService:input_type -> inference.v1.ServiceCommandRequest
-	14, // 41: inference.v1.InferenceServiceManager.RestartInferenceService:input_type -> inference.v1.ServiceCommandRequest
-	15, // 42: inference.v1.InferenceServiceManager.DeleteInferenceService:input_type -> inference.v1.DeleteInferenceServiceRequest
-	20, // 43: inference.v1.InferenceServiceManager.GetOperation:input_type -> inference.v1.GetOperationRequest
-	21, // 44: inference.v1.InferenceServiceManager.ListOperations:input_type -> inference.v1.ListOperationsRequest
-	19, // 45: inference.v1.InferenceServiceManager.CreateInferenceService:output_type -> inference.v1.OperationResponse
-	10, // 46: inference.v1.InferenceServiceManager.GetInferenceService:output_type -> inference.v1.InferenceService
-	18, // 47: inference.v1.InferenceServiceManager.ListInferenceServices:output_type -> inference.v1.ListInferenceServicesResponse
-	19, // 48: inference.v1.InferenceServiceManager.UpdateInferenceService:output_type -> inference.v1.OperationResponse
-	19, // 49: inference.v1.InferenceServiceManager.StartInferenceService:output_type -> inference.v1.OperationResponse
-	19, // 50: inference.v1.InferenceServiceManager.StopInferenceService:output_type -> inference.v1.OperationResponse
-	19, // 51: inference.v1.InferenceServiceManager.RestartInferenceService:output_type -> inference.v1.OperationResponse
-	19, // 52: inference.v1.InferenceServiceManager.DeleteInferenceService:output_type -> inference.v1.OperationResponse
-	11, // 53: inference.v1.InferenceServiceManager.GetOperation:output_type -> inference.v1.Operation
-	22, // 54: inference.v1.InferenceServiceManager.ListOperations:output_type -> inference.v1.ListOperationsResponse
-	45, // [45:55] is the sub-list for method output_type
-	35, // [35:45] is the sub-list for method input_type
-	35, // [35:35] is the sub-list for extension type_name
-	35, // [35:35] is the sub-list for extension extendee
-	0,  // [0:35] is the sub-list for field type_name
+	52, // 35: inference.v1.GetServiceHealthResponse.last_check_time:type_name -> google.protobuf.Timestamp
+	52, // 36: inference.v1.GetServiceHealthResponse.last_success_time:type_name -> google.protobuf.Timestamp
+	25, // 37: inference.v1.GetServiceHealthResponse.checks:type_name -> inference.v1.HealthCheck
+	52, // 38: inference.v1.HealthCheck.checked_at:type_name -> google.protobuf.Timestamp
+	30, // 39: inference.v1.GetServicePolicyResponse.policy:type_name -> inference.v1.ServicePolicy
+	30, // 40: inference.v1.UpdateServicePolicyRequest.policy:type_name -> inference.v1.ServicePolicy
+	30, // 41: inference.v1.UpdateServicePolicyResponse.policy:type_name -> inference.v1.ServicePolicy
+	49, // 42: inference.v1.ServicePolicy.rate_limits:type_name -> inference.v1.ServicePolicy.RateLimitsEntry
+	52, // 43: inference.v1.ServicePolicy.updated_at:type_name -> google.protobuf.Timestamp
+	50, // 44: inference.v1.TestInvocationRequest.headers:type_name -> inference.v1.TestInvocationRequest.HeadersEntry
+	51, // 45: inference.v1.TestInvocationResponse.response_headers:type_name -> inference.v1.TestInvocationResponse.ResponseHeadersEntry
+	52, // 46: inference.v1.GetServiceMetricsRequest.start_time:type_name -> google.protobuf.Timestamp
+	52, // 47: inference.v1.GetServiceMetricsRequest.end_time:type_name -> google.protobuf.Timestamp
+	37, // 48: inference.v1.GetServiceMetricsResponse.latency:type_name -> inference.v1.LatencyStats
+	38, // 49: inference.v1.GetServiceMetricsResponse.resource_usage:type_name -> inference.v1.ResourceUsage
+	39, // 50: inference.v1.ResourceUsage.cpu:type_name -> inference.v1.CpuUsage
+	40, // 51: inference.v1.ResourceUsage.memory:type_name -> inference.v1.MemoryUsage
+	41, // 52: inference.v1.ResourceUsage.gpu:type_name -> inference.v1.GpuUsage
+	52, // 53: inference.v1.GetServiceLogsRequest.since:type_name -> google.protobuf.Timestamp
+	52, // 54: inference.v1.GetServiceLogsRequest.until:type_name -> google.protobuf.Timestamp
+	52, // 55: inference.v1.LogEntry.timestamp:type_name -> google.protobuf.Timestamp
+	46, // 56: inference.v1.ListServiceEventsResponse.items:type_name -> inference.v1.ServiceEvent
+	52, // 57: inference.v1.ServiceEvent.timestamp:type_name -> google.protobuf.Timestamp
+	31, // 58: inference.v1.ServicePolicy.RateLimitsEntry.value:type_name -> inference.v1.RateLimitConfig
+	12, // 59: inference.v1.InferenceServiceManager.CreateInferenceService:input_type -> inference.v1.CreateInferenceServiceRequest
+	16, // 60: inference.v1.InferenceServiceManager.GetInferenceService:input_type -> inference.v1.GetInferenceServiceRequest
+	17, // 61: inference.v1.InferenceServiceManager.ListInferenceServices:input_type -> inference.v1.ListInferenceServicesRequest
+	13, // 62: inference.v1.InferenceServiceManager.UpdateInferenceService:input_type -> inference.v1.UpdateInferenceServiceRequest
+	14, // 63: inference.v1.InferenceServiceManager.StartInferenceService:input_type -> inference.v1.ServiceCommandRequest
+	14, // 64: inference.v1.InferenceServiceManager.StopInferenceService:input_type -> inference.v1.ServiceCommandRequest
+	14, // 65: inference.v1.InferenceServiceManager.RestartInferenceService:input_type -> inference.v1.ServiceCommandRequest
+	15, // 66: inference.v1.InferenceServiceManager.DeleteInferenceService:input_type -> inference.v1.DeleteInferenceServiceRequest
+	20, // 67: inference.v1.InferenceServiceManager.GetOperation:input_type -> inference.v1.GetOperationRequest
+	21, // 68: inference.v1.InferenceServiceManager.ListOperations:input_type -> inference.v1.ListOperationsRequest
+	23, // 69: inference.v1.InferenceServiceManager.GetServiceHealth:input_type -> inference.v1.GetServiceHealthRequest
+	26, // 70: inference.v1.InferenceServiceManager.GetServicePolicy:input_type -> inference.v1.GetServicePolicyRequest
+	28, // 71: inference.v1.InferenceServiceManager.UpdateServicePolicy:input_type -> inference.v1.UpdateServicePolicyRequest
+	32, // 72: inference.v1.InferenceServiceManager.TestInvocation:input_type -> inference.v1.TestInvocationRequest
+	32, // 73: inference.v1.InferenceServiceManager.TestStreamInvocation:input_type -> inference.v1.TestInvocationRequest
+	35, // 74: inference.v1.InferenceServiceManager.GetServiceMetrics:input_type -> inference.v1.GetServiceMetricsRequest
+	42, // 75: inference.v1.InferenceServiceManager.GetServiceLogs:input_type -> inference.v1.GetServiceLogsRequest
+	44, // 76: inference.v1.InferenceServiceManager.ListServiceEvents:input_type -> inference.v1.ListServiceEventsRequest
+	19, // 77: inference.v1.InferenceServiceManager.CreateInferenceService:output_type -> inference.v1.OperationResponse
+	10, // 78: inference.v1.InferenceServiceManager.GetInferenceService:output_type -> inference.v1.InferenceService
+	18, // 79: inference.v1.InferenceServiceManager.ListInferenceServices:output_type -> inference.v1.ListInferenceServicesResponse
+	19, // 80: inference.v1.InferenceServiceManager.UpdateInferenceService:output_type -> inference.v1.OperationResponse
+	19, // 81: inference.v1.InferenceServiceManager.StartInferenceService:output_type -> inference.v1.OperationResponse
+	19, // 82: inference.v1.InferenceServiceManager.StopInferenceService:output_type -> inference.v1.OperationResponse
+	19, // 83: inference.v1.InferenceServiceManager.RestartInferenceService:output_type -> inference.v1.OperationResponse
+	19, // 84: inference.v1.InferenceServiceManager.DeleteInferenceService:output_type -> inference.v1.OperationResponse
+	11, // 85: inference.v1.InferenceServiceManager.GetOperation:output_type -> inference.v1.Operation
+	22, // 86: inference.v1.InferenceServiceManager.ListOperations:output_type -> inference.v1.ListOperationsResponse
+	24, // 87: inference.v1.InferenceServiceManager.GetServiceHealth:output_type -> inference.v1.GetServiceHealthResponse
+	27, // 88: inference.v1.InferenceServiceManager.GetServicePolicy:output_type -> inference.v1.GetServicePolicyResponse
+	29, // 89: inference.v1.InferenceServiceManager.UpdateServicePolicy:output_type -> inference.v1.UpdateServicePolicyResponse
+	33, // 90: inference.v1.InferenceServiceManager.TestInvocation:output_type -> inference.v1.TestInvocationResponse
+	34, // 91: inference.v1.InferenceServiceManager.TestStreamInvocation:output_type -> inference.v1.TestInvocationChunk
+	36, // 92: inference.v1.InferenceServiceManager.GetServiceMetrics:output_type -> inference.v1.GetServiceMetricsResponse
+	43, // 93: inference.v1.InferenceServiceManager.GetServiceLogs:output_type -> inference.v1.LogEntry
+	45, // 94: inference.v1.InferenceServiceManager.ListServiceEvents:output_type -> inference.v1.ListServiceEventsResponse
+	77, // [77:95] is the sub-list for method output_type
+	59, // [59:77] is the sub-list for method input_type
+	59, // [59:59] is the sub-list for extension type_name
+	59, // [59:59] is the sub-list for extension extendee
+	0,  // [0:59] is the sub-list for field type_name
 }
 
 func init() { file_inference_v1_inference_proto_init() }
@@ -2104,13 +3837,14 @@ func file_inference_v1_inference_proto_init() {
 	}
 	file_inference_v1_inference_proto_msgTypes[15].OneofWrappers = []any{}
 	file_inference_v1_inference_proto_msgTypes[19].OneofWrappers = []any{}
+	file_inference_v1_inference_proto_msgTypes[42].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_inference_v1_inference_proto_rawDesc), len(file_inference_v1_inference_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   23,
+			NumMessages:   50,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

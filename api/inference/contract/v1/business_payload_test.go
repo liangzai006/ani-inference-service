@@ -1,9 +1,10 @@
-package inferencev1
+package contractv1
 
 import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
 	acceleratorv1 "github.com/zhangzhe-ctrl/ani-accelerator-service/api/gen/go/accelerator/v1"
 	"github.com/zhangzhe-ctrl/ani-accelerator-service/pkg/gpuprotocol"
 	"google.golang.org/protobuf/proto"
@@ -11,7 +12,7 @@ import (
 )
 
 func TestBusinessCanonicalFixedVectorAndRoundtrip(t *testing.T) {
-	req := &CreateInferenceServiceRequest{RequestId: "dynamic", Name: "<&中文>", ModelVersionId: "11111111-1111-4111-8111-111111111111", Replicas: 1, Resource: &ResourceSpec{Limits: map[string]string{"memory": "8Gi", "cpu": "2"}}, Engine: &EngineSpec{Type: "vllm", Image: "engine:v1", Command: "serve"}, Runtime: &RuntimeSpec{Mode: RuntimeMode_RUNTIME_MODE_LEADER_WORKER_SET, WorkerReplicas: 1}}
+	req := &inferencev1.CreateInferenceServiceRequest{RequestId: "dynamic", Name: "<&中文>", ModelVersionId: "11111111-1111-4111-8111-111111111111", Replicas: 1, Resource: &inferencev1.ResourceSpec{Limits: map[string]string{"memory": "8Gi", "cpu": "2"}}, Engine: &inferencev1.EngineSpec{Type: "vllm", Image: "engine:v1", Command: "serve"}, Runtime: &inferencev1.RuntimeSpec{Mode: inferencev1.RuntimeMode_RUNTIME_MODE_LEADER_WORKER_SET, WorkerReplicas: 1}}
 	const expected = `{"cluster_id":"","engine":{"command":"serve","image":"engine:v1","type":"vllm"},"gpu_display":null,"gpu_execution":null,"model_artifact":null,"model_version_id":"11111111-1111-4111-8111-111111111111","name":"<&中文>","replicas":"1","resource":{"gpu":null,"limits":{"cpu":"2","memory":"8Gi"},"requests":{}},"runtime":{"endpoint":null,"mode":"2","provider":"","worker_replicas":"1"},"served_model_name":""}`
 	raw, err := CanonicalBusinessPayload(req)
 	if err != nil || string(raw) != expected {
@@ -38,7 +39,7 @@ func TestBusinessCanonicalFixedVectorAndRoundtrip(t *testing.T) {
 		t.Fatalf("retired owner attachment was accepted: %s error=%v", excluded, err)
 	}
 	req.ProtoReflect().SetUnknown(nil)
-	req.Context = &CommandContext{TenantId: "11111111-1111-4111-8111-111111111111", ResourceId: "22222222-2222-4222-8222-222222222222", OperationId: "33333333-3333-4333-8333-333333333333", RequestDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+	req.Context = &inferencev1.CommandContext{TenantId: "11111111-1111-4111-8111-111111111111", ResourceId: "22222222-2222-4222-8222-222222222222", OperationId: "33333333-3333-4333-8333-333333333333", RequestDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
 	contextDigest, err := CanonicalBusinessPayload(req)
 	if err != nil || !bytes.Equal(raw, contextDigest) {
 		t.Fatalf("command context contaminated business digest: %s error=%v", contextDigest, err)
@@ -81,7 +82,7 @@ func TestFrozenGPUValidationRequiresDisplayExecutionConsistency(t *testing.T) {
 	const id = "11111111-1111-4111-8111-111111111111"
 	execution := validGPUExecution(t)
 	display := &acceleratorv1.GpuDisplay{ProfileId: id, ProfileVersion: 1, ProfileName: "t4", ModelKey: "t4", Mode: acceleratorv1.SupplyMode_SHARED_FIXED}
-	if err := ValidateFrozenGPU(id, execution, display, &GpuRequest{ClusterId: "22222222-2222-4222-8222-222222222222", ProfileId: id, ProfileVersion: 1}); err == nil {
+	if err := ValidateFrozenGPU(id, execution, display, &inferencev1.GpuRequest{ClusterId: "22222222-2222-4222-8222-222222222222", ProfileId: id, ProfileVersion: 1}); err == nil {
 		t.Fatal("resource GPU cluster mismatch accepted")
 	}
 	display.ModelKey = "a100"
@@ -105,7 +106,7 @@ func TestFrozenGPUValidationRequiresDisplayExecutionConsistency(t *testing.T) {
 }
 
 func TestCommandContextValidationRequiresCanonicalIdentityAndDigest(t *testing.T) {
-	context := &CommandContext{TenantId: "11111111-1111-4111-8111-111111111111", ResourceId: "22222222-2222-4222-8222-222222222222", OperationId: "33333333-3333-4333-8333-333333333333", RequestDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+	context := &inferencev1.CommandContext{TenantId: "11111111-1111-4111-8111-111111111111", ResourceId: "22222222-2222-4222-8222-222222222222", OperationId: "33333333-3333-4333-8333-333333333333", RequestDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
 	if err := ValidateCommandContext(context); err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +121,7 @@ func TestBusinessValidationChecksOptionalCommandContext(t *testing.T) {
 	if err := ValidateBusinessPayload(req); err != nil {
 		t.Fatalf("direct request without command context rejected: %v", err)
 	}
-	req.Context = &CommandContext{TenantId: "bad", ResourceId: "22222222-2222-4222-8222-222222222222", OperationId: "33333333-3333-4333-8333-333333333333", RequestDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+	req.Context = &inferencev1.CommandContext{TenantId: "bad", ResourceId: "22222222-2222-4222-8222-222222222222", OperationId: "33333333-3333-4333-8333-333333333333", RequestDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
 	if err := ValidateBusinessPayload(req); err == nil {
 		t.Fatal("invalid command context accepted when explicitly supplied")
 	}
@@ -129,10 +130,10 @@ func TestBusinessValidationChecksOptionalCommandContext(t *testing.T) {
 func TestBusinessValidationAllowsNonGPUExtendedResourceWithGPUSelection(t *testing.T) {
 	const id = "11111111-1111-4111-8111-111111111111"
 	req := validBusinessRequest()
-	req.Resource = &ResourceSpec{
+	req.Resource = &inferencev1.ResourceSpec{
 		Requests: map[string]string{"example.com/fpga": "1"},
 		Limits:   map[string]string{"example.com/fpga": "1"},
-		Gpu:      &GpuRequest{ClusterId: id, PoolId: id, ProfileId: id, ProfileVersion: 1, Replicas: 1, DevicesPerReplica: 1, ContainerName: "kserve-container"},
+		Gpu:      &inferencev1.GpuRequest{ClusterId: id, PoolId: id, ProfileId: id, ProfileVersion: 1, Replicas: 1, DevicesPerReplica: 1, ContainerName: "kserve-container"},
 	}
 	if err := ValidateBusinessPayload(req); err != nil {
 		t.Fatalf("ordinary extended resource rejected: %v", err)
@@ -143,7 +144,7 @@ func TestBusinessValidationFencesFrozenGPUToResourceCluster(t *testing.T) {
 	const id = "11111111-1111-4111-8111-111111111111"
 	req := validBusinessRequest()
 	req.ClusterId = id
-	req.Resource = &ResourceSpec{Gpu: &GpuRequest{ClusterId: "22222222-2222-4222-8222-222222222222", PoolId: id, ProfileId: id, ProfileVersion: 1, Replicas: 1, DevicesPerReplica: 1, ContainerName: "kserve-container"}}
+	req.Resource = &inferencev1.ResourceSpec{Gpu: &inferencev1.GpuRequest{ClusterId: "22222222-2222-4222-8222-222222222222", PoolId: id, ProfileId: id, ProfileVersion: 1, Replicas: 1, DevicesPerReplica: 1, ContainerName: "kserve-container"}}
 	req.GpuExecution = validGPUExecution(t)
 	req.GpuDisplay = &acceleratorv1.GpuDisplay{ProfileId: id, ProfileVersion: 1, ProfileName: "t4", ModelKey: "t4", Mode: acceleratorv1.SupplyMode_SHARED_FIXED}
 	if err := ValidateBusinessPayload(req); err == nil {
@@ -151,10 +152,10 @@ func TestBusinessValidationFencesFrozenGPUToResourceCluster(t *testing.T) {
 	}
 }
 
-func validBusinessRequest() *CreateInferenceServiceRequest {
-	return &CreateInferenceServiceRequest{
+func validBusinessRequest() *inferencev1.CreateInferenceServiceRequest {
+	return &inferencev1.CreateInferenceServiceRequest{
 		Name: "valid", ModelVersionId: "11111111-1111-4111-8111-111111111111", Replicas: 1,
-		Engine: &EngineSpec{Type: "vllm", Image: "engine:v1", Command: "serve"}, Resource: &ResourceSpec{},
+		Engine: &inferencev1.EngineSpec{Type: "vllm", Image: "engine:v1", Command: "serve"}, Resource: &inferencev1.ResourceSpec{},
 	}
 }
 
@@ -170,7 +171,7 @@ func validGPUExecution(t *testing.T) *acceleratorv1.GpuExecution {
 }
 
 func TestBusinessRejectsUnknownAndNoncanonicalPayload(t *testing.T) {
-	req := &CreateInferenceServiceRequest{}
+	req := &inferencev1.CreateInferenceServiceRequest{}
 	req.ProtoReflect().SetUnknown([]byte{0xf8, 0x07, 0x01})
 	if _, err := CanonicalBusinessPayload(req); err == nil {
 		t.Fatal("unknown business fields accepted")
@@ -181,7 +182,7 @@ func TestBusinessRejectsUnknownAndNoncanonicalPayload(t *testing.T) {
 }
 
 func TestBusinessValidationRejectsResourcesBeforeQuota(t *testing.T) {
-	req := &CreateInferenceServiceRequest{Name: "valid", ModelVersionId: "11111111-1111-4111-8111-111111111111", Replicas: 1, Engine: &EngineSpec{Type: "vllm", Image: "engine:v1", Command: "serve"}, Resource: &ResourceSpec{Requests: map[string]string{"cpu": "3"}, Limits: map[string]string{"cpu": "2"}}}
+	req := &inferencev1.CreateInferenceServiceRequest{Name: "valid", ModelVersionId: "11111111-1111-4111-8111-111111111111", Replicas: 1, Engine: &inferencev1.EngineSpec{Type: "vllm", Image: "engine:v1", Command: "serve"}, Resource: &inferencev1.ResourceSpec{Requests: map[string]string{"cpu": "3"}, Limits: map[string]string{"cpu": "2"}}}
 	if err := ValidateBusinessPayload(req); err == nil {
 		t.Fatal("request above limit accepted")
 	}
@@ -209,11 +210,11 @@ func TestValidateKubernetesNameRejectsKServeInvalidNames(t *testing.T) {
 }
 
 func TestBusinessValidationFailsClosedForManagedLWSOnly(t *testing.T) {
-	req := &CreateInferenceServiceRequest{Name: "distributed", ModelVersionId: "11111111-1111-4111-8111-111111111111", Replicas: 1, Engine: &EngineSpec{Type: "vllm", Image: "engine:v1", Command: "serve"}, Runtime: &RuntimeSpec{Mode: RuntimeMode_RUNTIME_MODE_LEADER_WORKER_SET, WorkerReplicas: 1}, Resource: &ResourceSpec{}}
+	req := &inferencev1.CreateInferenceServiceRequest{Name: "distributed", ModelVersionId: "11111111-1111-4111-8111-111111111111", Replicas: 1, Engine: &inferencev1.EngineSpec{Type: "vllm", Image: "engine:v1", Command: "serve"}, Runtime: &inferencev1.RuntimeSpec{Mode: inferencev1.RuntimeMode_RUNTIME_MODE_LEADER_WORKER_SET, WorkerReplicas: 1}, Resource: &inferencev1.ResourceSpec{}}
 	if err := ValidateBusinessPayload(req); err != nil {
 		t.Fatalf("CPU LWS changed: %v", err)
 	}
-	req.Resource.Gpu = &GpuRequest{ClusterId: req.ModelVersionId, PoolId: req.ModelVersionId, ProfileId: req.ModelVersionId, ProfileVersion: 1, Replicas: 2, DevicesPerReplica: 1, ContainerName: "main"}
+	req.Resource.Gpu = &inferencev1.GpuRequest{ClusterId: req.ModelVersionId, PoolId: req.ModelVersionId, ProfileId: req.ModelVersionId, ProfileVersion: 1, Replicas: 2, DevicesPerReplica: 1, ContainerName: "main"}
 	if err := ValidateBusinessPayload(req); err == nil {
 		t.Fatal("GPU LWS accepted before a supported synchronous projection exists")
 	}
@@ -221,7 +222,7 @@ func TestBusinessValidationFailsClosedForManagedLWSOnly(t *testing.T) {
 
 func TestBusinessValidationGPUQuantityContract(t *testing.T) {
 	const id = "11111111-1111-4111-8111-111111111111"
-	req := &CreateInferenceServiceRequest{Name: "quantity", ModelVersionId: id, Replicas: 1, Engine: &EngineSpec{Type: "vllm", Image: "engine:v1", Command: "serve"}, Runtime: &RuntimeSpec{Mode: RuntimeMode_RUNTIME_MODE_DEPLOYMENT}, Resource: &ResourceSpec{Gpu: &GpuRequest{ClusterId: id, PoolId: id, ProfileId: id, ProfileVersion: 1, Replicas: 1, ContainerName: "kserve-container"}}}
+	req := &inferencev1.CreateInferenceServiceRequest{Name: "quantity", ModelVersionId: id, Replicas: 1, Engine: &inferencev1.EngineSpec{Type: "vllm", Image: "engine:v1", Command: "serve"}, Runtime: &inferencev1.RuntimeSpec{Mode: inferencev1.RuntimeMode_RUNTIME_MODE_DEPLOYMENT}, Resource: &inferencev1.ResourceSpec{Gpu: &inferencev1.GpuRequest{ClusterId: id, PoolId: id, ProfileId: id, ProfileVersion: 1, Replicas: 1, ContainerName: "kserve-container"}}}
 	for _, devices := range []uint32{1, 2, 4} {
 		req.Resource.Gpu.DevicesPerReplica = devices
 		if err := ValidateBusinessPayload(req); err != nil {
@@ -234,7 +235,7 @@ func TestBusinessValidationGPUQuantityContract(t *testing.T) {
 			t.Fatalf("unsupported count %d accepted", devices)
 		}
 	}
-	req.Runtime.Mode, req.Runtime.WorkerReplicas = RuntimeMode_RUNTIME_MODE_LEADER_WORKER_SET, 1
+	req.Runtime.Mode, req.Runtime.WorkerReplicas = inferencev1.RuntimeMode_RUNTIME_MODE_LEADER_WORKER_SET, 1
 	req.Resource.Gpu.Replicas, req.Resource.Gpu.ContainerName = 2, "main"
 	for _, devices := range []uint32{1, 2} {
 		req.Resource.Gpu.DevicesPerReplica = devices
@@ -246,7 +247,7 @@ func TestBusinessValidationGPUQuantityContract(t *testing.T) {
 
 func TestBusinessValidationAcceptsVersionedGPUProfile(t *testing.T) {
 	const id = "11111111-1111-4111-8111-111111111111"
-	req := &CreateInferenceServiceRequest{Name: "versioned-profile", ModelVersionId: id, Replicas: 1, Engine: &EngineSpec{Type: "vllm", Image: "engine:v1", Command: "serve"}, Runtime: &RuntimeSpec{Mode: RuntimeMode_RUNTIME_MODE_DEPLOYMENT}, Resource: &ResourceSpec{Gpu: &GpuRequest{ClusterId: id, PoolId: id, ProfileId: id, ProfileVersion: 2, Replicas: 1, DevicesPerReplica: 1, ContainerName: "kserve-container"}}}
+	req := &inferencev1.CreateInferenceServiceRequest{Name: "versioned-profile", ModelVersionId: id, Replicas: 1, Engine: &inferencev1.EngineSpec{Type: "vllm", Image: "engine:v1", Command: "serve"}, Runtime: &inferencev1.RuntimeSpec{Mode: inferencev1.RuntimeMode_RUNTIME_MODE_DEPLOYMENT}, Resource: &inferencev1.ResourceSpec{Gpu: &inferencev1.GpuRequest{ClusterId: id, PoolId: id, ProfileId: id, ProfileVersion: 2, Replicas: 1, DevicesPerReplica: 1, ContainerName: "kserve-container"}}}
 	if err := ValidateBusinessPayload(req); err != nil {
 		t.Fatalf("versioned GPU profile rejected: %v", err)
 	}

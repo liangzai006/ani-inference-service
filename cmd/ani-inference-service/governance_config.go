@@ -7,15 +7,15 @@ import (
 	"strings"
 	"time"
 
-	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
 	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
+	"github.com/liangzai006/ani-inference-service/internal/conf"
 	"github.com/liangzai006/ani-inference-service/internal/data/governance"
 )
 
 // governanceRefundConfig contains only the outbound refund client. Inference
 // has one inbound gRPC listener; GPU commands use the ordinary listener after
 // the transport middleware binds the verified Governance tenant context.
-func governanceRefundConfig(managed *inferencev1.ManagedGPU) (governance.Config, bool, error) {
+func governanceRefundConfig(managed *conf.ManagedGPU) (governance.Config, bool, error) {
 	refund := managed.GetRefund()
 	cfg := governance.Config{
 		Endpoint: strings.TrimSpace(refund.GetAddress()),
@@ -43,7 +43,7 @@ func governanceRefundConfig(managed *inferencev1.ManagedGPU) (governance.Config,
 	return cfg, true, nil
 }
 
-func configuredGovernanceRefundReporter(managed *inferencev1.ManagedGPU, store gpu.RefundContextStore) (gpu.RefundReporter, func(), error) {
+func configuredGovernanceRefundReporter(managed *conf.ManagedGPU, store gpu.RefundContextStore) (gpu.RefundReporter, func(), error) {
 	cfg, enabled, err := governanceRefundConfig(managed)
 	if err != nil {
 		return nil, func() {}, err

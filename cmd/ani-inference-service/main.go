@@ -18,13 +18,14 @@ import (
 	"github.com/go-kratos/kratos/v3/log"
 	kratosTransport "github.com/go-kratos/kratos/v3/transport"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/liangzai006/ani-inference-service/internal/conf"
 	"go.uber.org/automaxprocs/maxprocs"
+	coreclient "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	ctrlmanager "sigs.k8s.io/controller-runtime/pkg/manager"
 
-	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
 	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
 	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
 	bizreconcile "github.com/liangzai006/ani-inference-service/internal/biz/reconcile"
@@ -77,7 +78,7 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	var bc inferencev1.Bootstrap
+	var bc conf.Bootstrap
 	if err := c.Scan(&bc); err != nil {
 		return fmt.Errorf("scan config: %w", err)
 	}
@@ -301,7 +302,12 @@ func buildKubernetesServers(pool *pgxpool.Pool, modelClient *modeldata.Client, r
 			(operationRunner.Audit != nil || operationStoreSupportsAtomicAudit(operationRunner.Store)) &&
 			managedGPUReady
 	}
-	return []kratosTransport.Server{loopServer, &server.ManagerServer{Manager: mgr}}, managedGPUReady, nil
+	core, err := coreclient.NewForConfig(config)
+	if err != nil {
+		return nil, false, fmt.Errorf("build runtime diagnostics client: %w", err)
+	}
+	diagnostics := &kubernetes.RuntimeDiagnostics{Source: runtimeSource, Reader: mgr.GetAPIReader(), Core: core}
+	return []kratosTransport.Server{loopServer, &diagnosticsManagerServer{Server: &server.ManagerServer{Manager: mgr}, reader: diagnostics}}, managedGPUReady, nil
 }
 
 func managedGPUReadiness(configured bool, release inferencebiz.ManagedGPUReleasePort) bool {

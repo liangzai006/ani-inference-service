@@ -527,7 +527,7 @@ func renderKServeInferenceService(spec RuntimeSpec) (*unstructured.Unstructured,
 			return nil, err
 		}
 	}
-	gpuAnnotations, err := applyGPUSnapshotToPod(spec, &pod, "kserve-container")
+	schedulingAnnotations, err := applyInferenceScheduling(spec, &pod, "kserve-container")
 	if err != nil {
 		return nil, err
 	}
@@ -536,7 +536,7 @@ func renderKServeInferenceService(spec RuntimeSpec) (*unstructured.Unstructured,
 		return nil, fmt.Errorf("convert KServe container: %w", err)
 	}
 	predictor := map[string]interface{}{"containers": []interface{}{containerMap}, "minReplicas": int64(spec.Replicas), "maxReplicas": int64(spec.Replicas)}
-	if err := applyGPUSnapshotToPredictor(predictor, &pod, gpuAnnotations); err != nil {
+	if err := applyGPUSnapshotToPredictor(predictor, &pod, schedulingAnnotations); err != nil {
 		return nil, err
 	}
 	if len(pod.Volumes) > 0 {
@@ -632,7 +632,10 @@ func renderKServeLLMInferenceService(spec RuntimeSpec) (*unstructured.Unstructur
 			return nil, err
 		}
 	}
-	_, err = applyGPUSnapshotToPod(spec, &pod, "main")
+	// LLMI v0.16 exposes PodSpec without per-pod annotations. CPU workloads
+	// therefore use Volcano's default queue implicitly on this path; GPU LWS
+	// remains rejected by validateGPUSnapshot until its projection is supported.
+	_, err = applyInferenceScheduling(spec, &pod, "main")
 	if err != nil {
 		return nil, err
 	}
@@ -918,7 +921,7 @@ func (e *KServeRuntimeExecutor) kservePredictorReady(ctx context.Context, reader
 		return false, "KServe predictor Deployment has not applied the current container spec"
 	}
 	if !kservePodPlacementMatches(predictor, &deployment.Spec.Template.Spec, deployment.Spec.Template.Annotations) {
-		return false, "KServe predictor Deployment has not applied the current GPU scheduling spec"
+		return false, "KServe predictor Deployment has not applied the current scheduling spec"
 	}
 	if deployment.Generation < 1 || deployment.Status.ObservedGeneration < deployment.Generation {
 		return false, "KServe predictor Deployment status is stale"

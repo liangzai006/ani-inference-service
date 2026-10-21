@@ -123,6 +123,10 @@ func InferenceServicePolicy() RPCPolicy {
 			"/inference.v1.InferenceServiceManager/RestartInferenceService",
 			"/inference.v1.InferenceServiceManager/GetOperation",
 			"/inference.v1.InferenceServiceManager/ListOperations",
+			"/inference.v1.InferenceDiagnostics/GetRuntimeDiagnostics",
+			"/inference.v1.InferenceDiagnostics/GetRuntimeLogs",
+			"/inference.v1.InferenceDiagnostics/StreamRuntimeLogs",
+			"/inference.v1.InferenceDiagnostics/ListRuntimeEvents",
 		},
 		// Model Service can check if model versions are still in use
 		"ani-model.ani.internal": {

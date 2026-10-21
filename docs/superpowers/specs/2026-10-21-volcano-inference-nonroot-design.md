@@ -17,7 +17,12 @@
 
 ## 运行时与调度边界
 
-CPU 推理不强制使用 Volcano，继续使用 Kubernetes 默认调度器。只有 Accelerator 返回有效 GPU 执行计划时，Inference 才写入 Volcano scheduler、queue、GPU 资源和相关 Pod 注解。Inference 不自行生成 GPU 配额、队列或设备参数。
+根据用户在 2026-10-21 的明确要求，CPU 和 GPU 推理统一使用 `schedulerName: volcano`。
+CPU 推理使用 Volcano 内置 `default` 队列，不调用 Accelerator、不添加 GPU 资源。
+GPU 推理必须继续使用 Accelerator 的有效执行计划，保留其 queue、资源和设备注解；
+执行计划若指定其他调度器则拒绝，不能覆盖计划或降级为 CPU。LLMInferenceService
+v0.16 的 template/worker 只有 PodSpec，CPU 队列由 Volcano 默认选择；GPU LWS 的
+既有限制仍保持显式拒绝。模型下载 Job 和控制面不属于推理计算负载，继续默认调度。
 
 Volcano 作为独立平台组件管理，不加入 `ani-inference` 业务 Chart。Chart 与控制面只做前置检查和使用已有运行时能力。Volcano chart 当前生成的配置名是 `volcano-scheduler-configmap`；Governance 约定的 `ani-volcano-scheduler-configmap` 属于后续治理配置兼容项，本次不通过安装脚本或隐式 ConfigMap 别名处理。
 

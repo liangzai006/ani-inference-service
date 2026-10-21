@@ -10,7 +10,7 @@ import (
 
 	"github.com/go-kratos/kratos/v3/middleware"
 	kratosgrpc "github.com/go-kratos/kratos/v3/transport/grpc"
-	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
+	"github.com/liangzai006/ani-inference-service/internal/conf"
 )
 
 // InferenceServerTLSConfig is the mandatory TLS material for the ordinary
@@ -27,7 +27,7 @@ func (c InferenceServerTLSConfig) Validate() error {
 	return nil
 }
 
-func configuredInferenceGRPCServer(c *inferencev1.Server_GRPC, middlewares ...middleware.Middleware) (*kratosgrpc.Server, error) {
+func configuredInferenceGRPCServer(c *conf.Server_GRPC, middlewares ...middleware.Middleware) (*kratosgrpc.Server, error) {
 	if c == nil {
 		return nil, errors.New("server.grpc config is required")
 	}
@@ -73,6 +73,7 @@ func configuredInferenceGRPCServer(c *inferencev1.Server_GRPC, middlewares ...mi
 		kratosgrpc.Timeout(c.Timeout.AsDuration()),
 		kratosgrpc.TLSConfig(config),
 		kratosgrpc.Middleware(all...),
+		kratosgrpc.StreamInterceptor(trustedDiagnosticsStreamInterceptor()),
 		kratosgrpc.DisableReflection(),
 	), nil
 }

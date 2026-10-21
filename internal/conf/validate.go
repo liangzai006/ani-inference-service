@@ -1,4 +1,4 @@
-package inferencev1
+package conf
 
 import (
 	"fmt"

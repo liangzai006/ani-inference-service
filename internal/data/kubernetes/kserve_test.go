@@ -345,6 +345,12 @@ func TestKServeRuntimeWaitsForCurrentPredictorRollout(t *testing.T) {
 		wantReady bool
 	}{
 		{name: "current ready predictor", wantReady: true},
+		{name: "CPU predictor still uses default scheduler", modify: func(_ *unstructured.Unstructured, dep *appsv1.Deployment) {
+			dep.Spec.Template.Spec.SchedulerName = "default-scheduler"
+		}},
+		{name: "CPU predictor queue dropped", modify: func(_ *unstructured.Unstructured, dep *appsv1.Deployment) {
+			dep.Spec.Template.Annotations = nil
+		}},
 		{name: "CR generation differs from deployment", wantReady: true, modify: func(obj *unstructured.Unstructured, _ *appsv1.Deployment) {
 			obj.SetGeneration(4)
 		}},
@@ -390,6 +396,8 @@ func TestKServeRuntimeWaitsForCurrentPredictorRollout(t *testing.T) {
 				t.Fatal(err)
 			}
 			dep.Spec.Template.Spec.Containers = []corev1.Container{container}
+			dep.Spec.Template.Spec.SchedulerName = "volcano"
+			dep.Spec.Template.Annotations = map[string]string{"scheduling.volcano.sh/queue-name": "default"}
 			if tc.modify != nil {
 				tc.modify(obj, dep)
 			}
