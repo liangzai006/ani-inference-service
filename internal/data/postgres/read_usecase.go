@@ -28,6 +28,10 @@ func NewReadUseCase(pool DBTX) *ReadUseCase { return &ReadUseCase{pool: pool} }
 const (
 	defaultListPageSize int32 = 50
 	maxListPageSize     int32 = 100
+	// listQueryTimeout bounds a single list projection. Concurrent create or
+	// delete work can contend on the same rows; failing fast is better than
+	// holding the request until the gateway times it out with a 503.
+	listQueryTimeout = 5 * time.Second
 )
 
 type listCursor struct {
@@ -382,7 +386,10 @@ func (u *ReadUseCase) readTx(ctx context.Context) (pgx.Tx, error) {
 	if !ok {
 		return nil, errors.New("postgres read use case requires transaction-capable pool")
 	}
-	return pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	// Use ReadCommitted for list queries to avoid serialization conflicts
+	// during concurrent create/delete operations. RepeatableRead can cause
+	// 503 errors when transaction conflicts arise.
+	return pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted, AccessMode: pgx.ReadOnly})
 }
 
 func serviceFromListRow(row ListServicesRow) (*inferencev1.InferenceService, error) {
@@ -426,6 +433,10 @@ func (u *ReadUseCase) ListServicesPage(ctx context.Context, tenantID string, opt
 	if options.Limit < 1 || options.Limit > maxListPageSize || options.Offset < 0 || options.Offset > int64(^uint32(0)>>1) {
 		return nil, 0, errors.New("invalid list options")
 	}
+	// Bound list queries so a slow or contended read cannot hang the request
+	// and surface as a gateway 503.
+	ctx, cancel := context.WithTimeout(ctx, listQueryTimeout)
+	defer cancel()
 	tx, err := u.readTx(ctx)
 	if err != nil {
 		return nil, 0, err
@@ -473,6 +484,8 @@ func (u *ReadUseCase) ListOperationsPage(ctx context.Context, tenantID, serviceI
 		}
 		sid = id
 	}
+	ctx, cancel := context.WithTimeout(ctx, listQueryTimeout)
+	defer cancel()
 	tx, err := u.readTx(ctx)
 	if err != nil {
 		return nil, 0, err

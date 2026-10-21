@@ -56,8 +56,30 @@ func TestRuntimeLoggerUsesKratosRedaction(t *testing.T) {
 	if strings.Contains(line, "secret-token") || strings.Contains(line, "secret-payload") {
 		t.Fatalf("runtime logger leaked filtered values: %s", line)
 	}
-	if strings.Count(line, `"***"`) != 2 {
+	// Count the redaction marker without quotes so the assertion holds for
+	// both the text and JSON encodings.
+	if strings.Count(line, "***") != 2 {
 		t.Fatalf("runtime logger did not use Kratos key filtering: %s", line)
+	}
+}
+
+func TestRuntimeLoggerDefaultsToTextAndHonorsJSONOverride(t *testing.T) {
+	t.Setenv("ANI_LOG_FORMAT", "")
+	var text bytes.Buffer
+	newRuntimeLogger(&text).Info("format check")
+	if line := text.String(); !strings.Contains(line, "msg=\"format check\"") {
+		t.Fatalf("default log format is not text: %q", line)
+	}
+
+	t.Setenv("ANI_LOG_FORMAT", "json")
+	var structured bytes.Buffer
+	newRuntimeLogger(&structured).Info("format check")
+	var record map[string]any
+	if err := json.Unmarshal(bytes.TrimSpace(structured.Bytes()), &record); err != nil {
+		t.Fatalf("ANI_LOG_FORMAT=json did not produce JSON: %v; output=%q", err, structured.String())
+	}
+	if msg, _ := record["msg"].(string); msg != "format check" {
+		t.Fatalf("JSON log msg = %q, want %q", msg, "format check")
 	}
 }
 
@@ -66,6 +88,9 @@ func TestRuntimeLoggerIncludesProcessIdentityAndSource(t *testing.T) {
 	id, Name, Version = "layout-test-instance", "ani-inference-service", "layout-test-version"
 	t.Cleanup(func() { id, Name, Version = originalID, originalName, originalVersion })
 
+	// Assert against JSON so identity and caller source stay machine-checkable;
+	// the text encoding carries the same attributes.
+	t.Setenv("ANI_LOG_FORMAT", "json")
 	var output bytes.Buffer
 	newRuntimeLogger(&output).Info("identity check")
 	var record map[string]any

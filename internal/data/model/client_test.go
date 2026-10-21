@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	modelv1 "github.com/liangzai006/ani-inference-service/api/model/v1"
+	modelv1 "github.com/liangzai006/ani-model-service/api/model/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
