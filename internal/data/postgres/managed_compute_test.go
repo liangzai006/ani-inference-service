@@ -8,11 +8,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
+	modelv1 "github.com/liangzai006/ani-inference-service/api/model/v1"
 	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
 	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
 	"github.com/liangzai006/ani-inference-service/internal/data/model"
 	"github.com/liangzai006/ani-inference-service/internal/service"
-	modelv1 "github.com/liangzai006/ani-model-service/api/model/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -29,10 +29,6 @@ type unavailableModel struct {
 func (m *unavailableModel) GetModelVersion(context.Context, *modelv1.GetModelVersionRequest, ...grpc.CallOption) (*modelv1.GetModelVersionResponse, error) {
 	m.calls++
 	return nil, status.Error(codes.Unavailable, "isolated Model boundary unavailable")
-}
-
-func (m *unavailableModel) AbortTrainedArtifact(context.Context, *modelv1.AbortTrainedArtifactRequest, ...grpc.CallOption) (*modelv1.AbortTrainedArtifactResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "not used by this fixture")
 }
 
 type closeObserver struct {
