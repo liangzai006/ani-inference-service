@@ -17,6 +17,9 @@ func TestModelRuntimeMountsVerifiedClaimAndProbesEngine(t *testing.T) {
 	if len(c.VolumeMounts) == 0 || c.VolumeMounts[0].MountPath != "/models" || !c.VolumeMounts[0].ReadOnly || c.VolumeMounts[0].SubPath != "data" {
 		t.Fatal("verified model volume is not mounted read-only")
 	}
+	if !hasWritableMount(obj.Spec.Template.Spec, "runtime-home", "/nonexistent") {
+		t.Fatal("rootless runtime must provide a writable image home for engine caches")
+	}
 	if c.ReadinessProbe == nil || c.StartupProbe == nil || c.ReadinessProbe.HTTPGet.Path != "/health" {
 		t.Fatal("engine readiness must be observed")
 	}
@@ -25,6 +28,19 @@ func TestModelRuntimeMountsVerifiedClaimAndProbesEngine(t *testing.T) {
 	if ModelClaimName(next) == ModelClaimName(spec) {
 		t.Fatal("generations share materialization volume")
 	}
+}
+
+func hasWritableMount(pod corev1.PodSpec, volumeName, mountPath string) bool {
+	for _, volume := range pod.Volumes {
+		if volume.Name == volumeName && volume.EmptyDir != nil {
+			for _, mount := range pod.Containers[0].VolumeMounts {
+				if mount.Name == volumeName && mount.MountPath == mountPath && !mount.ReadOnly {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func TestModelRuntimeDoesNotInjectEngineEnvironment(t *testing.T) {
@@ -45,7 +61,7 @@ func TestModelRuntimeMountsOnLeaderWorkerSet(t *testing.T) {
 		t.Fatal(err)
 	}
 	container := obj.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers[0]
-	if len(container.VolumeMounts) != 2 || container.VolumeMounts[0].MountPath != "/models" {
+	if len(container.VolumeMounts) != 3 || container.VolumeMounts[0].MountPath != "/models" {
 		t.Fatalf("model claim was not mounted on worker template: %+v", container.VolumeMounts)
 	}
 }

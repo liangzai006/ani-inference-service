@@ -18,7 +18,6 @@ import (
 	"time"
 
 	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
-	modelv1 "github.com/liangzai006/ani-inference-service/api/model/v1"
 	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
 	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
 	"github.com/liangzai006/ani-inference-service/internal/biz/publication"
@@ -28,6 +27,7 @@ import (
 	"github.com/liangzai006/ani-inference-service/internal/data/postgres"
 	"github.com/liangzai006/ani-inference-service/internal/server"
 	"github.com/liangzai006/ani-inference-service/internal/service"
+	modelv1 "github.com/liangzai006/ani-model-service/api/model/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -160,6 +160,10 @@ func (p *computeProcessBoundary) GetModelVersion(_ context.Context, r *modelv1.G
 		return nil, status.Error(codes.Unavailable, "controlled external Model failure")
 	}
 	return &modelv1.GetModelVersionResponse{Model: &modelv1.Model{Id: "software-model", TenantId: r.TenantId, Capabilities: []string{"text-generation"}}, Version: &modelv1.ModelVersion{Id: r.ModelVersionId, ModelId: "software-model", Status: "ready", StoragePath: "isolated/software/model", ChecksumSha256: strings.Repeat("a", 64), SizeBytes: 1}}, nil
+}
+
+func (p *computeProcessBoundary) AbortTrainedArtifact(context.Context, *modelv1.AbortTrainedArtifactRequest, ...grpc.CallOption) (*modelv1.AbortTrainedArtifactResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "AbortTrainedArtifact is outside this compute fixture")
 }
 func (p *computeProcessBoundary) Admit(_ context.Context, o inferencebiz.OperationContext) error {
 	p.event("admit", o.ID)

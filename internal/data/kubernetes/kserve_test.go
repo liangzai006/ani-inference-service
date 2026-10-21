@@ -134,11 +134,11 @@ func TestRenderKServeWrapsRawEngineCommandAndModelMount(t *testing.T) {
 		}
 	}
 	mounts, found, err := unstructured.NestedSlice(container, "volumeMounts")
-	if err != nil || !found || len(mounts) != 2 {
+	if err != nil || !found || len(mounts) != 3 {
 		t.Fatalf("volumeMounts = %#v, found=%v, err=%v", mounts, found, err)
 	}
 	volumes, found, err := unstructured.NestedSlice(predictor, "volumes")
-	if err != nil || !found || len(volumes) != 2 {
+	if err != nil || !found || len(volumes) != 3 {
 		t.Fatalf("volumes = %#v, found=%v, err=%v", volumes, found, err)
 	}
 }
@@ -164,7 +164,7 @@ func TestRenderKServeMountsModelWithoutExplicitEndpoint(t *testing.T) {
 	if !ok {
 		t.Fatalf("container type = %T", containers[0])
 	}
-	if mounts, found, err := unstructured.NestedSlice(container, "volumeMounts"); err != nil || !found || len(mounts) != 2 {
+	if mounts, found, err := unstructured.NestedSlice(container, "volumeMounts"); err != nil || !found || len(mounts) != 3 {
 		t.Fatalf("volumeMounts = %#v, found=%v, err=%v", mounts, found, err)
 	}
 	if _, found, err := unstructured.NestedSlice(predictor, "volumes"); err != nil || !found {
@@ -313,7 +313,7 @@ func TestRenderKServeLeaderWorkerSetUsesLLMInferenceService(t *testing.T) {
 		t.Fatalf("model = %#v, found=%v, err=%v", model, found, err)
 	}
 	volumes, found, err := unstructured.NestedSlice(obj.Object, "spec", "template", "volumes")
-	if err != nil || !found || len(volumes) != 2 {
+	if err != nil || !found || len(volumes) != 3 {
 		t.Fatalf("template volumes = %#v, found=%v, err=%v; want model and shm mounts", volumes, found, err)
 	}
 }

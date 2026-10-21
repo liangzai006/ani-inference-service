@@ -32,9 +32,18 @@ func mountModelVolume(pod *corev1.PodSpec, spec RuntimeSpec, probes bool) error 
 	pod.Volumes = []corev1.Volume{
 		{Name: "model", VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: spec.ModelClaim, ReadOnly: true}}},
 		{Name: "shm", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{Medium: corev1.StorageMediumMemory, SizeLimit: quantityPtr("512Mi")}}},
+		// Runtime images commonly set HOME to a path that is absent or owned by
+		// root. Mount an isolated writable home so non-root engines can create
+		// model metadata and compiler caches without changing the caller's
+		// command or image.
+		{Name: "runtime-home", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 	}
 	c := &pod.Containers[0]
-	c.VolumeMounts = []corev1.VolumeMount{{Name: "model", MountPath: "/models", SubPath: "data", ReadOnly: true}, {Name: "shm", MountPath: "/dev/shm"}}
+	c.VolumeMounts = []corev1.VolumeMount{
+		{Name: "model", MountPath: "/models", SubPath: "data", ReadOnly: true},
+		{Name: "shm", MountPath: "/dev/shm"},
+		{Name: "runtime-home", MountPath: "/nonexistent"},
+	}
 	if probes {
 		handler := corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/health", Port: intstr.FromInt32(spec.ContainerPort)}}
 		c.StartupProbe = &corev1.Probe{ProbeHandler: handler, PeriodSeconds: 5, TimeoutSeconds: 3, FailureThreshold: 120}
