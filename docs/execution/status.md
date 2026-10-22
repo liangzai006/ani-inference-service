@@ -1,6 +1,15 @@
 # Inference 执行状态
 
-更新日期：2026-10-21。本文件是本设计包唯一当前进度入口。
+更新日期：2026-10-22。本文件是本设计包唯一当前进度入口。
+
+## 2026-10-22 Inference AK 迁移阶段记录
+
+- `pass`：Inference 内部 `InferenceAccessKeyService`、opaque `x-api-key` 校验合同、Argon2id 哈希、撤销/轮换、幂等和 key 级原子限流桶已实现；API 子模块已发布为 `1f0ae265510f`，根模块已升级依赖。
+- `pass`：隔离 PostgreSQL 已执行 `000022`，真实集成测试覆盖 secret 一次性返回、租户隔离、scope、并发轮换、撤销和 RPM 限流。
+- `pass`：Console 运行时依赖已移除，HTTPRoute bootstrap owner 检查和 Helm 校验已补齐。
+- `partial`：Higress authz adapter、租户/模型全局限流和真实 `/v1` 动态 AK 链路尚未接入；根模块改动尚未提交/推送。
+
+完整变更与验证证据见[Inference AK 迁移进度记录](records/2026-10-22-inference-ak-migration-progress.md)。
 
 当前范围只包括 Model 协作、模型物化和 Inference 运行时；Notebook、Kubeflow
 用户工作流不属于当前交付范围。新集群先按请求中的 tenant 直接调用 Model/Inference，
