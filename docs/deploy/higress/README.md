@@ -22,16 +22,39 @@ model-router 插件配置为 `enableOnPathSuffix: ["*"]`，会从 OpenAI 兼容 
 身份调用 Inference `CheckInferenceAccess`。当前网关切片按 key 和 served model 做
 校验；服务级 scope 需要后续提供可信的 HTTPRoute 上下文后再启用。授权失败按 401/403/429 返回，Inference
 或 adapter 不可用时按 503 fail-close。先把 Chart 的 `gatewayAuthz.enabled` 打开并
-发布含 `/ani-inference-gateway-authz` 的镜像，再应用 `plugins.yaml` 中的 ext-auth
-对象；该插件只对 `/v1/` 前缀生效，`/api/v1/` 仍由 Governance BFF 处理；没有
+发布含 `/ani-inference-gateway-authz` 的镜像，再应用独立的 `ext-auth.yaml`
+对象；该插件只对 `/v1/` 前缀和 `/v1` 精确路径生效，`/api/v1/` 仍由 Governance BFF 处理；没有
 adapter 时不要应用这个插件。
+
+动态认证的启用顺序（使用已确认的 `KUBE_CONTEXT`）：
+
+```bash
+# 先部署并确认 Inference、gateway-authz companion 和客户端 Certificate Ready。
+# 官方插件 OCI 镜像必须先镜像到内部仓库；ext-auth.yaml 固定官方 2.0.3 manifest digest。
+KUBE_CONTEXT="$KUBE_CONTEXT" bash docs/deploy/higress/register-authz.sh
+kubectl --context "$KUBE_CONTEXT" apply --dry-run=server -f docs/deploy/higress/ext-auth.yaml
+kubectl --context "$KUBE_CONTEXT" apply -f docs/deploy/higress/ext-auth.yaml
+```
+
+`register-authz.sh` 仅向已有 `higress-system/default` McpBridge 追加私有 DNS 服务来源，
+保留其他条目并用 resourceVersion 防止并发覆盖，不创建公网 adapter 路由。
+Higress 插件使用这个来源的 `ani-inference-authz.dns:8080`，仅有 Kubernetes Service
+不足以保证 Envoy 已发现该 cluster。`match_type`/`match_list` 属于
+`spec.defaultConfig` 中的插件配置，不能写到 WasmPlugin 的 `spec` 顶层。
+
+通过 Envoy config dump 确认 ext-auth Wasm 已加载、authz cluster healthy 后，再移除迁移期
+`ani-inference-key-auth` WasmPlugin；通过 Gateway API bootstrap 路由接管时，移除同名旧
+`higress-system/ani-inference-model-router` Ingress。提前保存旧对象作为回滚输入。
+必须验证动态 key 通过、无效/撤销 key 401、模型 scope 403、key 限流 429、依赖失败 503，
+并独立验证 Governance 管理入口与 Higress 管理路径 404。公共 `plugins.yaml` 不包含
+ext-auth，避免基础安装在 companion 尚未部署时启用动态认证。
 
 adapter 镜像由仓库根目录的 `Dockerfile.authz` 构建：先编译
 `.build/ani-inference-gateway-authz`，再构建并推送
 `docker.changqingyun.cn/ani/inference-gateway-authz:<tag>`。Inference 主镜像仍由
 `Dockerfile` 构建，两者版本应保持同一源码提交。
 
-应用 `key-auth.yaml.tmpl` 后，推理网关要求请求携带 `x-api-key`。真实密钥
+仅使用迁移期静态 bootstrap 模式时应用 `key-auth.yaml.tmpl`，推理网关要求请求携带 `x-api-key`。真实密钥
 不会写入 Git 或主插件清单。请在新环境的受保护终端中设置 context、网关节点
 地址和密钥，再渲染并应用模板：
 

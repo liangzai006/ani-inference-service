@@ -21,8 +21,8 @@
   AUTHN 的 HTTPRoute service ID header 当作可信身份；模型 HTTPRoute 只在上游移除
   `x-api-key`。
 - 已补充 `Dockerfile.authz`、可选 `gatewayAuthz` companion container/Service/客户端
-  Certificate、ext-auth WasmPlugin 配置和 adapter/route 单测；默认不启用 companion，
-  需要先发布 adapter 镜像再应用插件。ext-auth 使用 `/v1/` 黑名单路径，只保护
+  Certificate、独立 `ext-auth.yaml` WasmPlugin 配置和 adapter/route 单测；默认不启用 companion，
+  需要先发布 adapter 镜像、注册私有服务来源再应用插件。ext-auth 使用 `/v1/` 前缀和 `/v1` 精确黑名单路径，只保护
   OpenAI 兼容入口，避免拦截 Governance `/api/v1/`。
 
 ## 已验证
@@ -64,15 +64,23 @@ bash charts/verify.sh
 ```
 
 全量 Go test、vet、build 和 API 校验也已重新通过；Helm 校验同时渲染了
-`gatewayAuthz.enabled=true` 的 companion/Service/证书路径。当前仍未连接目标集群，
-因此不能把 adapter 代码和清单验证写成真实 `/v1` 动态 AK 已生效。
+`gatewayAuthz.enabled=true` 的 companion/Service/证书路径。以上为最初的本地验证；
+后续目标集群实测单列如下，不能以本地测试替代。
 
 集成测试需要通过环境变量提供本地 PostgreSQL DSN；凭据不写入仓库、文档或测试输出。
 
+## 目标集群迁移
+
+2026-10-22 已在 `kubernetes-admin@kubekey` 完成动态 AK 接线与真实 CPU vLLM
+生成、轮换/撤销、401/403/429、503 fail-close 与恢复；Governance 管理列表 200、
+Higress 管理路径 404 分别验证。修复包括插件配置层级、缺失的 OCI 镜像和私有
+authz 服务来源。原始 bootstrap HTTPRoute 由 Inference 进程维护；旧 Ingress 与
+静态认证插件已移除。完整证据、部署差异和清理结果见
+[动态 AK 网关实测](2026-10-22-inference-ak-gateway-live.md)。
+
 ## 暂未完成
 
-- Higress authz adapter 代码和 opt-in 部署投影已完成，但尚未在真实 `/v1` 流量启用；
-  当前不能宣称动态 AK 已在网关生效。
+- 动态 AK 已在目标集群 `/v1` 生效；服务级 scope 与租户/模型全局限流不包含在本轮完成项中。
 - 服务级 scope 的候选可信上下文已确认：官方 ext-auth 支持传递 Envoy `route_name`，
   但仓库尚未建立 route-name/service-id 权威映射，因此当前网关继续只按 key+model
   校验，不接受客户端 service ID header。
@@ -85,8 +93,7 @@ bash charts/verify.sh
   API 子模块提交 `1f0ae265510f` 仍已发布。
 - Inference 分支尚未合并到 `main`；远端 PR 为
   [#7](https://github.com/liangzai006/ani-inference-service/pull/7)，当前仍未包含本地
-  adapter 提交 `11110a1`、`54b9aa3`、`92bd82f`。按当前任务要求没有 push，待服务级
-  scope 取值和后续现场验证边界确认后再决定 PR 更新方式。
+  adapter 提交 `11110a1` 及后续修复；按当前任务要求没有 push。
 
 ## 恢复入口
 

@@ -23,56 +23,6 @@ spec:
 apiVersion: extensions.higress.io/v1alpha1
 kind: WasmPlugin
 metadata:
-  name: ani-inference-ext-auth
-  namespace: higress-system
-  labels:
-    ani.liangzai006.io/environment: new-cluster
-    ani.liangzai006.io/purpose: inference-authentication
-spec:
-  # The adapter is fail-closed. It calls Inference over mTLS and never stores
-  # the presented x-api-key in a Kubernetes object.
-  # Only OpenAI-compatible inference paths use this adapter. Governance's
-  # /api/v1 management API remains on the BFF and must bypass this plugin.
-  match_type: blacklist
-  match_list:
-    - match_rule_path: /v1/
-      match_rule_type: prefix
-    - match_rule_path: /v1
-      match_rule_type: exact
-  defaultConfig:
-    failure_mode_allow: false
-    status_on_error: 503
-    http_service:
-      endpoint_mode: forward_auth
-      endpoint:
-        service_name: ani-inference-authz.ani-system.svc.cluster.local
-        service_port: 8080
-        path: /authz
-        request_method: POST
-      timeout: 900
-      authorization_request:
-        allowed_headers:
-          - exact: x-api-key
-          - exact: x-higress-llm-model
-          - exact: x-request-id
-        headers_to_add:
-          x-ani-authz-source: higress
-      authorization_response:
-        allowed_upstream_headers:
-          - exact: x-ani-tenant-id
-          - exact: x-ani-inference-key-id
-        allowed_client_headers:
-          - exact: Retry-After
-  defaultConfigDisable: false
-  failStrategy: FAIL_CLOSE
-  imagePullPolicy: IfNotPresent
-  phase: AUTHN
-  priority: 360
-  url: oci://docker.changqingyun.cn/mirror/plugins/ext-auth:2.0.3
----
-apiVersion: extensions.higress.io/v1alpha1
-kind: WasmPlugin
-metadata:
   name: ani-ai-statistics
   namespace: higress-system
   labels:

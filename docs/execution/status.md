@@ -12,11 +12,17 @@
   opt-in Helm 与 HTTPRoute 的凭据剥离已实现，当前按 key+served model 校验，插件清单
   限制在 `/v1/`，不覆盖 Governance `/api/v1/`；服务级网关 scope 等可信路由上下文
   仍待后续切片（已确认本阶段不接入服务级 scope）；
-- `partial`：真实 `/v1` 动态 AK 链路尚未在目标集群启用和验收，租户/模型全局限流仍未接入；
+- `pass`：目标集群已启用动态 AK：官方 ext-auth 2.0.3 镜像按 digest 固定，私有
+  authz DNS 来源已注册，旧静态 key-auth 和 bootstrap Ingress 已移除。真实 CPU vLLM
+  `/v1/completions` 返回 200 和非空文本；轮换、撤销、401/403/429、依赖故障 503
+  与恢复均实测通过；Governance 管理入口 200、Higress 管理路径 404 分别验证。
+- `partial`：服务级可信 route scope、租户/模型全局限流仍为后续切片；
   根模块 P1 改动已提交并推送（`a0f468d`），PR 为
-  [#7](https://github.com/liangzai006/ani-inference-service/pull/7)，尚未合并到 `main`。
+  [#7](https://github.com/liangzai006/ani-inference-service/pull/7)，尚未合并到 `main`；
+  adapter 与本轮现场修复仅本地提交，不推送。
 
 完整变更与验证证据见[Inference AK 迁移进度记录](records/2026-10-22-inference-ak-migration-progress.md)。
+现场细节见[动态 AK 网关实测](records/2026-10-22-inference-ak-gateway-live.md)。
 
 当前范围只包括 Model 协作、模型物化和 Inference 运行时；Notebook、Kubeflow
 用户工作流不属于当前交付范围。新集群先按请求中的 tenant 直接调用 Model/Inference，

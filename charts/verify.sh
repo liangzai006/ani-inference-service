@@ -83,9 +83,9 @@ grep -q 'name: gateway-authz' "$tmp_dir/inference-authz.yaml"
 grep -q 'name: ani-inference-authz' "$tmp_dir/inference-authz.yaml"
 grep -q 'ANI_INFERENCE_CLIENT_IDENTITY' "$tmp_dir/inference-authz.yaml"
 grep -q 'ani-inference-gateway.ani.internal' "$tmp_dir/inference-authz.yaml"
-grep -q 'match_type: blacklist' "$repo_root/docs/deploy/higress/plugins.yaml"
-grep -q 'match_rule_path: /v1/' "$repo_root/docs/deploy/higress/plugins.yaml"
-grep -q 'match_rule_type: prefix' "$repo_root/docs/deploy/higress/plugins.yaml"
+grep -q '^    match_type: blacklist$' "$repo_root/docs/deploy/higress/ext-auth.yaml"
+grep -q '^      - match_rule_path: /v1/$' "$repo_root/docs/deploy/higress/ext-auth.yaml"
+grep -q '^        match_rule_type: prefix$' "$repo_root/docs/deploy/higress/ext-auth.yaml"
 if grep -q 'ANI_HIGRESS_CONSOLE_' "$tmp_dir/inference.yaml"; then
   echo 'Inference Deployment must not depend on Higress Console credentials' >&2
   exit 1

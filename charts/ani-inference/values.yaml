@@ -90,7 +90,7 @@ higress:
 
 # The gateway authz adapter is an opt-in companion process. Enable it only
 # after publishing an image that contains /ani-inference-gateway-authz and
-# applying the ext-auth WasmPlugin from docs/deploy/higress/plugins.yaml.
+# registering the private authz source and applying docs/deploy/higress/ext-auth.yaml.
 gatewayAuthz:
   enabled: false
   image:
