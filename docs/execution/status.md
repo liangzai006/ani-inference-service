@@ -11,7 +11,7 @@
   adapter、mTLS `CheckInferenceAccess` client、401/403/429/503 fail-close 映射和
   opt-in Helm 与 HTTPRoute 的凭据剥离已实现，当前按 key+served model 校验，插件清单
   限制在 `/v1/`，不覆盖 Governance `/api/v1/`；服务级网关 scope 等可信路由上下文
-  仍待后续切片；
+  仍待后续切片（已确认本阶段不接入服务级 scope）；
 - `partial`：真实 `/v1` 动态 AK 链路尚未在目标集群启用和验收，租户/模型全局限流仍未接入；
   根模块 P1 改动已提交并推送（`a0f468d`），PR 为
   [#7](https://github.com/liangzai006/ani-inference-service/pull/7)，尚未合并到 `main`。

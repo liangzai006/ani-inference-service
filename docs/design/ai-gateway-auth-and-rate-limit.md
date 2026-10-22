@@ -1,6 +1,6 @@
 # AI 网关鉴权与限流设计
 
-状态：P1 内部 AK 合同已冻结；ext-auth adapter 已实现为可选 companion，真实网关启用与租户/模型全局限流仍分阶段实施
+状态：P1 内部 AK 合同已冻结；ext-auth adapter 已实现为可选 companion，当前网关切片按 key+model 校验；真实网关启用、服务级 scope 与租户/模型全局限流仍分阶段实施
 日期：2026-10-22
 范围：`ani-inference-service`、Higress 数据面、Governance BFF 管理入口
 
