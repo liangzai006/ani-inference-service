@@ -155,7 +155,10 @@ P2 可评估 Higress 内置
 consumer。ext-auth 只把 `x-api-key`、model-router 生成的模型头和请求 ID转给
 adapter，并通过黑名单路径规则只匹配 `/v1/`；`/api/v1/` 管理入口不触发该
 插件。当前网关切片按 key 和 served model 做校验，不接受客户端提供的 service ID；
-服务级 scope 需要后续提供可信的 HTTPRoute 上下文后再启用。adapter 使用
+服务级 scope 需要后续提供可信的 HTTPRoute 上下文后再启用。Higress `ext-auth:2.0.3`
+支持通过 `authorization_request.allowed_properties` 传递 Envoy `route_name`；后续可
+以用它建立受 Inference 管理的 route-name 到 service-id 映射，但在该映射持久化并
+验证前不能把客户端 header 当作替代方案。adapter 使用
 `ani-inference-gateway.ani.internal` 客户端证书，按
 Inference gRPC mTLS 合同调用 `CheckInferenceAccess`，并只回传租户和 key ID。两侧
 都设置超时和 fail-close；Inference 或 adapter 不可达时返回 503，不放行请求。内置
@@ -296,6 +299,9 @@ adapter 接入并完成真实链路验证前，不能对外宣称 Higress 已支
   cert-manager 客户端证书和 NetworkPolicy 的现场配置；这些现场条件确认前不能
   视作真实 `/v1` 动态 AK 已生效。公开请求合同固定为 opaque `x-api-key`，不再引入
   HMAC 双模式。
+- 服务级 scope 的 route context 方案：优先评估 `allowed_properties.route_name`，
+  并为发布路由建立 Inference 权威的 route-name/service-id 映射；映射未冻结前，网关
+  只按 key 和 served model 校验。
 - `cluster-key-rate-limit` 的目标 OCI 镜像/tag、Redis 部署/认证/TLS、失败策略和
   集群容量；在这些事实确认前不能视作已支持。
 - 租户/模型全局限流的存储和执行方式、默认 TTL、轮换宽限期，以及 RPM/小时与

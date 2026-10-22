@@ -73,6 +73,9 @@ bash charts/verify.sh
 
 - Higress authz adapter 代码和 opt-in 部署投影已完成，但尚未在真实 `/v1` 流量启用；
   当前不能宣称动态 AK 已在网关生效。
+- 服务级 scope 的候选可信上下文已确认：官方 ext-auth 支持传递 Envoy `route_name`，
+  但仓库尚未建立 route-name/service-id 权威映射，因此当前网关继续只按 key+model
+  校验，不接受客户端 service ID header。
 - 租户聚合限流、模型全局限流、Redis/cluster limiter 和跨网关一致性属于后续切片。
 - 本次 adapter、路径边界和安全默认收敛提交为本地 `11110a1`
   (`feat: add fail-closed inference gateway authz adapter`)；按当前任务要求尚未推送。
