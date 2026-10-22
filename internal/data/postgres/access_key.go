@@ -295,43 +295,43 @@ func (r *Repository) Consume(ctx context.Context, record accesskey.Record, now t
 	}
 	defer tx.Rollback(ctx)
 	q := New(tx)
+	allowed, retry, err := consumeKeyBuckets(ctx, q, tenant, keyID, record, now, cost)
+	if err != nil || !allowed {
+		return allowed, retry, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, 0, err
+	}
+	return true, 0, nil
+}
+
+func consumeKeyBuckets(ctx context.Context, q *Queries, tenant, keyID pgtype.UUID, record accesskey.Record, now time.Time, cost int64) (bool, time.Duration, error) {
 	now = now.UTC()
 	for _, window := range []struct {
 		name     string
 		limit    int32
 		duration time.Duration
 	}{
-		{name: "second", limit: record.RequestsPerSecond, duration: time.Second},
-		{name: "minute", limit: record.RequestsPerMinute, duration: time.Minute},
-		{name: "hour", limit: record.RequestsPerHour, duration: time.Hour},
+		{"second", record.RequestsPerSecond, time.Second},
+		{"minute", record.RequestsPerMinute, time.Minute},
+		{"hour", record.RequestsPerHour, time.Hour},
 	} {
 		if window.limit <= 0 {
 			continue
 		}
 		start := now.Truncate(window.duration)
-		_, consumeErr := q.ConsumeInferenceAccessKeyRateBucket(ctx, ConsumeInferenceAccessKeyRateBucketParams{
+		_, err := q.ConsumeInferenceAccessKeyRateBucket(ctx, ConsumeInferenceAccessKeyRateBucketParams{
 			TenantID: tenant, KeyID: keyID, WindowName: window.name,
-			WindowStart:  pgtype.Timestamptz{Time: start, Valid: true},
-			RequestCount: cost, RequestCount_2: int64(window.limit),
+			WindowStart: pgtype.Timestamptz{Time: start, Valid: true}, RequestCount: cost, MaxCount: int64(window.limit),
 		})
-		if errors.Is(consumeErr, pgx.ErrNoRows) {
-			if err := tx.Rollback(ctx); err != nil {
-				return false, 0, err
-			}
-			retryAfter := start.Add(window.duration).Sub(now)
-			if retryAfter < 0 {
-				retryAfter = 0
-			}
-			return false, retryAfter, nil
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, start.Add(window.duration).Sub(now), nil
 		}
-		if consumeErr != nil {
-			return false, 0, consumeErr
+		if err != nil {
+			return false, 0, err
 		}
 	}
 	if err := q.MarkInferenceAccessKeyUsed(ctx, MarkInferenceAccessKeyUsedParams{TenantID: tenant, ID: keyID}); err != nil {
-		return false, 0, err
-	}
-	if err := tx.Commit(ctx); err != nil {
 		return false, 0, err
 	}
 	return true, 0, nil

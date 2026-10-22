@@ -18,20 +18,21 @@ import (
 	diagnosticsbiz "github.com/liangzai006/ani-inference-service/internal/biz/diagnostics"
 	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
 	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
+	policybiz "github.com/liangzai006/ani-inference-service/internal/biz/servicepolicy"
 	"github.com/liangzai006/ani-inference-service/internal/biz/work"
 	"github.com/liangzai006/ani-inference-service/internal/server"
 	"github.com/liangzai006/ani-inference-service/internal/service"
 )
 
 func buildAppWithAllDependenciesAndBackground(bc *conf.Bootstrap, logger *slog.Logger, create service.CreateUseCase, read inferencebiz.ReadUseCase, command inferencebiz.CommandUseCase, update inferencebiz.UpdateUseCase, background ...kratosTransport.Server) (*kratos.App, error) {
-	return buildAppWithAllDependenciesAndManagedGPUAndAccessKey(bc, logger, create, read, command, update, nil, false, "", nil, background...)
+	return buildAppWithAllDependenciesAndManagedGPUAndAccessKey(bc, logger, create, read, command, update, nil, false, "", nil, nil, background...)
 }
 
 func buildAppWithAllDependenciesAndManagedGPU(bc *conf.Bootstrap, logger *slog.Logger, create service.CreateUseCase, read inferencebiz.ReadUseCase, command inferencebiz.CommandUseCase, update inferencebiz.UpdateUseCase, refund gpu.RefundReporter, managedGPUReady bool, managedGPUClusterID string, background ...kratosTransport.Server) (*kratos.App, error) {
-	return buildAppWithAllDependenciesAndManagedGPUAndAccessKey(bc, logger, create, read, command, update, refund, managedGPUReady, managedGPUClusterID, nil, background...)
+	return buildAppWithAllDependenciesAndManagedGPUAndAccessKey(bc, logger, create, read, command, update, refund, managedGPUReady, managedGPUClusterID, nil, nil, background...)
 }
 
-func buildAppWithAllDependenciesAndManagedGPUAndAccessKey(bc *conf.Bootstrap, logger *slog.Logger, create service.CreateUseCase, read inferencebiz.ReadUseCase, command inferencebiz.CommandUseCase, update inferencebiz.UpdateUseCase, refund gpu.RefundReporter, managedGPUReady bool, managedGPUClusterID string, accessKeyService *accesskeybiz.Service, background ...kratosTransport.Server) (*kratos.App, error) {
+func buildAppWithAllDependenciesAndManagedGPUAndAccessKey(bc *conf.Bootstrap, logger *slog.Logger, create service.CreateUseCase, read inferencebiz.ReadUseCase, command inferencebiz.CommandUseCase, update inferencebiz.UpdateUseCase, refund gpu.RefundReporter, managedGPUReady bool, managedGPUClusterID string, accessKeyService *accesskeybiz.Service, policyService *policybiz.Service, background ...kratosTransport.Server) (*kratos.App, error) {
 	if err := bc.Validate(); err != nil {
 		return nil, err
 	}
@@ -63,6 +64,7 @@ func buildAppWithAllDependenciesAndManagedGPUAndAccessKey(bc *conf.Bootstrap, lo
 	}
 	owner := service.NewInferenceServerWithAll(create, read, command, update)
 	owner.SetManagedGPURefundReporter(refund)
+	owner.SetServicePolicy(policyService)
 	owner.SetManagedGPUReady(managedGPUReady)
 	owner.SetManagedGPUClusterID(managedGPUClusterID)
 	grpcServer, err := configuredInferenceGRPCServer(bc.Server.Grpc, middlewares...)

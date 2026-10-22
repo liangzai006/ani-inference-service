@@ -117,6 +117,8 @@ func InferenceServicePolicy() RPCPolicy {
 		governanceCallerDNS: {
 			"/inference.v1.InferenceServiceManager/CreateInferenceService",
 			"/inference.v1.InferenceServiceManager/GetInferenceService",
+			"/inference.v1.InferenceServiceManager/GetServicePolicy",
+			"/inference.v1.InferenceServiceManager/UpdateServicePolicy",
 			"/inference.v1.InferenceServiceManager/ListInferenceServices",
 			"/inference.v1.InferenceServiceManager/DeleteInferenceService",
 			"/inference.v1.InferenceServiceManager/UpdateInferenceService",

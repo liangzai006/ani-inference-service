@@ -2,6 +2,23 @@
 
 更新日期：2026-10-22。本文件是本设计包唯一当前进度入口。
 
+## 2026-10-22 服务访问策略
+
+- `pass`：服务绑定策略已持久化，原有 Get/UpdateServicePolicy RPC 已实现并纳入
+  Governance 的精确 mTLS 方法允许清单。默认所属租户可访问，显式空白名单拒绝全部。
+- `pass`：正式鉴权按唯一确认发布解析服务，AK 的服务 scope、租户白名单和共享
+  服务/调用租户 RPM/RPH 同时生效；服务与 AK 额度同事务扣减。
+- `pass`：独占 PostgreSQL 测试验证持久化、跨租户拒绝、清空/重加、并发限流、
+  策略修改不清空计数、审计失败回滚、同名模型歧义拒绝和大请求首桶拒绝。
+- `pass`：Governance GET/PUT 管理入口和 Console 查询/编辑已接入；前端按用户本次
+  授权使用本地源码核对，lint、全仓格式和类型检查通过。
+- `pass`：现场 Governance 管理入口和 Higress 推理入口分别验收，14 项网关业务
+  断言通过，包括多 AK 共享额度、修改立即生效、移除/空白名单拒绝和伪造身份拒绝。
+  临时服务已删除，三把 AK 已撤销。前端尚未做浏览器交互验收或部署。
+
+合同见[服务访问策略](../contracts/service-access-policy.md)，现场与验证范围见
+[本次验收记录](records/2026-10-22-service-access-policy-live.md)。
+
 ## 2026-10-22 Inference AK 迁移阶段记录
 
 - `pass`：Inference 内部 `InferenceAccessKeyService`、opaque `x-api-key` 校验合同、Argon2id 哈希、撤销/轮换、幂等和 key 级原子限流桶已实现；API 子模块已发布为 `1f0ae265510f`，根模块已升级依赖。
@@ -9,14 +26,13 @@
 - `pass`：Console 运行时依赖已移除，HTTPRoute bootstrap owner 检查和 Helm 校验已补齐。
 - `pass`：Higress 官方 `ext-auth` + 独立 `ani-inference-gateway-authz` companion 的
   adapter、mTLS `CheckInferenceAccess` client、401/403/429/503 fail-close 映射和
-  opt-in Helm 与 HTTPRoute 的凭据剥离已实现，当前按 key+served model 校验，插件清单
-  限制在 `/v1/`，不覆盖 Governance `/api/v1/`；服务级网关 scope 等可信路由上下文
-  仍待后续切片（已确认本阶段不接入服务级 scope）；
+  opt-in Helm 与 HTTPRoute 的凭据剥离已实现，按 key 校验并通过发布事实解析服务，插件清单
+  限制在 `/v1/`，不覆盖 Governance `/api/v1/`；服务 scope 已在本次策略切片接通；
 - `pass`：目标集群已启用动态 AK：官方 ext-auth 2.0.3 镜像按 digest 固定，私有
   authz DNS 来源已注册，旧静态 key-auth 和 bootstrap Ingress 已移除。真实 CPU vLLM
   `/v1/completions` 返回 200 和非空文本；轮换、撤销、401/403/429、依赖故障 503
   与恢复均实测通过；Governance 管理入口 200、Higress 管理路径 404 分别验证。
-- `partial`：服务级可信 route scope、租户/模型全局限流仍为后续切片；
+- `partial`：租户/模型全局限流仍为后续切片；
   根模块 P1 改动已提交并推送（`a0f468d`），PR 为
   [#7](https://github.com/liangzai006/ani-inference-service/pull/7)，尚未合并到 `main`；
   adapter 与本轮现场修复仅本地提交，不推送。

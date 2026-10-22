@@ -43,20 +43,20 @@ func (q *Queries) AppendInferenceAccessKeyAudit(ctx context.Context, arg AppendI
 const consumeInferenceAccessKeyRateBucket = `-- name: ConsumeInferenceAccessKeyRateBucket :one
 INSERT INTO inference_access_key_rate_buckets (
   tenant_id, key_id, window_name, window_start, request_count
-) VALUES ($1, $2, $3, $4, $5)
+) SELECT $1, $2, $3, $4, $5 WHERE $5::bigint <= $6::bigint
 ON CONFLICT (tenant_id, key_id, window_name, window_start)
 DO UPDATE SET request_count = inference_access_key_rate_buckets.request_count + EXCLUDED.request_count
-WHERE inference_access_key_rate_buckets.request_count + EXCLUDED.request_count <= $6
+WHERE inference_access_key_rate_buckets.request_count <= $6::bigint - EXCLUDED.request_count
 RETURNING request_count
 `
 
 type ConsumeInferenceAccessKeyRateBucketParams struct {
-	TenantID       pgtype.UUID
-	KeyID          pgtype.UUID
-	WindowName     string
-	WindowStart    pgtype.Timestamptz
-	RequestCount   int64
-	RequestCount_2 int64
+	TenantID     pgtype.UUID
+	KeyID        pgtype.UUID
+	WindowName   string
+	WindowStart  pgtype.Timestamptz
+	RequestCount int64
+	MaxCount     int64
 }
 
 func (q *Queries) ConsumeInferenceAccessKeyRateBucket(ctx context.Context, arg ConsumeInferenceAccessKeyRateBucketParams) (int64, error) {
@@ -66,7 +66,7 @@ func (q *Queries) ConsumeInferenceAccessKeyRateBucket(ctx context.Context, arg C
 		arg.WindowName,
 		arg.WindowStart,
 		arg.RequestCount,
-		arg.RequestCount_2,
+		arg.MaxCount,
 	)
 	var request_count int64
 	err := row.Scan(&request_count)

@@ -110,8 +110,8 @@ INSERT INTO inference_access_key_audit_events (
 -- name: ConsumeInferenceAccessKeyRateBucket :one
 INSERT INTO inference_access_key_rate_buckets (
   tenant_id, key_id, window_name, window_start, request_count
-) VALUES ($1, $2, $3, $4, $5)
+) SELECT $1, $2, $3, $4, $5 WHERE $5::bigint <= sqlc.arg(max_count)::bigint
 ON CONFLICT (tenant_id, key_id, window_name, window_start)
 DO UPDATE SET request_count = inference_access_key_rate_buckets.request_count + EXCLUDED.request_count
-WHERE inference_access_key_rate_buckets.request_count + EXCLUDED.request_count <= $6
+WHERE inference_access_key_rate_buckets.request_count <= sqlc.arg(max_count)::bigint - EXCLUDED.request_count
 RETURNING request_count;

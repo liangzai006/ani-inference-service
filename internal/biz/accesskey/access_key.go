@@ -127,7 +127,15 @@ type CheckResult struct {
 	PolicyVersion int64
 }
 
+// AccessPolicy resolves trusted publication facts and atomically consumes both
+// key and service limits. Production composition must supply it.
+type AccessPolicy interface {
+	Resolve(context.Context, string) (string, error)
+	ConsumeAccess(context.Context, Record, string, string, time.Time, int64) (CheckResult, error)
+}
+
 type Service struct {
+	Policy     AccessPolicy
 	Repository Repository
 	Now        func() time.Time
 }
@@ -259,11 +267,24 @@ func (s *Service) Check(ctx context.Context, apiKey, serviceID, model string, co
 	if record.ExpiresAt != nil && !record.ExpiresAt.After(now) {
 		return CheckResult{Record: record, Allowed: false, DenialCode: "expired", PolicyVersion: record.Version}, nil
 	}
+	if s.Policy != nil {
+		resolved, err := s.Policy.Resolve(ctx, strings.TrimSpace(model))
+		if err != nil {
+			return CheckResult{}, err
+		}
+		if resolved == "" || (strings.TrimSpace(serviceID) != "" && strings.TrimSpace(serviceID) != resolved) {
+			return CheckResult{Record: record, DenialCode: "scope_denied", PolicyVersion: record.Version}, nil
+		}
+		serviceID = resolved
+	}
 	if !record.Allows(strings.TrimSpace(serviceID), strings.TrimSpace(model)) {
 		return CheckResult{Record: record, Allowed: false, DenialCode: "scope_denied", PolicyVersion: record.Version}, nil
 	}
 	if cost < 1 {
 		cost = 1
+	}
+	if s.Policy != nil {
+		return s.Policy.ConsumeAccess(ctx, record, serviceID, strings.TrimSpace(model), now, cost)
 	}
 	allowed, retryAfter, err := s.Repository.Consume(ctx, record, now, cost)
 	if err != nil {

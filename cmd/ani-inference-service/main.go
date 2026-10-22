@@ -30,6 +30,7 @@ import (
 	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
 	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
 	bizreconcile "github.com/liangzai006/ani-inference-service/internal/biz/reconcile"
+	policybiz "github.com/liangzai006/ani-inference-service/internal/biz/servicepolicy"
 	"github.com/liangzai006/ani-inference-service/internal/biz/work"
 	"github.com/liangzai006/ani-inference-service/internal/data/accelerator"
 	"github.com/liangzai006/ani-inference-service/internal/data/kubernetes"
@@ -89,6 +90,7 @@ func run(logger *slog.Logger) error {
 	var update inferencebiz.UpdateUseCase
 	var refund gpu.RefundReporter
 	var accessKeyService *accesskeybiz.Service
+	var policyService *policybiz.Service
 	managedGPUReady := false
 	if strings.TrimSpace(os.Getenv("ANI_DATABASE_DSN")) == "" {
 		return errors.New("ANI_DATABASE_DSN is required")
@@ -113,6 +115,8 @@ func run(logger *slog.Logger) error {
 		defer pool.Close()
 		repo := postgres.NewRepository(pool)
 		accessKeyService = accesskeybiz.NewService(repo)
+		accessKeyService.Policy = repo
+		policyService = &policybiz.Service{Repository: repo}
 		var closeRefund func()
 		refund, closeRefund, err = configuredGovernanceRefundReporter(bc.GetManagedGpu(), repo)
 		if err != nil {
@@ -144,7 +148,7 @@ func run(logger *slog.Logger) error {
 		managedGPUReady = ready
 	}
 	managedGPUClusterID := strings.TrimSpace(os.Getenv("ANI_ACCELERATOR_CLUSTER_ID"))
-	app, err := buildAppWithAllDependenciesAndManagedGPUAndAccessKey(&bc, logger, create, read, command, update, refund, managedGPUReady, managedGPUClusterID, accessKeyService, background...)
+	app, err := buildAppWithAllDependenciesAndManagedGPUAndAccessKey(&bc, logger, create, read, command, update, refund, managedGPUReady, managedGPUClusterID, accessKeyService, policyService, background...)
 	if err != nil {
 		return fmt.Errorf("build app: %w", err)
 	}

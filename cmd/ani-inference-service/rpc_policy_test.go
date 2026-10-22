@@ -240,3 +240,17 @@ func TestTrustedTenantMiddlewareAcceptsOnlyVerifiedTLS13(t *testing.T) {
 		})
 	}
 }
+
+func TestServicePolicyRPCIdentityBoundary(t *testing.T) {
+	policy := InferenceServicePolicy()
+	for _, method := range []string{"/inference.v1.InferenceServiceManager/GetServicePolicy", "/inference.v1.InferenceServiceManager/UpdateServicePolicy"} {
+		if !policy.IsAllowed(governanceCallerDNS, method) {
+			t.Fatalf("governance cannot call %s", method)
+		}
+		for _, identity := range []string{gatewayAuthzCallerDNS, "ani-model.ani.internal", "unregistered"} {
+			if policy.IsAllowed(identity, method) {
+				t.Fatalf("%s can call %s", identity, method)
+			}
+		}
+	}
+}

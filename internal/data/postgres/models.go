@@ -279,6 +279,34 @@ type InferenceService struct {
 	AppliedGeneration  int64
 }
 
+type InferenceServicePolicy struct {
+	TenantID       pgtype.UUID
+	ServiceID      pgtype.UUID
+	AllowedTenants []string
+	RateLimits     []byte
+	Version        int64
+	UpdatedAt      pgtype.Timestamptz
+}
+
+type InferenceServicePolicyAuditEvent struct {
+	TenantID  pgtype.UUID
+	ServiceID pgtype.UUID
+	EventID   pgtype.UUID
+	Actor     string
+	RequestID string
+	Payload   []byte
+	CreatedAt pgtype.Timestamptz
+}
+
+type InferenceServiceRateBucket struct {
+	TenantID       pgtype.UUID
+	ServiceID      pgtype.UUID
+	CallerTenantID pgtype.UUID
+	WindowName     string
+	WindowStart    pgtype.Timestamptz
+	RequestCount   int64
+}
+
 type InferenceSpec struct {
 	TenantID              pgtype.UUID
 	ID                    pgtype.UUID
