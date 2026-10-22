@@ -9,7 +9,7 @@
 - `pass`：Console 运行时依赖已移除，HTTPRoute bootstrap owner 检查和 Helm 校验已补齐。
 - `pass`：Higress 官方 `ext-auth` + 独立 `ani-inference-gateway-authz` companion 的
   adapter、mTLS `CheckInferenceAccess` client、401/403/429/503 fail-close 映射和
-  opt-in Helm/HTTPRoute header 投影已实现，当前按 key+served model 校验，插件清单
+  opt-in Helm 与 HTTPRoute 的凭据剥离已实现，当前按 key+served model 校验，插件清单
   限制在 `/v1/`，不覆盖 Governance `/api/v1/`；服务级网关 scope 等可信路由上下文
   仍待后续切片；
 - `partial`：真实 `/v1` 动态 AK 链路尚未在目标集群启用和验收，租户/模型全局限流仍未接入；
