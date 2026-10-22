@@ -2,11 +2,6 @@ package kubernetes
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
-	"net/http"
-	"net/http/httptest"
-	"reflect"
 	"testing"
 
 	"github.com/liangzai006/ani-inference-service/internal/biz/publication"
@@ -18,133 +13,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
-
-func TestNativeRoutePayloadUsesModelHeaderAndServiceSource(t *testing.T) {
-	route := nativeRoutePayload("route-1", "/v1/completions", "qwen", "source-1", 100)
-	if route["name"] != "route-1" {
-		t.Fatal("missing route name")
-	}
-	path := route["path"].(map[string]any)
-	if path["matchType"] != "PRE" || path["matchValue"] != "/v1/completions" {
-		t.Fatalf("path = %#v", path)
-	}
-	headers := route["headers"].([]map[string]any)
-	if headers[0]["key"] != "x-higress-llm-model" || headers[0]["matchType"] != "EQUAL" || headers[0]["matchValue"] != "qwen" {
-		t.Fatalf("headers = %#v", headers)
-	}
-	services := route["services"].([]map[string]any)
-	if services[0]["name"] != "source-1" || services[0]["port"] != 100 || services[0]["weight"] != 100 {
-		t.Fatalf("services = %#v", services)
-	}
-	source := nativeServiceSourcePayload("source-1", "svc.models.svc.cluster.local", 100)
-	if source["type"] != "dns" || source["domain"] != "svc.models.svc.cluster.local" || source["port"] != 100 || source["protocol"] != "http" {
-		t.Fatalf("source = %#v", source)
-	}
-	if _, found := source["address"]; found {
-		t.Fatalf("source uses unsupported address field: %#v", source)
-	}
-}
-
-func TestHTTPRoutePublisherNativePublishLifecycle(t *testing.T) {
-	var requests []string
-	var p *HTTPRoutePublisher
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requests = append(requests, fmt.Sprintf("%s %s", r.Method, r.URL.Path))
-		switch {
-		case r.Method == http.MethodPut && len(requests) == 1:
-			w.WriteHeader(http.StatusCreated)
-		case r.Method == http.MethodGet && r.URL.Path == "/v1/routes/"+nativeRouteName(testPublication()):
-			_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "data": map[string]any{"name": nativeRouteName(testPublication())}})
-		case r.Method == http.MethodPut && len(requests) == 3:
-			assertRateLimitOwner(t, p, "served-model", nativeRouteName(testPublication()))
-			w.WriteHeader(http.StatusCreated)
-		default:
-			w.WriteHeader(http.StatusNotFound)
-		}
-	}))
-	defer server.Close()
-
-	p = testPublisher()
-	p.Console = newHigressConsoleClient(server.URL, "admin", "secret", server.Client())
-	pub := testPublication()
-	if err := p.Publish(context.Background(), pub); err != nil {
-		t.Fatalf("Publish() error = %v", err)
-	}
-	if len(requests) != 3 {
-		t.Fatalf("native publish requests = %#v", requests)
-	}
-	if requests[0] != "PUT /v1/service-sources/"+nativeServiceSourceName(pub) || requests[1] != "GET /v1/routes/"+nativeRouteName(pub) || requests[2] != "PUT /v1/routes/"+nativeRouteName(pub) {
-		t.Fatalf("native publish requests = %#v", requests)
-	}
-	assertRateLimitOwner(t, p, "served-model", nativeRouteName(pub))
-	confirmed, err := p.ConfirmPublished(context.Background(), pub)
-	if err != nil || !confirmed {
-		t.Fatalf("ConfirmPublished() = %v, %v", confirmed, err)
-	}
-}
-
-func TestHTTPRoutePublisherNativeRouteFailureRollsBack(t *testing.T) {
-	var requests []string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requests = append(requests, fmt.Sprintf("%s %s", r.Method, r.URL.Path))
-		switch {
-		case r.Method == http.MethodPut && r.URL.Path == "/v1/service-sources/"+nativeServiceSourceName(testPublication()):
-			w.WriteHeader(http.StatusCreated)
-		case r.Method == http.MethodPost && r.URL.Path == "/v1/routes":
-			w.WriteHeader(http.StatusBadGateway)
-		case r.Method == http.MethodGet && r.URL.Path == "/v1/routes":
-			_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "data": []map[string]any{}})
-		case r.Method == http.MethodDelete && r.URL.Path == "/v1/service-sources/"+nativeServiceSourceName(testPublication()):
-			w.WriteHeader(http.StatusNoContent)
-		default:
-			w.WriteHeader(http.StatusNotFound)
-		}
-	}))
-	defer server.Close()
-
-	p := testPublisher()
-	p.Console = newHigressConsoleClient(server.URL, "admin", "secret", server.Client())
-	err := p.Publish(context.Background(), testPublication())
-	if err == nil {
-		t.Fatal("Publish() error = nil, want route failure")
-	}
-	if len(requests) != 5 || requests[0] != "PUT /v1/service-sources/"+nativeServiceSourceName(testPublication()) || requests[1] != "GET /v1/routes/"+nativeRouteName(testPublication()) || requests[2] != "POST /v1/routes" || requests[3] != "GET /v1/routes" || requests[4] != "DELETE /v1/service-sources/"+nativeServiceSourceName(testPublication()) {
-		t.Fatalf("rollback requests = %#v", requests)
-	}
-	assertRateLimitKeys(t, p, map[string]int64{"existing-model": 20})
-	assertRateLimitOwner(t, p, "served-model")
-}
-
-func TestHTTPRoutePublisherEnsureBootstrapRoute(t *testing.T) {
-	var paths []string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		paths = append(paths, r.Method+" "+r.URL.Path)
-		if r.Method == http.MethodPut && r.URL.Path == "/v1/service-sources/bootstrap-source" {
-			w.WriteHeader(http.StatusCreated)
-			return
-		}
-		if r.Method == http.MethodGet && r.URL.Path == "/v1/routes/bootstrap-route" {
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-		if r.Method == http.MethodPost && r.URL.Path == "/v1/routes" {
-			w.WriteHeader(http.StatusCreated)
-			return
-		}
-		t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
-	}))
-	defer server.Close()
-
-	p := testPublisher()
-	p.Console = newHigressConsoleClient(server.URL, "admin", "secret", server.Client())
-	if err := p.EnsureBootstrapRoute(context.Background(), "bootstrap-route", "bootstrap-source", "sink", 80); err != nil {
-		t.Fatal(err)
-	}
-	want := []string{"PUT /v1/service-sources/bootstrap-source", "GET /v1/routes/bootstrap-route", "POST /v1/routes"}
-	if !reflect.DeepEqual(paths, want) {
-		t.Fatalf("bootstrap requests = %#v, want %#v", paths, want)
-	}
-}
 
 type publicationRuntimeSource struct {
 	desired DesiredRuntime
@@ -192,6 +60,70 @@ func testRateLimitPlugin() *unstructured.Unstructured {
 	}}
 	plugin.SetGroupVersionKind(higressWasmPluginGVK)
 	return plugin
+}
+
+func TestHTTPRoutePublisherEnsureBootstrapRouteUsesSinkService(t *testing.T) {
+	p := testPublisher()
+	if err := p.EnsureBootstrapRoute(context.Background(), "bootstrap-route", "ani-inference-model-router-sink", 80); err != nil {
+		t.Fatalf("EnsureBootstrapRoute() error = %v", err)
+	}
+	route := &gatewayv1.HTTPRoute{}
+	if err := p.Client.Get(context.Background(), client.ObjectKey{Namespace: "models", Name: "bootstrap-route"}, route); err != nil {
+		t.Fatalf("get bootstrap route: %v", err)
+	}
+	if len(route.Spec.Rules) != 1 || len(route.Spec.Rules[0].BackendRefs) != 1 {
+		t.Fatalf("bootstrap rules = %#v; want one backend", route.Spec.Rules)
+	}
+	ref := route.Spec.Rules[0].BackendRefs[0]
+	if string(ref.Name) != "ani-inference-model-router-sink" || ref.Port == nil || int32(*ref.Port) != 80 {
+		t.Fatalf("bootstrap backend = %#v", ref)
+	}
+	match := route.Spec.Rules[0].Matches[0]
+	if match.Path == nil || match.Path.Value == nil || *match.Path.Value != "/v1/completions" {
+		t.Fatalf("bootstrap path = %#v", match.Path)
+	}
+}
+
+func TestHTTPRoutePublisherEnsureBootstrapRouteRejectsForeignOwner(t *testing.T) {
+	p := testPublisher()
+	foreign := &gatewayv1.HTTPRoute{
+		TypeMeta: metav1.TypeMeta{APIVersion: gatewayv1.SchemeGroupVersion.String(), Kind: "HTTPRoute"},
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "models",
+			Name:      "bootstrap-route",
+			Labels: map[string]string{
+				managedByLabel: "another-controller",
+				routeRoleLabel: bootstrapRouteRole,
+			},
+		},
+	}
+	if err := p.Client.Create(context.Background(), foreign); err != nil {
+		t.Fatalf("create foreign bootstrap route: %v", err)
+	}
+	if err := p.EnsureBootstrapRoute(context.Background(), "bootstrap-route", "ani-inference-model-router-sink", 80); err == nil {
+		t.Fatal("EnsureBootstrapRoute() error = nil, want foreign owner rejection")
+	}
+}
+
+func TestHTTPRoutePublisherEnsureBootstrapRouteAcceptsOwnedRoute(t *testing.T) {
+	p := testPublisher()
+	owned := &gatewayv1.HTTPRoute{
+		TypeMeta: metav1.TypeMeta{APIVersion: gatewayv1.SchemeGroupVersion.String(), Kind: "HTTPRoute"},
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "models",
+			Name:      "bootstrap-route",
+			Labels: map[string]string{
+				managedByLabel: managedByInference,
+				routeRoleLabel: bootstrapRouteRole,
+			},
+		},
+	}
+	if err := p.Client.Create(context.Background(), owned); err != nil {
+		t.Fatalf("create owned bootstrap route: %v", err)
+	}
+	if err := p.EnsureBootstrapRoute(context.Background(), "bootstrap-route", "ani-inference-model-router-sink", 80); err != nil {
+		t.Fatalf("EnsureBootstrapRoute() error = %v", err)
+	}
 }
 
 func testPublication() publication.Publication {

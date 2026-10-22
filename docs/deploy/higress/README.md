@@ -8,11 +8,11 @@ Higress 版本为 2.2.4，启用 Gateway API。网关通过 NodePort `30090`（H
 指标和日志写入新集群 CephFS 提供的 PVC。
 
 model-router 插件配置为 `enableOnPathSuffix: ["*"]`，会从 OpenAI 兼容 JSON 请求中读取
-`model`，再写入 `x-higress-llm-model` 请求头。Inference Chart 会安装一条没有后端的
+`model`，再写入 `x-higress-llm-model` 请求头。Inference Chart 会安装一条指向无 selector sink Service 的
 `/v1/` 兜底路由，让插件有机会先执行并重新计算路由；ANI 随后为每个模型发布一条
 `/v1/` 模型路由，因此 `/v1/completions`、`/v1/chat/completions`、`/v1/embeddings`
 等带 `model` 的 API 都复用同一条模型路由。未知模型不会落到任意一个已部署模型，当前
-由无后端路由返回不可用错误。调用方只传 JSON `model`，不应手工添加内部模型路由头。
+由 sink Service 返回不可用错误。调用方只传 JSON `model`，不应手工添加内部模型路由头。
 
 ## 推理网关 API Key
 
@@ -46,6 +46,11 @@ curl -sS -X POST "${HIGRESS_PUBLIC_BASE_URL}/v1/completions" \
 当前网关只有推理 listener，因此认证对该 listener 全局生效。以后如果增加
 其他公共路由，应在暴露前改为按路由认证。使用新密钥重新应用模板会轮换密钥，
 旧密钥随即失效。
+
+这里的模板仍是迁移期静态 bootstrap key，不是 Inference-owned 的多租户 AK
+签发模块。动态 key 的签发、撤销、租户/模型范围和按 key 限流按
+[`docs/design/ai-gateway-auth-and-rate-limit.md`](../../design/ai-gateway-auth-and-rate-limit.md)
+分阶段落地；在 P1 完成前，不应把模板 key 当作正式的租户凭据体系。
 
 ## 镜像
 
@@ -93,7 +98,8 @@ kubectl apply -f docs/deploy/higress/plugins.yaml
 ```
 
 随后按 [Inference Helm 部署文档](../helm/ani-inference.md) 部署或更新新环境 Inference 服务。最后按上面的 API Key
-步骤应用 `key-auth.yaml.tmpl`，避免入口在认证前被公开。
+步骤应用 `key-auth.yaml.tmpl`，避免入口在认证前被公开。Console 可以继续作为运维 UI
+部署，但 Inference 不再调用其 REST API；后续可单独移除 Console Pod。
 
 ## 验证
 

@@ -16,6 +16,8 @@ import (
 )
 
 const governanceCallerDNS = "ani-governance"
+const gatewayAuthzCallerDNS = "ani-inference-gateway.ani.internal"
+const checkInferenceAccessMethod = "/inference.v1.InferenceAccessKeyService/CheckInferenceAccess"
 
 // clientDNSIdentity is shared by both TLS listeners and RPC authentication.
 // ANI client identities have exactly one DNS SAN and no other SAN types.
@@ -127,10 +129,18 @@ func InferenceServicePolicy() RPCPolicy {
 			"/inference.v1.InferenceDiagnostics/GetRuntimeLogs",
 			"/inference.v1.InferenceDiagnostics/StreamRuntimeLogs",
 			"/inference.v1.InferenceDiagnostics/ListRuntimeEvents",
+			"/inference.v1.InferenceAccessKeyService/CreateInferenceAccessKey",
+			"/inference.v1.InferenceAccessKeyService/ListInferenceAccessKeys",
+			"/inference.v1.InferenceAccessKeyService/GetInferenceAccessKey",
+			"/inference.v1.InferenceAccessKeyService/RevokeInferenceAccessKey",
+			"/inference.v1.InferenceAccessKeyService/RotateInferenceAccessKey",
 		},
 		// Model Service can check if model versions are still in use
 		"ani-model.ani.internal": {
 			"/inference.v1.ModelReferenceService/CheckModelVersionReferences",
+		},
+		gatewayAuthzCallerDNS: {
+			checkInferenceAccessMethod,
 		},
 		// Add other trusted services here as needed
 	}
@@ -141,6 +151,7 @@ func InferenceServicePolicy() RPCPolicy {
 		expectedIdentities: map[string]string{
 			governanceCallerDNS:      "Governance Service",
 			"ani-model.ani.internal": "Model Service",
+			gatewayAuthzCallerDNS:    "Inference Gateway Authz Adapter",
 		},
 	}
 }

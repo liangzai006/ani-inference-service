@@ -1,0 +1,23 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ required "higress.bootstrapRouteName is required" (trim .Values.higress.bootstrapRouteName) }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ani-inference.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway-routing
+    ani.kubercloud.com/managed-by: ani-inference
+    ani.kubercloud.com/route-role: bootstrap
+spec:
+  parentRefs:
+    - name: {{ required "higress.gatewayName is required" (trim .Values.higress.gatewayName) }}
+      namespace: {{ required "higress.gatewayNamespace is required" (trim .Values.higress.gatewayNamespace) }}
+      sectionName: http
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: {{ .Values.higress.routePrefix | quote }}
+      backendRefs:
+        - name: {{ required "higress.bootstrapServiceName is required" (trim .Values.higress.bootstrapServiceName) }}
+          port: 80

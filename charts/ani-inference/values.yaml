@@ -70,17 +70,14 @@ model:
       group: cert-manager.io
 
 higress:
-  # Required by the inference service for publishing native Higress routes.
+  # Public URL used by clients. Routes are managed through the Kubernetes
+  # Gateway API; the Higress Console is not required at runtime.
   publicBaseURL: ""
-  consoleURL: ""
-  consoleCredentialsSecret:
-    name: ""
-    usernameKey: username
-    passwordKey: password
+  gatewayNamespace: higress-system
+  gatewayName: ani-higress
   pathPrefix: /v1/completions
   routePrefix: /v1/
   bootstrapRouteName: ani-inference-model-router
-  bootstrapSourceName: ani-inference-model-router
   bootstrapServiceName: ani-inference-model-router-sink
   rateLimitNamespace: higress-system
   rateLimitPlugin: ani-request-rate-limit
