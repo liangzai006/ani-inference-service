@@ -78,9 +78,10 @@ bash charts/verify.sh
   (`feat: add fail-closed inference gateway authz adapter`)；按当前任务要求尚未推送。
 - 本轮根模块改动已提交并推送：`a0f468d` (`feat: add inference access key service and gateway bootstrap`)；
   API 子模块提交 `1f0ae265510f` 仍已发布。
-- Inference 分支尚未合并到 `main`；当前 PR 为
-  [#7](https://github.com/liangzai006/ani-inference-service/pull/7)，以 `a0f468d`
-  为实现基线，并保留下方 Higress authz adapter 的未完成边界。
+- Inference 分支尚未合并到 `main`；远端 PR 为
+  [#7](https://github.com/liangzai006/ani-inference-service/pull/7)，当前仍未包含本地
+  adapter 提交 `11110a1`、`54b9aa3`、`92bd82f`。按当前任务要求没有 push，待服务级
+  scope 取值和后续现场验证边界确认后再决定 PR 更新方式。
 
 ## 恢复入口
 
