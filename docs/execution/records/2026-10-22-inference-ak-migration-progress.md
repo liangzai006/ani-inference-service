@@ -54,8 +54,9 @@ Helm 校验通过。当前环境未提供 `INFERENCE_PG_DSN` 或 `ANI_DATABASE_D
 - 租户聚合限流、模型全局限流、Redis/cluster limiter 和跨网关一致性属于后续切片。
 - 本轮根模块改动已提交并推送：`a0f468d` (`feat: add inference access key service and gateway bootstrap`)；
   API 子模块提交 `1f0ae265510f` 仍已发布。
-- Inference 分支尚未合并到 `main`；如需对外合并，应以 `a0f468d` 为基线创建或更新 PR，
-  并保留下方 Higress authz adapter 的未完成边界。
+- Inference 分支尚未合并到 `main`；当前 PR 为
+  [#7](https://github.com/liangzai006/ani-inference-service/pull/7)，以 `a0f468d`
+  为实现基线，并保留下方 Higress authz adapter 的未完成边界。
 
 ## 恢复入口
 

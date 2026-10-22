@@ -8,7 +8,8 @@
 - `pass`：隔离 PostgreSQL 已执行 `000022`，真实集成测试覆盖 secret 一次性返回、租户隔离、scope、并发轮换、撤销和 RPM 限流。
 - `pass`：Console 运行时依赖已移除，HTTPRoute bootstrap owner 检查和 Helm 校验已补齐。
 - `partial`：Higress authz adapter、租户/模型全局限流和真实 `/v1` 动态 AK 链路尚未接入；
-  根模块 P1 改动已提交并推送（`a0f468d`），尚未合并到 `main`。
+  根模块 P1 改动已提交并推送（`a0f468d`），PR 为
+  [#7](https://github.com/liangzai006/ani-inference-service/pull/7)，尚未合并到 `main`。
 
 完整变更与验证证据见[Inference AK 迁移进度记录](records/2026-10-22-inference-ak-migration-progress.md)。
 
