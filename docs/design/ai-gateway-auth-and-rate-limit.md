@@ -1,6 +1,6 @@
 # AI 网关鉴权与限流设计
 
-状态：P1 内部 AK 合同已冻结；网关 adapter 与租户/模型全局限流仍分阶段实施
+状态：P1 内部 AK 合同已冻结；ext-auth adapter 已实现为可选 companion，真实网关启用与租户/模型全局限流仍分阶段实施
 日期：2026-10-22
 范围：`ani-inference-service`、Higress 数据面、Governance BFF 管理入口
 
@@ -150,9 +150,16 @@ P2 可评估 Higress 内置
 把静态 consumers 当作动态 key 方案，也不能宣称当前集群已经具备此能力。若内置
 插件只能校验静态凭据，Inference 仍需通过适配器或受控 reconcile 提供动态生命周期。
 
-适配器可以是 Higress 自定义 WasmPlugin 或 Envoy ext_authz 服务，具体实现另立
-切片。内置 key-auth 的静态 consumer 仅用于迁移期 bootstrap。适配器与 Inference
-之间必须使用 mTLS、超时、断路和 fail-close；适配器不可达时不能放行未知 key。
+本仓库选择 Higress 官方 `ext-auth` WasmPlugin 加独立
+`ani-inference-gateway-authz` companion，而不是把动态 key 写进自定义 WasmPlugin
+consumer。ext-auth 只把 `x-api-key`、model-router 生成的模型头和请求 ID转给
+adapter，并通过黑名单路径规则只匹配 `/v1/`；`/api/v1/` 管理入口不触发该
+插件。当前网关切片按 key 和 served model 做校验，不接受客户端提供的 service ID；
+服务级 scope 需要后续提供可信的 HTTPRoute 上下文后再启用。adapter 使用
+`ani-inference-gateway.ani.internal` 客户端证书，按
+Inference gRPC mTLS 合同调用 `CheckInferenceAccess`，并只回传租户和 key ID。两侧
+都设置超时和 fail-close；Inference 或 adapter 不可达时返回 503，不放行请求。内置
+key-auth 的静态 consumer 仅用于迁移期 bootstrap，在动态链路启用后不得叠加使用。
 
 ## 5. 限流层次和策略
 
@@ -264,9 +271,10 @@ Kubernetes 对象是可重建的执行投影：
    secret、撤销/轮换和 key 级原子 bucket；secret 不进入 CRD、Helm 或日志。
 2. 管理 RPC 仅允许 Governance mTLS 身份；`CheckInferenceAccess` 仅允许
    `ani-inference-gateway.ani.internal`，且该调用不得携带租户/操作者 metadata。
-3. authz adapter 尚未接入 Higress，接入时必须验证有效、无效/过期/撤销 key、
-   跨租户 scope、伪造 header、超时和 fail-close，并映射 401/403/429。使用测试 key，
-   不把 secret 写入仓库或 Helm values。
+3. authz adapter 代码和 opt-in Helm companion 已接入 Higress ext-auth 合同；实现验证
+   覆盖有效、无效/过期/撤销 key、scope、伪造 header、超时和 fail-close，并映射
+   401/403/429。真实集群 `/v1` 启用和端到端请求仍待部署验证。使用测试 key，不把
+   secret 写入仓库或 Helm values。
 
 ### P2：策略和全局限流
 
@@ -284,9 +292,10 @@ adapter 接入并完成真实链路验证前，不能对外宣称 Higress 已支
 
 ## 9. 后续未冻结的实现决策
 
-- authz adapter 采用 Higress WasmPlugin 还是 Envoy ext_authz；两者都必须支持
-  mTLS、fail-close 和可信 header 注入。公开请求合同固定为 opaque `x-api-key`，不
-  再引入 HMAC 双模式。
+- 目标集群是否已缓存并允许使用官方 `ext-auth:2.0.3` 镜像，以及 adapter 镜像、
+  cert-manager 客户端证书和 NetworkPolicy 的现场配置；这些现场条件确认前不能
+  视作真实 `/v1` 动态 AK 已生效。公开请求合同固定为 opaque `x-api-key`，不再引入
+  HMAC 双模式。
 - `cluster-key-rate-limit` 的目标 OCI 镜像/tag、Redis 部署/认证/TLS、失败策略和
   集群容量；在这些事实确认前不能视作已支持。
 - 租户/模型全局限流的存储和执行方式、默认 TTL、轮换宽限期，以及 RPM/小时与

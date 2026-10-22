@@ -315,6 +315,14 @@ func (p *HTTPRoutePublisher) route(pub publication.Publication, namespace, backe
 				Path:    &gatewayv1.HTTPPathMatch{Type: &pathType, Value: &path},
 				Headers: []gatewayv1.HTTPHeaderMatch{{Type: &headerType, Name: "x-higress-llm-model", Value: servedModelName}},
 			}},
+			Filters: []gatewayv1.HTTPRouteFilter{{
+				Type: gatewayv1.HTTPRouteFilterRequestHeaderModifier,
+				RequestHeaderModifier: &gatewayv1.HTTPHeaderFilter{
+					// The ext-auth filter reads x-api-key before the route is sent
+					// upstream; remove it from the model backend request.
+					Remove: []string{"x-api-key"},
+				},
+			}},
 			BackendRefs: []gatewayv1.HTTPBackendRef{{
 				BackendRef: gatewayv1.BackendRef{
 					BackendObjectReference: gatewayv1.BackendObjectReference{
@@ -401,6 +409,10 @@ func (p *HTTPRoutePublisher) EnsureBootstrapRoute(ctx context.Context, routeName
 			}}},
 			Rules: []gatewayv1.HTTPRouteRule{{
 				Matches: []gatewayv1.HTTPRouteMatch{{Path: &gatewayv1.HTTPPathMatch{Type: &pathType, Value: &path}}},
+				Filters: []gatewayv1.HTTPRouteFilter{{
+					Type:                  gatewayv1.HTTPRouteFilterRequestHeaderModifier,
+					RequestHeaderModifier: &gatewayv1.HTTPHeaderFilter{Remove: []string{"x-api-key"}},
+				}},
 				BackendRefs: []gatewayv1.HTTPBackendRef{{
 					BackendRef: gatewayv1.BackendRef{BackendObjectReference: gatewayv1.BackendObjectReference{
 						Name: gatewayv1.ObjectName(sinkServiceName),

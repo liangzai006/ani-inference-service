@@ -32,6 +32,13 @@ helm template ani-inference "$repo_root/charts/ani-inference" \
 helm template ani-inference "$repo_root/charts/ani-inference" \
   --namespace ani-system \
   "${common_values[@]}" \
+  --set gatewayAuthz.enabled=true \
+  --set gatewayAuthz.image.repository=test.example/ani-inference-gateway-authz \
+  --set gatewayAuthz.image.tag=test \
+  >"$tmp_dir/inference-authz.yaml"
+helm template ani-inference "$repo_root/charts/ani-inference" \
+  --namespace ani-system \
+  "${common_values[@]}" \
   --set higress.rateLimitNamespace=custom-higress-system \
   --set higress.rateLimitPlugin=custom-rate-limit \
   --set higress.rbac.namespace=custom-higress-system \
@@ -42,6 +49,7 @@ helm template ani-inference-config "$repo_root/charts/ani-inference-config" \
   --namespace kserve \
   >"$tmp_dir/config.yaml"
 test -s "$tmp_dir/inference.yaml"
+test -s "$tmp_dir/inference-authz.yaml"
 test -s "$tmp_dir/config.yaml"
 test -s "$tmp_dir/higress-rbac.yaml"
 test -s "$tmp_dir/higress-rbac-custom.yaml"
@@ -70,6 +78,13 @@ grep -q 'kind: HTTPRoute' "$tmp_dir/inference.yaml"
 grep -q 'name: ani-inference-model-router-sink' "$tmp_dir/inference.yaml"
 grep -q 'ani.kubercloud.com/managed-by: ani-inference' "$tmp_dir/inference.yaml"
 grep -q 'ani.kubercloud.com/route-role: bootstrap' "$tmp_dir/inference.yaml"
+grep -q 'name: gateway-authz' "$tmp_dir/inference-authz.yaml"
+grep -q 'name: ani-inference-authz' "$tmp_dir/inference-authz.yaml"
+grep -q 'ANI_INFERENCE_CLIENT_IDENTITY' "$tmp_dir/inference-authz.yaml"
+grep -q 'ani-inference-gateway.ani.internal' "$tmp_dir/inference-authz.yaml"
+grep -q 'match_type: blacklist' "$repo_root/docs/deploy/higress/plugins.yaml"
+grep -q 'match_rule_path: /v1/' "$repo_root/docs/deploy/higress/plugins.yaml"
+grep -q 'match_rule_type: prefix' "$repo_root/docs/deploy/higress/plugins.yaml"
 if grep -q 'ANI_HIGRESS_CONSOLE_' "$tmp_dir/inference.yaml"; then
   echo 'Inference Deployment must not depend on Higress Console credentials' >&2
   exit 1

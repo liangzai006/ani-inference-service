@@ -14,6 +14,16 @@
 - 已增加 PostgreSQL migration `000022`、sqlc 查询/生成代码、审计事件和原子 rate bucket；轮换使用行锁和部分唯一索引保证并发幂等。
 - 已移除运行时 Higress Console 客户端和凭据依赖，bootstrap/model 路由继续走 Kubernetes HTTPRoute；bootstrap 路由增加 owner label，发现外部 owner 或删除中的对象时拒绝接管。
 - 已补充 Helm/chart 校验、HTTPRoute owner 测试、domain/transport/storage 测试和 PostgreSQL 集成测试。
+- 已实现独立 `ani-inference-gateway-authz` HTTP adapter：Higress 官方 `ext-auth`
+  只转发必要请求头，adapter 通过 `ani-inference-gateway.ani.internal` mTLS 调用
+  `CheckInferenceAccess`；Inference 或 adapter 不可用时 fail-close 为 503，决策映射
+  为 401/403/429。当前网关切片只使用 model-router 生成的模型头，避免把可能晚于
+  AUTHN 的 HTTPRoute service ID header 当作可信身份；模型 HTTPRoute 只在上游移除
+  `x-api-key`。
+- 已补充 `Dockerfile.authz`、可选 `gatewayAuthz` companion container/Service/客户端
+  Certificate、ext-auth WasmPlugin 配置和 adapter/route 单测；默认不启用 companion，
+  需要先发布 adapter 镜像再应用插件。ext-auth 使用 `/v1/` 黑名单路径，只保护
+  OpenAI 兼容入口，避免拦截 Governance `/api/v1/`。
 
 ## 已验证
 
@@ -46,11 +56,23 @@ Chart 打包副本未同步，已补齐 `charts/ani-inference/migrations/README.
 Helm 校验通过。当前环境未提供 `INFERENCE_PG_DSN` 或 `ANI_DATABASE_DSN`，没有把
 本次恢复误报为新的真实 PostgreSQL 集成运行。
 
+本次 authz adapter 继续验证通过：
+
+```text
+go test ./internal/data/kubernetes ./internal/service/gatewayauthz ./internal/data/inferenceaccess ./cmd/ani-inference-gateway-authz
+bash charts/verify.sh
+```
+
+全量 Go test、vet、build 和 API 校验也已重新通过；Helm 校验同时渲染了
+`gatewayAuthz.enabled=true` 的 companion/Service/证书路径。当前仍未连接目标集群，
+因此不能把 adapter 代码和清单验证写成真实 `/v1` 动态 AK 已生效。
+
 集成测试需要通过环境变量提供本地 PostgreSQL DSN；凭据不写入仓库、文档或测试输出。
 
 ## 暂未完成
 
-- Higress authz adapter 尚未接入真实 `/v1` 流量；当前不能宣称动态 AK 已在网关生效。
+- Higress authz adapter 代码和 opt-in 部署投影已完成，但尚未在真实 `/v1` 流量启用；
+  当前不能宣称动态 AK 已在网关生效。
 - 租户聚合限流、模型全局限流、Redis/cluster limiter 和跨网关一致性属于后续切片。
 - 本轮根模块改动已提交并推送：`a0f468d` (`feat: add inference access key service and gateway bootstrap`)；
   API 子模块提交 `1f0ae265510f` 仍已发布。

@@ -82,6 +82,9 @@ func TestHTTPRoutePublisherEnsureBootstrapRouteUsesSinkService(t *testing.T) {
 	if match.Path == nil || match.Path.Value == nil || *match.Path.Value != "/v1/completions" {
 		t.Fatalf("bootstrap path = %#v", match.Path)
 	}
+	if len(route.Spec.Rules[0].Filters) != 1 || route.Spec.Rules[0].Filters[0].RequestHeaderModifier == nil || len(route.Spec.Rules[0].Filters[0].RequestHeaderModifier.Remove) != 1 || route.Spec.Rules[0].Filters[0].RequestHeaderModifier.Remove[0] != "x-api-key" {
+		t.Fatalf("bootstrap filters = %#v", route.Spec.Rules[0].Filters)
+	}
 }
 
 func TestHTTPRoutePublisherEnsureBootstrapRouteRejectsForeignOwner(t *testing.T) {
@@ -164,6 +167,14 @@ func TestHTTPRoutePublisherPublishAndEndpoint(t *testing.T) {
 	}
 	if len(match.Headers) != 1 || match.Headers[0].Name != "x-higress-llm-model" || match.Headers[0].Value != "served-model" || match.Headers[0].Type == nil || *match.Headers[0].Type != gatewayv1.HeaderMatchExact {
 		t.Fatalf("header match = %#v", match.Headers)
+	}
+	filters := got.Spec.Rules[0].Filters
+	if len(filters) != 1 || filters[0].Type != gatewayv1.HTTPRouteFilterRequestHeaderModifier || filters[0].RequestHeaderModifier == nil {
+		t.Fatalf("route filters = %#v", filters)
+	}
+	modifier := filters[0].RequestHeaderModifier
+	if len(modifier.Remove) != 1 || modifier.Remove[0] != "x-api-key" {
+		t.Fatalf("route header remove = %#v", modifier.Remove)
 	}
 	endpoint, err := p.Endpoint(ctx, pub)
 	if err != nil || endpoint != "http://10.10.1.67:30090/v1/completions" {

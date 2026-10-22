@@ -16,6 +16,21 @@ model-router 插件配置为 `enableOnPathSuffix: ["*"]`，会从 OpenAI 兼容 
 
 ## 推理网关 API Key
 
+动态 Inference-owned AK 的网关链路使用 `ani-inference-ext-auth`：Higress 的官方
+`ext-auth` WasmPlugin 把 `x-api-key`、model-router 生成的模型头和请求 ID 转发给
+`ani-inference-authz`，adapter 再用 `ani-inference-gateway.ani.internal` 的 mTLS
+身份调用 Inference `CheckInferenceAccess`。当前网关切片按 key 和 served model 做
+校验；服务级 scope 需要后续提供可信的 HTTPRoute 上下文后再启用。授权失败按 401/403/429 返回，Inference
+或 adapter 不可用时按 503 fail-close。先把 Chart 的 `gatewayAuthz.enabled` 打开并
+发布含 `/ani-inference-gateway-authz` 的镜像，再应用 `plugins.yaml` 中的 ext-auth
+对象；该插件只对 `/v1/` 前缀生效，`/api/v1/` 仍由 Governance BFF 处理；没有
+adapter 时不要应用这个插件。
+
+adapter 镜像由仓库根目录的 `Dockerfile.authz` 构建：先编译
+`.build/ani-inference-gateway-authz`，再构建并推送
+`docker.changqingyun.cn/ani/inference-gateway-authz:<tag>`。Inference 主镜像仍由
+`Dockerfile` 构建，两者版本应保持同一源码提交。
+
 应用 `key-auth.yaml.tmpl` 后，推理网关要求请求携带 `x-api-key`。真实密钥
 不会写入 Git 或主插件清单。请在新环境的受保护终端中设置 context、网关节点
 地址和密钥，再渲染并应用模板：
@@ -48,9 +63,10 @@ curl -sS -X POST "${HIGRESS_PUBLIC_BASE_URL}/v1/completions" \
 旧密钥随即失效。
 
 这里的模板仍是迁移期静态 bootstrap key，不是 Inference-owned 的多租户 AK
-签发模块。动态 key 的签发、撤销、租户/模型范围和按 key 限流按
-[`docs/design/ai-gateway-auth-and-rate-limit.md`](../../design/ai-gateway-auth-and-rate-limit.md)
-分阶段落地；在 P1 完成前，不应把模板 key 当作正式的租户凭据体系。
+签发模块。动态链路启用后，不要同时应用静态 `key-auth`，否则会把静态 consumer
+和 Inference-owned key 叠加成两套入口策略。动态 key 的签发、撤销、租户/模型范围
+和按 key 限流按[`docs/design/ai-gateway-auth-and-rate-limit.md`](../../design/ai-gateway-auth-and-rate-limit.md)
+分阶段落地。
 
 ## 镜像
 
@@ -70,6 +86,7 @@ higress-registry.cn-hangzhou.cr.aliyuncs.com/plugins/model-router:2.0.2
 higress-registry.cn-hangzhou.cr.aliyuncs.com/plugins/ai-statistics:2.0.2
 higress-registry.cn-hangzhou.cr.aliyuncs.com/plugins/key-rate-limit:1.0.0
 higress-registry.cn-hangzhou.cr.aliyuncs.com/plugins/key-auth:2.0.0
+higress-registry.cn-hangzhou.cr.aliyuncs.com/plugins/ext-auth:2.0.3
 ```
 
 部署 values 和插件清单已经指向对应的

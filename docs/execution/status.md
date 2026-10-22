@@ -7,7 +7,12 @@
 - `pass`：Inference 内部 `InferenceAccessKeyService`、opaque `x-api-key` 校验合同、Argon2id 哈希、撤销/轮换、幂等和 key 级原子限流桶已实现；API 子模块已发布为 `1f0ae265510f`，根模块已升级依赖。
 - `pass`：隔离 PostgreSQL 已执行 `000022`，真实集成测试覆盖 secret 一次性返回、租户隔离、scope、并发轮换、撤销和 RPM 限流。
 - `pass`：Console 运行时依赖已移除，HTTPRoute bootstrap owner 检查和 Helm 校验已补齐。
-- `partial`：Higress authz adapter、租户/模型全局限流和真实 `/v1` 动态 AK 链路尚未接入；
+- `pass`：Higress 官方 `ext-auth` + 独立 `ani-inference-gateway-authz` companion 的
+  adapter、mTLS `CheckInferenceAccess` client、401/403/429/503 fail-close 映射和
+  opt-in Helm/HTTPRoute header 投影已实现，当前按 key+served model 校验，插件清单
+  限制在 `/v1/`，不覆盖 Governance `/api/v1/`；服务级网关 scope 等可信路由上下文
+  仍待后续切片；
+- `partial`：真实 `/v1` 动态 AK 链路尚未在目标集群启用和验收，租户/模型全局限流仍未接入；
   根模块 P1 改动已提交并推送（`a0f468d`），PR 为
   [#7](https://github.com/liangzai006/ani-inference-service/pull/7)，尚未合并到 `main`。
 

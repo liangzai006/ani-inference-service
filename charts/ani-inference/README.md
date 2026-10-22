@@ -13,6 +13,10 @@
   字段并触发重算路由；未知模型不会落到其他模型。bootstrap 和模型路由统一匹配
   `/v1/`，所以 `/v1/completions`、`/v1/chat/completions` 等 OpenAI 兼容接口无需
   分别配置。每个模型路由实际指向对应的 KServe predictor Service DNS。
+- 可选的 `gatewayAuthz` companion container 和 `*-authz` ClusterIP Service。启用后，
+  adapter 使用 `ani-inference-gateway.ani.internal` 客户端证书通过 Inference gRPC
+  `CheckInferenceAccess` 做动态 AK 校验；必须同时应用 `docs/deploy/higress/plugins.yaml`
+  中的 `ani-inference-ext-auth`，不能把动态 key 写入 WasmPlugin consumers。
 
 `imagePullSecrets` 会用于控制面 Deployment，并挂到独立的 runtime ServiceAccount。
 物化 Job、KServe
@@ -30,6 +34,11 @@
 数据库只读取已有 Secret `inference-database` 的 `dsn`。`higress.publicBaseURL`、
 `higress.gatewayNamespace` 和 `higress.gatewayName` 必须在安装时传入。运行时通过
 Kubernetes API 管理 HTTPRoute，不读取 Higress Console 凭据。
+
+`gatewayAuthz.enabled` 默认关闭，因为需要先构建并发布 `Dockerfile.authz` 产生的
+`ani-inference-gateway-authz` 镜像。启用时 Chart 会申请客户端证书
+`gatewayAuthz.tls.existingSecret`，并把 Inference 服务端 CA 只读挂载给 companion
+container；没有该镜像和证书时不要应用 ext-auth 插件。
 
 默认会在 `higress.rateLimitNamespace` 创建一个 Role 和 RoleBinding，将控制面
 ServiceAccount 绑定到仅能 `get`/`patch` 指定 `higress.rateLimitPlugin` 的权限。

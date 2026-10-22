@@ -88,6 +88,34 @@ higress:
     # namespace containing rateLimitPlugin.
     namespace: ""
 
+# The gateway authz adapter is an opt-in companion process. Enable it only
+# after publishing an image that contains /ani-inference-gateway-authz and
+# applying the ext-auth WasmPlugin from docs/deploy/higress/plugins.yaml.
+gatewayAuthz:
+  enabled: false
+  image:
+    repository: docker.changqingyun.cn/ani/inference-gateway-authz
+    tag: main-ff24af7-20261016
+    pullPolicy: IfNotPresent
+  servicePort: 8080
+  timeout: 900ms
+  sourceHeaderValue: higress
+  tls:
+    existingSecret: ani-inference-gateway-authz-mtls
+    mountPath: /var/run/secrets/gateway-authz/client
+    caKey: ca.crt
+    certKey: tls.crt
+    keyKey: tls.key
+    certificate:
+      create: true
+      dnsName: ani-inference-gateway.ani.internal
+      duration: 87600h
+      renewBefore: 720h
+    issuer:
+      name: ani-internal
+      kind: ClusterIssuer
+      group: cert-manager.io
+
 # GPU resolution is opt-in. The accelerator client always uses TLS/mTLS.
 accelerator:
   enabled: false
