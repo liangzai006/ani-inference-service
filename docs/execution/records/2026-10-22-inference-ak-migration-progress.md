@@ -38,14 +38,24 @@ scripts/verify-api.sh
 git diff --check
 ```
 
+本次恢复后又通过了 `go test -p 1 ./... -count=1`、`go vet -p 1 ./...`、
+`go build -p 1 ./...`、`GOWORK=off ./scripts/generate-api.sh check`、
+`GOWORK=off ./scripts/verify-api.sh`、`bash charts/verify.sh`、
+`bash scripts/preflight_test.sh` 和 `git diff --check`。期间发现根迁移说明与
+Chart 打包副本未同步，已补齐 `charts/ani-inference/migrations/README.md` 后重跑
+Helm 校验通过。当前环境未提供 `INFERENCE_PG_DSN` 或 `ANI_DATABASE_DSN`，没有把
+本次恢复误报为新的真实 PostgreSQL 集成运行。
+
 集成测试需要通过环境变量提供本地 PostgreSQL DSN；凭据不写入仓库、文档或测试输出。
 
 ## 暂未完成
 
 - Higress authz adapter 尚未接入真实 `/v1` 流量；当前不能宣称动态 AK 已在网关生效。
 - 租户聚合限流、模型全局限流、Redis/cluster limiter 和跨网关一致性属于后续切片。
-- 本轮根模块改动尚未提交和推送；API 子模块提交已经推送到远端分支，并可创建 PR。
-- `go vet`、Helm verify 和最终根模块提交前检查将在紧急事项处理后继续执行。
+- 本轮根模块改动已提交并推送：`a0f468d` (`feat: add inference access key service and gateway bootstrap`)；
+  API 子模块提交 `1f0ae265510f` 仍已发布。
+- Inference 分支尚未合并到 `main`；如需对外合并，应以 `a0f468d` 为基线创建或更新 PR，
+  并保留下方 Higress authz adapter 的未完成边界。
 
 ## 恢复入口
 
