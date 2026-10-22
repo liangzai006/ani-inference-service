@@ -27,11 +27,10 @@ Inference key 是**数据面凭据**，只授权推理调用；Governance 的平
 
 ## 2. 当前实现和问题
 
-改造前的 `buildKubernetesServers` 要求 `ANI_HIGRESS_CONSOLE_URL`、用户名和密码，
-并创建 `HigressConsoleClient`；`HTTPRoutePublisher` 在 Console 非空时调用
-native route/service-source API。即使已有 Gateway API 实现，进程启动仍会因为
-缺少 Console 配置失败。改造前的 Helm Deployment 也把 Console 凭据注入 Pod；P0
-已移除这些运行时读取和 native route 分支。
+Inference 发布器当前直接通过 Kubernetes API 管理 Gateway API 资源，不读取 Higress
+Console 地址、用户名或密码。启动时维护 `/v1/` bootstrap `HTTPRoute`，发布和撤回
+模型时维护带 owner 标记的模型 `HTTPRoute`，后端指向 KServe predictor 或 Deployment
+Service。Helm 只授予受限的 HTTPRoute 和限流插件权限。
 
 当前 `ani-request-rate-limit` WasmPlugin 可以由 Inference 通过 Kubernetes API
 按 `x-higress-llm-model` 写入 10 QPS 的模型键，并使用 optimistic lock 和
@@ -68,17 +67,14 @@ flowchart LR
 1. Inference 创建一个受本服务管理的 `/v1/` bootstrap `HTTPRoute`，指向
    `ani-inference-model-router-sink`；模型发布再创建带有稳定 owner label 的
    模型 `HTTPRoute`，backend 指向 KServe predictor 或 Deployment Service。
-2. `HTTPRoutePublisher` 的 `Console` 字段和 native route/service-source 分支
-   移除（迁移期可保留类型但必须默认为 nil），启动时不再读取 Console URL、用户名、
-   密码，也不再调用 `EnsureBootstrapRoute` 的 Console 分支。
+2. 发布器只使用 Kubernetes API，不读取 Console URL、用户名或密码。
 3. Helm 删除 Console 环境变量和凭据 Secret 依赖，ServiceAccount Role 增加
    `gateway.networking.k8s.io/httproutes` 的 get/list/watch/create/patch/delete
    权限，并只允许操作已配置的 route namespace、gateway name 和本服务 owner。
-4. 切换前清理历史 native `ani-pub-*` route、`ani-source-*` service source 和
-   旧 bootstrap；禁止 native 路由与 HTTPRoute 同时接管同一个 `/v1/` 请求。
+4. 每个 `/v1/` 请求只允许由本仓库维护的 bootstrap 或模型 `HTTPRoute` 接管，避免
+   重复路由和未知后端。
 
-Console Pod 是否从 Higress 安装中删除是独立的部署变更。先完成运行时解耦和
-真实链路验证，再移除 Console，避免把残留的 native route 误判为业务路由故障。
+Higress Console 可以作为独立的运维查看组件存在，但不是 Inference 的运行时依赖。
 
 ### 3.2 Inference-owned inference key
 
@@ -238,8 +234,8 @@ Kubernetes 对象是可重建的执行投影：
 - 路由发布确认、撤销确认和限流插件生效分别记录 generation，Pod Ready 不能代替
   数据面健康或鉴权生效。
 
-迁移期间禁止新旧 Console/native API 和 Gateway API 同时写同一发布。旧对象清理
-必须按已记录 UID/owner 执行，并在切换后分别验证 `/v1` 和 `/api/v1` 两条入口。
+同一发布只允许由 Gateway API 路径写入。对象清理必须按已记录 UID/owner 执行，
+并分别验证 `/v1` 和 `/api/v1` 两条入口。
 
 ## 7. 安全风险和缓解
 
@@ -251,7 +247,7 @@ Kubernetes 对象是可重建的执行投影：
 | authz adapter 故障导致绕过 | mTLS、超时、fail-close、有限重试；未知状态返回 503/401，不放行 |
 | 多 key 绕过租户额度 | 同时扣减 key 和 tenant bucket；租户策略在 Inference 统一计算 |
 | 本地插件计数被多副本放大 | 明确本地模型保护只是安全上限；全局额度使用共享计数器 |
-| Console/native 残留造成错误路由 | 切换前清单化删除并查询对象；先确认 HTTPRoute 生效再移除 Console |
+| 重复或外部 HTTPRoute 造成错误路由 | 校验 owner、UID 和 parent conditions；拒绝接管外部对象 |
 | 跨租户读写或错误信息泄露 | 复合 tenant 条件、BFF 权限、不可见资源使用统一错误语义和审计 |
 | key 管理接口被当作数据面 | `/api/v1` 仅走 Governance BFF，管理 gRPC 只接受受信 mTLS caller |
 
@@ -259,9 +255,8 @@ Kubernetes 对象是可重建的执行投影：
 
 ### P0：先完成 Console 解耦
 
-1. 移除运行时 Console 配置和 native 分支，补齐 HTTPRoute/RBAC/owner reconcile。
-2. 在验证环境清理旧 native route/source，部署静态 `/v1/` bootstrap 和模型
-   HTTPRoute。
+1. 移除运行时 Console 配置，补齐 HTTPRoute/RBAC/owner reconcile。
+2. 在验证环境部署静态 `/v1/` bootstrap 和模型 HTTPRoute。
 3. 验证 `/api/v1` 由 Governance BFF 返回预期鉴权/业务响应；验证 `/v1` 经
    Higress 到真实 predictor，检查 HTTPRoute parent conditions、后端 Service、
    `x-higress-llm-model` 和模型响应。任一 404/503/未发布路由均不算通过。

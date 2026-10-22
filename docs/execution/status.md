@@ -59,7 +59,7 @@ TLS、IAM 和可信身份接入暂不作为业务门禁。
 - `pass`：创建 operation `succeeded`；Higress 使用 API key，通过 JSON model 路由
   返回 HTTP 200 和非空生成结果；Governance 管理列表 HTTP 200，Higress 管理路径 404。
 - `pass`：删除 operation `succeeded`；测试服务的 CR、Pod、PVC、物化 Job/Secret、
-  Volcano PodGroup、Higress route/Service Source 全部清理，Governance 列表恢复为空。
+  Volcano PodGroup 和模型 HTTPRoute 全部清理，Governance 列表恢复为空。
 - `pass`：修改后的全量 Go 测试、vet、build、Helm lint/template 和 diff check 通过。
 - `limit`：集群无 GPU，未进行真实 GPU 推理；GPU LWS 仍是既有显式不支持路径。
   CPU LLMI/LWS 的调度投影有测试覆盖，但本轮未进行多节点引擎端到端验证。
@@ -67,24 +67,6 @@ TLS、IAM 和可信身份接入暂不作为业务门禁。
 
 完整 ID、调度事件、权限和清理证据见
 [本次实测记录](records/2026-10-21-volcano-inference-nonroot.md)。
-
-## 2026-10-19 Higress 原生路由迁移
-
-- `pass`：Inference 发布适配器已改为调用 Higress Console 原生 REST API，保留
-  Service Source 作为管理元数据，并创建带 `x-higress-llm-model` 精确匹配的模型路由；
-  模型路由统一覆盖 `/v1/`，实际后端是 KServe predictor Service DNS。
-- `pass`：Chart 不再渲染模型 HTTPRoute；仅创建无 selector 的 sink Service，进程启动
-  时通过 Console API 创建固定 `/v1/completions` bootstrap 路由。未知模型不会落到其他
-  模型后端。
-- `pass`：Console 地址和账号只通过部署 Secret 注入；运行时 Role 已移除旧
-  `gateway.networking.k8s.io/httproutes` 权限，保留限流 WasmPlugin 所需权限。
-- `pass`：Go 全量测试、Kubernetes 定向测试和 Helm lint/template 已通过；目标集群已
-  通过 Console 原生路由和 Higress NodePort 完成一次非空模型响应验证。
-- `pass`：已通过 Governance 完成全新推理服务的创建、KServe Predictor 启动、Higress
-  原生 route 自动发布、真实 `/v1/completions` 调用，以及删除后的 CR/Pod/Service/PVC、
-  route 和 Service Source 清理。
-- `limit`：本次服务详情的 `health` 仍为 `unknown`，但 KServe readiness 和实际 Higress
-  请求均成功；观察状态回写仍需单独修复。
 
 ## 2026-09-23 新集群 Higress 验证
 
