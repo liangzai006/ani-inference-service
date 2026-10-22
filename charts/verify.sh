@@ -74,10 +74,11 @@ grep -q -- '--single-transaction' "$tmp_dir/inference.yaml"
 grep -q 'partial legacy inference schema' "$tmp_dir/inference.yaml"
 grep -q 'name: ani-inference-model-router' "$tmp_dir/inference.yaml"
 grep -q 'name: ANI_HIGRESS_ROUTE_PREFIX' "$tmp_dir/inference.yaml"
-grep -q 'kind: HTTPRoute' "$tmp_dir/inference.yaml"
 grep -q 'name: ani-inference-model-router-sink' "$tmp_dir/inference.yaml"
-grep -q 'ani.kubercloud.com/managed-by: ani-inference' "$tmp_dir/inference.yaml"
-grep -q 'ani.kubercloud.com/route-role: bootstrap' "$tmp_dir/inference.yaml"
+if grep -q 'kind: HTTPRoute' "$tmp_dir/inference.yaml"; then
+  echo 'chart must not render the runtime-owned bootstrap HTTPRoute' >&2
+  exit 1
+fi
 grep -q 'name: gateway-authz' "$tmp_dir/inference-authz.yaml"
 grep -q 'name: ani-inference-authz' "$tmp_dir/inference-authz.yaml"
 grep -q 'ANI_INFERENCE_CLIENT_IDENTITY' "$tmp_dir/inference-authz.yaml"

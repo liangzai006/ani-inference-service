@@ -8,8 +8,8 @@
 - 安装前的数据库迁移 Job
 - `Certificate/ani-inference-server-tls`（普通业务 gRPC 服务端证书）
 - `Certificate/inference-model-mtls`（Inference 调用 Model 的客户端证书）
-- 一个没有 selector 的 sink Service，以及通过 Kubernetes Gateway API 管理的 `/v1/`
-  bootstrap HTTPRoute。Inference 启动时确保该路由存在，让 `model-router` 先读取请求体的 `model`
+- 一个没有 selector 的 sink Service。Inference 进程启动时通过 Kubernetes Gateway API
+  确保 `/v1/` bootstrap HTTPRoute 存在，让 `model-router` 先读取请求体的 `model`
   字段并触发重算路由；未知模型不会落到其他模型。bootstrap 和模型路由统一匹配
   `/v1/`，所以 `/v1/completions`、`/v1/chat/completions` 等 OpenAI 兼容接口无需
   分别配置。每个模型路由实际指向对应的 KServe predictor Service DNS。
