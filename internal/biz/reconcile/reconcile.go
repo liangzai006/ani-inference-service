@@ -29,8 +29,9 @@ type Observation struct {
 	ModelReady       bool
 	ModelReadyKnown  bool
 	PublicationPhase string
-	// Empty means no invocation fact was supplied; unknown explicitly records
-	// a failed or inconclusive probe and must replace a previous healthy fact.
+	// Empty means no invocation fact was supplied; unhealthy records a known
+	// failed or not-ready service, while unknown is reserved for an
+	// inconclusive observation and must replace a previous healthy fact.
 	InvocationHealth string
 	RuntimeMode      string
 	LWSUID           string

@@ -39,6 +39,14 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- printf "%s:%s" .Values.migration.image.repository .Values.migration.image.tag -}}
 {{- end -}}
 
+{{- define "ani-inference.gatewayAuthzImage" -}}
+{{- printf "%s:%s" .Values.gatewayAuthz.image.repository .Values.gatewayAuthz.image.tag -}}
+{{- end -}}
+
+{{- define "ani-inference.gatewayAuthzServiceName" -}}
+{{- printf "%s-authz" (include "ani-inference.fullname" .) -}}
+{{- end -}}
+
 {{- define "ani-inference.higressRoleName" -}}
 {{- printf "%s-%s-higress-rate-limit" (include "ani-inference.fullname" .) .Release.Namespace | trunc 63 | trimSuffix "-" -}}
 {{- end -}}

@@ -163,9 +163,9 @@ func (s *RuntimeSource) CurrentRuntime(ctx context.Context, tenantID, serviceID 
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return kube.DesiredRuntime{}, err
 	}
-	currentRuntimePhase := "unknown"
+	currentRuntimePhase := "pending"
 	if err == nil {
-		currentRuntimePhase = runtimeRow.RuntimePhase
+		currentRuntimePhase = normalizeRuntimePhase(runtimeRow.RuntimePhase)
 	}
 	quotaReserved := false
 	if reservation, reservationErr := q.GetActiveQuotaReservation(ctx, GetActiveQuotaReservationParams{TenantID: tenant, ServiceID: service, Generation: generation}); reservationErr == nil {

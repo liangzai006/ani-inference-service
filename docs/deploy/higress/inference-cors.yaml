@@ -1,0 +1,32 @@
+# Dedicated inference gateway. Run CORS before ext-auth so a browser preflight
+# does not consume an API-key quota. Actual POST requests still use ext-auth.
+# Replace this explicit origin list for the intended Console deployment.
+apiVersion: extensions.higress.io/v1alpha1
+kind: WasmPlugin
+metadata:
+  name: ani-inference-cors
+  namespace: higress-system
+  labels:
+    ani.liangzai006.io/purpose: inference-browser-access
+spec:
+  defaultConfig:
+    allow_origins:
+      - http://localhost:5173
+      - http://127.0.0.1:5173
+      - http://192.168.102.68:30081
+    allow_methods:
+      - POST
+    allow_headers:
+      - Content-Type
+      - x-api-key
+    expose_headers:
+      - Retry-After
+      - x-request-id
+    allow_credentials: false
+    max_age: 600
+  defaultConfigDisable: false
+  failStrategy: FAIL_CLOSE
+  imagePullPolicy: IfNotPresent
+  phase: AUTHN
+  priority: 2000
+  url: oci://docker.changqingyun.cn/mirror/plugins/cors@sha256:e5c5fe76ad8e3e72d4eca3344a556f72b94fc0838c18b50b645f71e9f42ba9e0

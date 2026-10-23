@@ -26,9 +26,11 @@ import (
 	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	ctrlmanager "sigs.k8s.io/controller-runtime/pkg/manager"
 
+	accesskeybiz "github.com/liangzai006/ani-inference-service/internal/biz/accesskey"
 	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
 	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
 	bizreconcile "github.com/liangzai006/ani-inference-service/internal/biz/reconcile"
+	policybiz "github.com/liangzai006/ani-inference-service/internal/biz/servicepolicy"
 	"github.com/liangzai006/ani-inference-service/internal/biz/work"
 	"github.com/liangzai006/ani-inference-service/internal/data/accelerator"
 	"github.com/liangzai006/ani-inference-service/internal/data/kubernetes"
@@ -87,6 +89,8 @@ func run(logger *slog.Logger) error {
 	var command inferencebiz.CommandUseCase
 	var update inferencebiz.UpdateUseCase
 	var refund gpu.RefundReporter
+	var accessKeyService *accesskeybiz.Service
+	var policyService *policybiz.Service
 	managedGPUReady := false
 	if strings.TrimSpace(os.Getenv("ANI_DATABASE_DSN")) == "" {
 		return errors.New("ANI_DATABASE_DSN is required")
@@ -110,6 +114,9 @@ func run(logger *slog.Logger) error {
 		}
 		defer pool.Close()
 		repo := postgres.NewRepository(pool)
+		accessKeyService = accesskeybiz.NewService(repo)
+		accessKeyService.Policy = repo
+		policyService = &policybiz.Service{Repository: repo}
 		var closeRefund func()
 		refund, closeRefund, err = configuredGovernanceRefundReporter(bc.GetManagedGpu(), repo)
 		if err != nil {
@@ -141,7 +148,7 @@ func run(logger *slog.Logger) error {
 		managedGPUReady = ready
 	}
 	managedGPUClusterID := strings.TrimSpace(os.Getenv("ANI_ACCELERATOR_CLUSTER_ID"))
-	app, err := buildAppWithAllDependenciesAndManagedGPU(&bc, logger, create, read, command, update, refund, managedGPUReady, managedGPUClusterID, background...)
+	app, err := buildAppWithAllDependenciesAndManagedGPUAndAccessKey(&bc, logger, create, read, command, update, refund, managedGPUReady, managedGPUClusterID, accessKeyService, policyService, background...)
 	if err != nil {
 		return fmt.Errorf("build app: %w", err)
 	}
@@ -161,18 +168,6 @@ func buildKubernetesServers(pool *pgxpool.Pool, modelClient *modeldata.Client, r
 		return nil, false, errors.New("ANI_INFERENCE_NAMESPACE is required for Kubernetes runtime")
 	}
 	publicBaseURL, err := requiredEnv("ANI_HIGRESS_PUBLIC_BASE_URL")
-	if err != nil {
-		return nil, false, err
-	}
-	higressConsoleURL, err := requiredEnv("ANI_HIGRESS_CONSOLE_URL")
-	if err != nil {
-		return nil, false, err
-	}
-	higressConsoleUsername, err := requiredEnv("ANI_HIGRESS_CONSOLE_USERNAME")
-	if err != nil {
-		return nil, false, err
-	}
-	higressConsolePassword, err := requiredEnv("ANI_HIGRESS_CONSOLE_PASSWORD")
 	if err != nil {
 		return nil, false, err
 	}
@@ -239,13 +234,11 @@ func buildKubernetesServers(pool *pgxpool.Pool, modelClient *modeldata.Client, r
 		RoutePrefix:        envOrDefault("ANI_HIGRESS_ROUTE_PREFIX", "/v1/"),
 		RateLimitNamespace: envOrDefault("ANI_HIGRESS_RATE_LIMIT_NAMESPACE", "higress-system"),
 		RateLimitPlugin:    envOrDefault("ANI_HIGRESS_RATE_LIMIT_PLUGIN", "ani-request-rate-limit"),
-		Console:            kubernetes.NewHigressConsoleClient(higressConsoleURL, higressConsoleUsername, higressConsolePassword, nil),
 	}
 	bootstrapCtx, bootstrapCancel := context.WithTimeout(context.Background(), 15*time.Second)
 	bootstrapErr := publicationPublisher.EnsureBootstrapRoute(
 		bootstrapCtx,
 		envOrDefault("ANI_HIGRESS_BOOTSTRAP_ROUTE_NAME", "ani-inference-model-router"),
-		envOrDefault("ANI_HIGRESS_BOOTSTRAP_SOURCE_NAME", "ani-inference-model-router"),
 		envOrDefault("ANI_HIGRESS_BOOTSTRAP_SERVICE_NAME", "ani-inference-model-router-sink"),
 		80,
 	)
@@ -306,6 +299,7 @@ func buildKubernetesServers(pool *pgxpool.Pool, modelClient *modeldata.Client, r
 	if err != nil {
 		return nil, false, fmt.Errorf("build runtime diagnostics client: %w", err)
 	}
+	runtimeExecutor.Core = core
 	diagnostics := &kubernetes.RuntimeDiagnostics{Source: runtimeSource, Reader: mgr.GetAPIReader(), Core: core}
 	return []kratosTransport.Server{loopServer, &diagnosticsManagerServer{Server: &server.ManagerServer{Manager: mgr}, reader: diagnostics}}, managedGPUReady, nil
 }

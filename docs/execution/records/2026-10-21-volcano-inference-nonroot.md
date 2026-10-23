@@ -73,7 +73,7 @@ HTTP `202 Accepted`。使用已有真实 Model 版本
 删除 operation：`9eac3c0c-2d1a-45e4-aada-479a42d9ccfc`。
 最终在 `2026-10-21T03:14:20.978857Z` 成为 `succeeded/complete`；
 Governance 列表为空，该服务的 CR、KServe、Deployment、ReplicaSet、Pod、Service、
-Job、PVC、下载 Secret 均为零。Higress 模型 route 和 Service Source 已删除。
+Job、PVC、下载 Secret 均为零。Higress 模型 HTTPRoute 已删除。
 
 ## CPU/GPU 统一 Volcano 的后续修改
 
@@ -122,7 +122,7 @@ Helm revision 37 已部署并 Ready。经 Governance 新建服务
   Governance 列表 HTTP 200，`items: []`、`total: 0`。
 - 按 service-id 实际查询，ANI CR、KServe CR、Deployment、ReplicaSet、Pod、Service、
   下载 Job、PVC、下载 Secret 均无残留；Volcano PodGroup 列表为空。
-  Higress 模型 route 和 Service Source 已消失，只保留固定 bootstrap 与原有默认入口。
+  Higress 模型 HTTPRoute 已消失，只保留固定 bootstrap 与原有默认入口。
 - 最终 Volcano 三个 Deployment 和 Inference 控制面均 `1/1` Ready。
   验证服务已删除，后续通过 Governance 新建的 CPU 推理会使用当前已部署的 Volcano 调度逻辑。
 

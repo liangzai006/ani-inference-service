@@ -96,6 +96,12 @@ func (e *KServeRuntimeExecutor) ObserveRuntime(ctx context.Context, op inference
 	if err != nil {
 		return inferencebiz.RuntimeObservation{}, err
 	}
+	// Runtime readiness and invocation health are separate facts. Once this
+	// exact generation is ready, published and model-ready, run the same
+	// bounded probe used by the durable reconciler so the operation's first
+	// observation can persist a real health value instead of waiting for the
+	// next periodic Ensure tick.
+	observation = e.observeInvocation(ctx, spec, observation)
 	releasePods, err := e.managedGPUReleasePods(ctx, spec.RuntimeSpec)
 	if err != nil {
 		return inferencebiz.RuntimeObservation{}, err
@@ -105,7 +111,8 @@ func (e *KServeRuntimeExecutor) ObserveRuntime(ctx context.Context, op inference
 		RuntimeMode: runtimeModeForSpec(spec.RuntimeSpec), ReadyReplicas: observation.ReadyReplicas,
 		ReadyGroups: observation.ReadyGroups, ReadyWorkers: observation.ReadyWorkers, LWSUID: observation.LWSUID,
 		ModelReady: spec.ModelReady, ModelReadyKnown: spec.ModelReadyKnown,
-		Objects: observation.Objects, Reason: observation.Reason, ReleasePods: releasePods,
+		InvocationHealth: observation.InvocationHealth,
+		Objects:          observation.Objects, Reason: observation.Reason, ReleasePods: releasePods,
 	}, nil
 }
 
@@ -158,7 +165,7 @@ func (e *KServeRuntimeExecutor) ObserveAbsence(ctx context.Context, op inference
 	if err != nil {
 		return inferencebiz.RuntimeObservation{}, err
 	}
-	return inferencebiz.RuntimeObservation{Absent: observation.RuntimePhase == "stopped", RuntimePhase: observation.RuntimePhase, RuntimeMode: observation.RuntimeMode, Reason: observation.Reason}, nil
+	return inferencebiz.RuntimeObservation{Absent: observation.RuntimePhase == "stopped", RuntimePhase: observation.RuntimePhase, RuntimeMode: observation.RuntimeMode, InvocationHealth: "unhealthy", Reason: observation.Reason}, nil
 }
 
 // Ensure is the continuous reconciler used after an operation becomes
@@ -192,7 +199,7 @@ func (e *KServeRuntimeExecutor) Ensure(ctx context.Context, desired bizreconcile
 		if err != nil {
 			return bizreconcile.Observation{}, err
 		}
-		return observation, nil
+		return e.observeInvocation(ctx, spec, observation), nil
 	case "stopped", "deleted":
 		if !spec.PublicationWithdrawn {
 			return bizreconcile.Observation{}, errors.New("publication withdrawal must be confirmed before runtime deletion")
@@ -203,7 +210,7 @@ func (e *KServeRuntimeExecutor) Ensure(ctx context.Context, desired bizreconcile
 		bindings := kserveBindings(spec)
 		if len(bindings) == 0 {
 			if spec.RuntimePhase == "stopped" {
-				return bizreconcile.Observation{Generation: desired.Generation, RuntimeMode: runtimeModeForSpec(spec.RuntimeSpec), RuntimePhase: "stopped"}, nil
+				return bizreconcile.Observation{Generation: desired.Generation, RuntimeMode: runtimeModeForSpec(spec.RuntimeSpec), RuntimePhase: "stopped", PublicationPhase: "withdrawn", InvocationHealth: "unhealthy"}, nil
 			}
 			return bizreconcile.Observation{}, errors.New("KServe runtime deletion requires a persisted runtime binding")
 		}
@@ -277,7 +284,7 @@ func (e *KServeRuntimeExecutor) applyKServe(ctx context.Context, spec DesiredRun
 func (e *KServeRuntimeExecutor) observeKServe(ctx context.Context, spec DesiredRuntime, expected *RuntimeBinding) (bizreconcile.Observation, error) {
 	kind := kserveKindForMode(spec.RuntimeMode)
 	obj := newKServeObject(spec.Namespace, spec.Name, kind)
-	observation := bizreconcile.Observation{Generation: spec.Generation, RuntimeMode: runtimeModeForSpec(spec.RuntimeSpec), PublicationPhase: "unknown", InvocationHealth: "unknown"}
+	observation := bizreconcile.Observation{Generation: spec.Generation, RuntimeMode: runtimeModeForSpec(spec.RuntimeSpec), PublicationPhase: "unknown", InvocationHealth: "unhealthy"}
 	reader := client.Reader(e.Client)
 	if e.APIReader != nil {
 		reader = e.APIReader
@@ -320,7 +327,7 @@ func (e *KServeRuntimeExecutor) observeKServe(ctx context.Context, spec DesiredR
 		}
 		return observation, nil
 	}
-	observation.RuntimePhase = "pending"
+	observation.RuntimePhase = runtimeLoadingPhase(spec.ModelReadyKnown, spec.ModelReady)
 	observation.Reason = reason
 	return observation, nil
 }
@@ -838,7 +845,7 @@ func (e *KServeRuntimeExecutor) observeKServeAbsence(ctx context.Context, spec D
 		if err := e.confirmKServeAbsent(ctx, spec); err != nil {
 			return bizreconcile.Observation{}, err
 		}
-		return bizreconcile.Observation{Generation: spec.Generation, RuntimeMode: runtimeModeForSpec(spec.RuntimeSpec), RuntimePhase: "stopped"}, nil
+		return bizreconcile.Observation{Generation: spec.Generation, RuntimeMode: runtimeModeForSpec(spec.RuntimeSpec), RuntimePhase: "stopped", PublicationPhase: "withdrawn", InvocationHealth: "unhealthy"}, nil
 	}
 	reader := client.Reader(e.Client)
 	if e.APIReader != nil {

@@ -16,6 +16,7 @@ import (
 	gpubiz "github.com/liangzai006/ani-inference-service/internal/biz/gpu"
 	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
 	"github.com/liangzai006/ani-inference-service/internal/biz/resources"
+	policybiz "github.com/liangzai006/ani-inference-service/internal/biz/servicepolicy"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -174,6 +175,7 @@ func isLegacyGPUResourceName(name string) bool {
 // the gRPC layer stays independent of PostgreSQL and Kubernetes adapters.
 type InferenceServer struct {
 	inferencev1.UnimplementedInferenceServiceManagerServer
+	policy              *policybiz.Service
 	create              CreateUseCase
 	read                inferencebiz.ReadUseCase
 	command             inferencebiz.CommandUseCase

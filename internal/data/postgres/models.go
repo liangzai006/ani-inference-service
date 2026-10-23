@@ -8,6 +8,47 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type InferenceAccessKey struct {
+	TenantID               pgtype.UUID
+	ID                     pgtype.UUID
+	Name                   string
+	KeyPrefix              string
+	SecretHash             string
+	HashVersion            string
+	AllowedServiceIds      []string
+	AllowedModelNames      []string
+	RequestsPerSecond      int32
+	RequestsPerMinute      int32
+	RequestsPerHour        int32
+	ExpiresAt              pgtype.Timestamptz
+	RevokedAt              pgtype.Timestamptz
+	CreatedBy              string
+	CreatedAt              pgtype.Timestamptz
+	LastUsedAt             pgtype.Timestamptz
+	Version                int64
+	CreateIdempotencyKey   pgtype.Text
+	RotationIdempotencyKey pgtype.Text
+}
+
+type InferenceAccessKeyAuditEvent struct {
+	TenantID  pgtype.UUID
+	EventID   pgtype.UUID
+	KeyID     pgtype.UUID
+	EventType string
+	Actor     string
+	RequestID string
+	Payload   []byte
+	CreatedAt pgtype.Timestamptz
+}
+
+type InferenceAccessKeyRateBucket struct {
+	TenantID     pgtype.UUID
+	KeyID        pgtype.UUID
+	WindowName   string
+	WindowStart  pgtype.Timestamptz
+	RequestCount int64
+}
+
 type InferenceAuditEvent struct {
 	TenantID    pgtype.UUID
 	EventID     pgtype.UUID
@@ -236,6 +277,34 @@ type InferenceService struct {
 	CreatedAt          pgtype.Timestamptz
 	UpdatedAt          pgtype.Timestamptz
 	AppliedGeneration  int64
+}
+
+type InferenceServicePolicy struct {
+	TenantID       pgtype.UUID
+	ServiceID      pgtype.UUID
+	AllowedTenants []string
+	RateLimits     []byte
+	Version        int64
+	UpdatedAt      pgtype.Timestamptz
+}
+
+type InferenceServicePolicyAuditEvent struct {
+	TenantID  pgtype.UUID
+	ServiceID pgtype.UUID
+	EventID   pgtype.UUID
+	Actor     string
+	RequestID string
+	Payload   []byte
+	CreatedAt pgtype.Timestamptz
+}
+
+type InferenceServiceRateBucket struct {
+	TenantID       pgtype.UUID
+	ServiceID      pgtype.UUID
+	CallerTenantID pgtype.UUID
+	WindowName     string
+	WindowStart    pgtype.Timestamptz
+	RequestCount   int64
 }
 
 type InferenceSpec struct {

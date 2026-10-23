@@ -497,7 +497,7 @@ Using the existing verified tenant credentials and the Governance NodePort, perf
 3. wait for materializer Job completion, KServe CR, predictor Deployment, Pod readiness, and published Higress route;
 4. call the Higress OpenAI endpoint using the model’s `served_model_name`;
 5. list the service through Governance `/api/v1/inference/services?page=1&pageSize=10`;
-6. delete the inference service and wait until KServe, Pods, materializer resources, and native Higress route are absent;
+6. delete the inference service and wait until KServe, Pods, materializer resources, and the model HTTPRoute are absent;
 7. call the Governance list again and record that it returns normally.
 
 Inspect the resulting Pods with `kubectl get pod -o yaml` and record UID/GID, non-root, seccomp, privilege-escalation, and capability fields. Expected: all pass; no GPU claim is made.

@@ -5,12 +5,8 @@ repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 tmp_dir=$(mktemp -d)
 trap 'rm -rf "$tmp_dir"' EXIT
 public_url=${HIGRESS_PUBLIC_BASE_URL:-https://inference.example.test}
-console_url=${HIGRESS_CONSOLE_URL:-http://higress-console.higress-system.svc.cluster.local:8080}
-console_secret=${HIGRESS_CONSOLE_CREDENTIALS_SECRET:-ani-higress-console-credentials}
 common_values=(
   --set higress.publicBaseURL="$public_url"
-  --set higress.consoleURL="$console_url"
-  --set higress.consoleCredentialsSecret.name="$console_secret"
 )
 
 # The root migration directory is authoritative; the chart packages exact
@@ -36,6 +32,13 @@ helm template ani-inference "$repo_root/charts/ani-inference" \
 helm template ani-inference "$repo_root/charts/ani-inference" \
   --namespace ani-system \
   "${common_values[@]}" \
+  --set gatewayAuthz.enabled=true \
+  --set gatewayAuthz.image.repository=test.example/ani-inference-gateway-authz \
+  --set gatewayAuthz.image.tag=test \
+  >"$tmp_dir/inference-authz.yaml"
+helm template ani-inference "$repo_root/charts/ani-inference" \
+  --namespace ani-system \
+  "${common_values[@]}" \
   --set higress.rateLimitNamespace=custom-higress-system \
   --set higress.rateLimitPlugin=custom-rate-limit \
   --set higress.rbac.namespace=custom-higress-system \
@@ -46,6 +49,7 @@ helm template ani-inference-config "$repo_root/charts/ani-inference-config" \
   --namespace kserve \
   >"$tmp_dir/config.yaml"
 test -s "$tmp_dir/inference.yaml"
+test -s "$tmp_dir/inference-authz.yaml"
 test -s "$tmp_dir/config.yaml"
 test -s "$tmp_dir/higress-rbac.yaml"
 test -s "$tmp_dir/higress-rbac-custom.yaml"
@@ -70,6 +74,22 @@ grep -q -- '--single-transaction' "$tmp_dir/inference.yaml"
 grep -q 'partial legacy inference schema' "$tmp_dir/inference.yaml"
 grep -q 'name: ani-inference-model-router' "$tmp_dir/inference.yaml"
 grep -q 'name: ANI_HIGRESS_ROUTE_PREFIX' "$tmp_dir/inference.yaml"
+grep -q 'name: ani-inference-model-router-sink' "$tmp_dir/inference.yaml"
+if grep -q 'kind: HTTPRoute' "$tmp_dir/inference.yaml"; then
+  echo 'chart must not render the runtime-owned bootstrap HTTPRoute' >&2
+  exit 1
+fi
+grep -q 'name: gateway-authz' "$tmp_dir/inference-authz.yaml"
+grep -q 'name: ani-inference-authz' "$tmp_dir/inference-authz.yaml"
+grep -q 'ANI_INFERENCE_CLIENT_IDENTITY' "$tmp_dir/inference-authz.yaml"
+grep -q 'ani-inference-gateway.ani.internal' "$tmp_dir/inference-authz.yaml"
+grep -q '^    match_type: blacklist$' "$repo_root/docs/deploy/higress/ext-auth.yaml"
+grep -q '^      - match_rule_path: /v1/$' "$repo_root/docs/deploy/higress/ext-auth.yaml"
+grep -q '^        match_rule_type: prefix$' "$repo_root/docs/deploy/higress/ext-auth.yaml"
+if grep -q 'ANI_HIGRESS_CONSOLE_' "$tmp_dir/inference.yaml"; then
+  echo 'Inference Deployment must not depend on Higress Console credentials' >&2
+  exit 1
+fi
 if grep -Eq '^kind: (ClusterIssuer|Issuer)$' "$tmp_dir/inference.yaml"; then
   echo 'ani-inference must not create a certificate issuer' >&2
   exit 1

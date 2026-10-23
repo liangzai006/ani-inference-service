@@ -63,26 +63,16 @@ spec:
                   fieldPath: metadata.namespace
             - name: ANI_HIGRESS_PUBLIC_BASE_URL
               value: {{ required "higress.publicBaseURL is required" (trim .Values.higress.publicBaseURL) | quote }}
-            - name: ANI_HIGRESS_CONSOLE_URL
-              value: {{ required "higress.consoleURL is required" (trim .Values.higress.consoleURL) | quote }}
-            - name: ANI_HIGRESS_CONSOLE_USERNAME
-              valueFrom:
-                secretKeyRef:
-                  name: {{ required "higress.consoleCredentialsSecret.name is required" (trim .Values.higress.consoleCredentialsSecret.name) | quote }}
-                  key: {{ required "higress.consoleCredentialsSecret.usernameKey is required" (trim .Values.higress.consoleCredentialsSecret.usernameKey) | quote }}
-            - name: ANI_HIGRESS_CONSOLE_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ required "higress.consoleCredentialsSecret.name is required" (trim .Values.higress.consoleCredentialsSecret.name) | quote }}
-                  key: {{ required "higress.consoleCredentialsSecret.passwordKey is required" (trim .Values.higress.consoleCredentialsSecret.passwordKey) | quote }}
+            - name: ANI_HIGRESS_GATEWAY_NAMESPACE
+              value: {{ required "higress.gatewayNamespace is required" (trim .Values.higress.gatewayNamespace) | quote }}
+            - name: ANI_HIGRESS_GATEWAY_NAME
+              value: {{ required "higress.gatewayName is required" (trim .Values.higress.gatewayName) | quote }}
             - name: ANI_HIGRESS_PATH_PREFIX
               value: {{ .Values.higress.pathPrefix | quote }}
             - name: ANI_HIGRESS_ROUTE_PREFIX
               value: {{ .Values.higress.routePrefix | quote }}
             - name: ANI_HIGRESS_BOOTSTRAP_ROUTE_NAME
               value: {{ required "higress.bootstrapRouteName is required" (trim .Values.higress.bootstrapRouteName) | quote }}
-            - name: ANI_HIGRESS_BOOTSTRAP_SOURCE_NAME
-              value: {{ required "higress.bootstrapSourceName is required" (trim .Values.higress.bootstrapSourceName) | quote }}
             - name: ANI_HIGRESS_BOOTSTRAP_SERVICE_NAME
               value: {{ required "higress.bootstrapServiceName is required" (trim .Values.higress.bootstrapServiceName) | quote }}
             - name: ANI_HIGRESS_RATE_LIMIT_NAMESPACE
@@ -158,6 +148,67 @@ spec:
               mountPath: /var/run/secrets/accelerator
               readOnly: true
             {{- end }}
+        {{- if .Values.gatewayAuthz.enabled }}
+        - name: gateway-authz
+          image: {{ include "ani-inference.gatewayAuthzImage" . | quote }}
+          imagePullPolicy: {{ .Values.gatewayAuthz.image.pullPolicy }}
+          env:
+            - name: ANI_GATEWAY_AUTHZ_ADDR
+              value: {{ printf "0.0.0.0:%d" (int .Values.gatewayAuthz.servicePort) | quote }}
+            - name: ANI_GATEWAY_AUTHZ_TIMEOUT
+              value: {{ .Values.gatewayAuthz.timeout | quote }}
+            - name: ANI_GATEWAY_AUTHZ_SOURCE
+              value: {{ .Values.gatewayAuthz.sourceHeaderValue | quote }}
+            - name: ANI_INFERENCE_GRPC_ADDR
+              value: {{ printf "%s-grpc.%s.svc.cluster.local:%d" (include "ani-inference.fullname" .) .Release.Namespace (int .Values.service.grpcPort) | quote }}
+            - name: ANI_INFERENCE_CA_FILE
+              value: "/var/run/secrets/gateway-authz/server/ca.crt"
+            - name: ANI_INFERENCE_CLIENT_CERT_FILE
+              value: {{ printf "%s/%s" (trim .Values.gatewayAuthz.tls.mountPath) (trim .Values.gatewayAuthz.tls.certKey) | quote }}
+            - name: ANI_INFERENCE_CLIENT_KEY_FILE
+              value: {{ printf "%s/%s" (trim .Values.gatewayAuthz.tls.mountPath) (trim .Values.gatewayAuthz.tls.keyKey) | quote }}
+            - name: ANI_INFERENCE_SERVER_NAME
+              value: {{ required "serverTLS.certificate.dnsName is required" (trim .Values.serverTLS.certificate.dnsName) | quote }}
+            - name: ANI_INFERENCE_CLIENT_IDENTITY
+              value: {{ required "gatewayAuthz.tls.certificate.dnsName is required" (trim .Values.gatewayAuthz.tls.certificate.dnsName) | quote }}
+          ports:
+            - name: authz
+              containerPort: {{ .Values.gatewayAuthz.servicePort }}
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: authz
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: authz
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: gateway-authz-tls
+              mountPath: {{ .Values.gatewayAuthz.tls.mountPath | quote }}
+              readOnly: true
+            - name: gateway-authz-server-ca
+              mountPath: /var/run/secrets/gateway-authz/server
+              readOnly: true
+        {{- end }}
       volumes:
         - name: server-tls
           secret:
@@ -169,4 +220,15 @@ spec:
         - name: accelerator-tls
           secret:
             secretName: {{ required "accelerator.tls.secretName is required when accelerator.enabled is true" .Values.accelerator.tls.secretName }}
+        {{- end }}
+        {{- if .Values.gatewayAuthz.enabled }}
+        - name: gateway-authz-tls
+          secret:
+            secretName: {{ required "gatewayAuthz.tls.existingSecret is required" (trim .Values.gatewayAuthz.tls.existingSecret) }}
+        - name: gateway-authz-server-ca
+          secret:
+            secretName: {{ required "serverTLS.existingSecret is required" (trim .Values.serverTLS.existingSecret) }}
+            items:
+              - key: {{ .Values.serverTLS.caKey }}
+                path: {{ .Values.serverTLS.caKey }}
         {{- end }}

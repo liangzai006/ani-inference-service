@@ -1,6 +1,44 @@
 # Inference 执行状态
 
-更新日期：2026-10-21。本文件是本设计包唯一当前进度入口。
+更新日期：2026-10-22。本文件是本设计包唯一当前进度入口。
+
+## 2026-10-22 服务访问策略
+
+- `pass`：服务绑定策略已持久化，原有 Get/UpdateServicePolicy RPC 已实现并纳入
+  Governance 的精确 mTLS 方法允许清单。默认所属租户可访问，显式空白名单拒绝全部。
+- `pass`：正式鉴权按唯一确认发布解析服务，AK 的服务 scope、租户白名单和共享
+  服务/调用租户 RPM/RPH 同时生效；服务与 AK 额度同事务扣减。
+- `pass`：独占 PostgreSQL 测试验证持久化、跨租户拒绝、清空/重加、并发限流、
+  策略修改不清空计数、审计失败回滚、同名模型歧义拒绝和大请求首桶拒绝。
+- `pass`：Governance GET/PUT 管理入口和 Console 查询/编辑已接入；前端按用户本次
+  授权使用本地源码核对，lint、全仓格式和类型检查通过。
+- `pass`：现场 Governance 管理入口和 Higress 推理入口分别验收，14 项网关业务
+  断言通过，包括多 AK 共享额度、修改立即生效、移除/空白名单拒绝和伪造身份拒绝。
+  临时服务已删除，三把 AK 已撤销。前端尚未做浏览器交互验收或部署。
+
+合同见[服务访问策略](../contracts/service-access-policy.md)，现场与验证范围见
+[本次验收记录](records/2026-10-22-service-access-policy-live.md)。
+
+## 2026-10-22 Inference AK 迁移阶段记录
+
+- `pass`：Inference 内部 `InferenceAccessKeyService`、opaque `x-api-key` 校验合同、Argon2id 哈希、撤销/轮换、幂等和 key 级原子限流桶已实现；API 子模块已发布为 `1f0ae265510f`，根模块已升级依赖。
+- `pass`：隔离 PostgreSQL 已执行 `000022`，真实集成测试覆盖 secret 一次性返回、租户隔离、scope、并发轮换、撤销和 RPM 限流。
+- `pass`：Console 运行时依赖已移除，HTTPRoute bootstrap owner 检查和 Helm 校验已补齐。
+- `pass`：Higress 官方 `ext-auth` + 独立 `ani-inference-gateway-authz` companion 的
+  adapter、mTLS `CheckInferenceAccess` client、401/403/429/503 fail-close 映射和
+  opt-in Helm 与 HTTPRoute 的凭据剥离已实现，按 key 校验并通过发布事实解析服务，插件清单
+  限制在 `/v1/`，不覆盖 Governance `/api/v1/`；服务 scope 已在本次策略切片接通；
+- `pass`：目标集群已启用动态 AK：官方 ext-auth 2.0.3 镜像按 digest 固定，私有
+  authz DNS 来源已注册，旧静态 key-auth 和 bootstrap Ingress 已移除。真实 CPU vLLM
+  `/v1/completions` 返回 200 和非空文本；轮换、撤销、401/403/429、依赖故障 503
+  与恢复均实测通过；Governance 管理入口 200、Higress 管理路径 404 分别验证。
+- `partial`：租户/模型全局限流仍为后续切片；
+  根模块 P1 改动已提交并推送（`a0f468d`），PR 为
+  [#7](https://github.com/liangzai006/ani-inference-service/pull/7)，尚未合并到 `main`；
+  adapter 与本轮现场修复仅本地提交，不推送。
+
+完整变更与验证证据见[Inference AK 迁移进度记录](records/2026-10-22-inference-ak-migration-progress.md)。
+现场细节见[动态 AK 网关实测](records/2026-10-22-inference-ak-gateway-live.md)。
 
 当前范围只包括 Model 协作、模型物化和 Inference 运行时；Notebook、Kubeflow
 用户工作流不属于当前交付范围。新集群先按请求中的 tenant 直接调用 Model/Inference，
@@ -21,7 +59,7 @@ TLS、IAM 和可信身份接入暂不作为业务门禁。
 - `pass`：创建 operation `succeeded`；Higress 使用 API key，通过 JSON model 路由
   返回 HTTP 200 和非空生成结果；Governance 管理列表 HTTP 200，Higress 管理路径 404。
 - `pass`：删除 operation `succeeded`；测试服务的 CR、Pod、PVC、物化 Job/Secret、
-  Volcano PodGroup、Higress route/Service Source 全部清理，Governance 列表恢复为空。
+  Volcano PodGroup 和模型 HTTPRoute 全部清理，Governance 列表恢复为空。
 - `pass`：修改后的全量 Go 测试、vet、build、Helm lint/template 和 diff check 通过。
 - `limit`：集群无 GPU，未进行真实 GPU 推理；GPU LWS 仍是既有显式不支持路径。
   CPU LLMI/LWS 的调度投影有测试覆盖，但本轮未进行多节点引擎端到端验证。
@@ -29,24 +67,6 @@ TLS、IAM 和可信身份接入暂不作为业务门禁。
 
 完整 ID、调度事件、权限和清理证据见
 [本次实测记录](records/2026-10-21-volcano-inference-nonroot.md)。
-
-## 2026-10-19 Higress 原生路由迁移
-
-- `pass`：Inference 发布适配器已改为调用 Higress Console 原生 REST API，保留
-  Service Source 作为管理元数据，并创建带 `x-higress-llm-model` 精确匹配的模型路由；
-  模型路由统一覆盖 `/v1/`，实际后端是 KServe predictor Service DNS。
-- `pass`：Chart 不再渲染模型 HTTPRoute；仅创建无 selector 的 sink Service，进程启动
-  时通过 Console API 创建固定 `/v1/completions` bootstrap 路由。未知模型不会落到其他
-  模型后端。
-- `pass`：Console 地址和账号只通过部署 Secret 注入；运行时 Role 已移除旧
-  `gateway.networking.k8s.io/httproutes` 权限，保留限流 WasmPlugin 所需权限。
-- `pass`：Go 全量测试、Kubernetes 定向测试和 Helm lint/template 已通过；目标集群已
-  通过 Console 原生路由和 Higress NodePort 完成一次非空模型响应验证。
-- `pass`：已通过 Governance 完成全新推理服务的创建、KServe Predictor 启动、Higress
-  原生 route 自动发布、真实 `/v1/completions` 调用，以及删除后的 CR/Pod/Service/PVC、
-  route 和 Service Source 清理。
-- `limit`：本次服务详情的 `health` 仍为 `unknown`，但 KServe readiness 和实际 Higress
-  请求均成功；观察状态回写仍需单独修复。
 
 ## 2026-09-23 新集群 Higress 验证
 

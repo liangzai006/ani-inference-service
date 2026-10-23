@@ -6,6 +6,9 @@ metadata:
   labels:
     {{- include "ani-inference.labels" . | nindent 4 }}
 rules:
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["httproutes"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["ani.kubercloud.com"]
     resources: ["inferenceservices"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]

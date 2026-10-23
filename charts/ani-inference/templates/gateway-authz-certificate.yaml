@@ -1,0 +1,28 @@
+{{- if and .Values.gatewayAuthz.enabled .Values.gatewayAuthz.tls.certificate.create }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ required "gatewayAuthz.tls.existingSecret is required" (trim .Values.gatewayAuthz.tls.existingSecret) }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ani-inference.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway-authz-client
+spec:
+  secretName: {{ required "gatewayAuthz.tls.existingSecret is required" (trim .Values.gatewayAuthz.tls.existingSecret) }}
+  dnsNames:
+    - {{ required "gatewayAuthz.tls.certificate.dnsName is required" (trim .Values.gatewayAuthz.tls.certificate.dnsName) | quote }}
+  usages:
+    - digital signature
+    - key encipherment
+    - client auth
+  duration: {{ .Values.gatewayAuthz.tls.certificate.duration }}
+  renewBefore: {{ .Values.gatewayAuthz.tls.certificate.renewBefore }}
+  issuerRef:
+    name: {{ required "gatewayAuthz.tls.issuer.name is required" (trim .Values.gatewayAuthz.tls.issuer.name) }}
+    kind: {{ required "gatewayAuthz.tls.issuer.kind is required" .Values.gatewayAuthz.tls.issuer.kind }}
+    group: {{ .Values.gatewayAuthz.tls.issuer.group }}
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+{{- end }}

@@ -1,0 +1,109 @@
+syntax = "proto3";
+
+package inference.v1;
+
+option go_package = "github.com/liangzai006/ani-inference-service/api/inference/v1;inferencev1";
+
+import "google/protobuf/timestamp.proto";
+
+// InferenceAccessKey is a data-plane credential. It is intentionally separate
+// from Governance's control-plane API key and never contains the secret.
+message InferenceAccessKey {
+  string id = 1;
+  string name = 2;
+  string key_prefix = 3;
+  repeated string allowed_service_ids = 4;
+  repeated string allowed_model_names = 5;
+  int32 requests_per_second = 6;
+  int32 requests_per_minute = 7;
+  int32 requests_per_hour = 8;
+  google.protobuf.Timestamp expires_at = 9;
+  google.protobuf.Timestamp revoked_at = 10;
+  string created_by = 11;
+  google.protobuf.Timestamp created_at = 12;
+  google.protobuf.Timestamp last_used_at = 13;
+  int64 version = 14;
+}
+
+message CreateInferenceAccessKeyRequest {
+  string request_id = 1;
+  string name = 2;
+  repeated string allowed_service_ids = 3;
+  repeated string allowed_model_names = 4;
+  int32 requests_per_second = 5;
+  int32 requests_per_minute = 6;
+  int32 requests_per_hour = 7;
+  google.protobuf.Timestamp expires_at = 8;
+  string idempotency_key = 9;
+}
+
+message CreateInferenceAccessKeyResponse {
+  InferenceAccessKey key = 1;
+  // Returned only for a newly created key or a newly completed rotation.
+  string secret = 2;
+  bool replayed = 3;
+}
+
+message ListInferenceAccessKeysRequest {
+  int32 page = 1;
+  int32 page_size = 2 [json_name = "pageSize"];
+}
+
+message ListInferenceAccessKeysResponse {
+  repeated InferenceAccessKey items = 1;
+  int64 total = 2;
+}
+
+message GetInferenceAccessKeyRequest {
+  string id = 1;
+}
+
+message RevokeInferenceAccessKeyRequest {
+  string id = 1;
+  string request_id = 2;
+}
+
+message RevokeInferenceAccessKeyResponse {
+  InferenceAccessKey key = 1;
+}
+
+message RotateInferenceAccessKeyRequest {
+  string id = 1;
+  string request_id = 2;
+  string idempotency_key = 3;
+}
+
+message RotateInferenceAccessKeyResponse {
+  InferenceAccessKey key = 1;
+  string secret = 2;
+  bool replayed = 3;
+}
+
+// CheckInferenceAccess is only callable by the dedicated gateway authz
+// identity over mTLS. The key itself establishes the tenant; the request must
+// not carry a tenant header or field supplied by the gateway.
+message CheckInferenceAccessRequest {
+  string api_key = 1;
+  string service_id = 2;
+  string served_model_name = 3;
+  int32 request_cost = 4;
+  string request_id = 5;
+}
+
+message CheckInferenceAccessResponse {
+  bool allowed = 1;
+  string key_id = 2;
+  string tenant_id = 3;
+  string denial_code = 4;
+  int32 retry_after_seconds = 5;
+  int64 policy_version = 6;
+}
+
+service InferenceAccessKeyService {
+  rpc CreateInferenceAccessKey(CreateInferenceAccessKeyRequest) returns (CreateInferenceAccessKeyResponse);
+  rpc ListInferenceAccessKeys(ListInferenceAccessKeysRequest) returns (ListInferenceAccessKeysResponse);
+  rpc GetInferenceAccessKey(GetInferenceAccessKeyRequest) returns (InferenceAccessKey);
+  rpc RevokeInferenceAccessKey(RevokeInferenceAccessKeyRequest) returns (RevokeInferenceAccessKeyResponse);
+  rpc RotateInferenceAccessKey(RotateInferenceAccessKeyRequest) returns (RotateInferenceAccessKeyResponse);
+  rpc CheckInferenceAccess(CheckInferenceAccessRequest) returns (CheckInferenceAccessResponse);
+}

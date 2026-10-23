@@ -1,5 +1,20 @@
 # Progress
 
+## 2026-10-23 inference status semantics
+
+- 修正推理服务三类状态的初始化语义：新建或缺少观测时，`runtime_phase` 显示
+  `pending`，尚未可调用时 `invocation_health` 显示 `unhealthy`，没有路由发布时
+  `publication_phase` 显示 `withdrawn`。
+- 模型物化完成但 Pod/KServe 仍在启动时，运行状态显示 `loading`；运行就绪后才进入
+  `ready`。调用健康只有在运行就绪、发布确认、模型就绪且探测成功时才为 `healthy`。
+- `unknown` 仅保留给已具备调用前提、但探测因数据源不可用、并发变化或超时而无法得出
+  结论的情况，不再作为初始化默认值。
+- 新增 migration `000024_inference_status_semantics.sql`，并同步 SQL 查询、Kubernetes
+  Deployment/KServe 观测、PostgreSQL 读投影和 CR status 投影。已部署镜像
+  `health-status-20261023-r1`，迁移任务完成（旧数据修正 1 条 runtime、69 条 health）。
+- `go test ./...`、`go vet ./...`、`go build -trimpath ./...`、`go mod verify`、
+  `git diff --check` 和 `bash charts/verify.sh` 均通过。
+
 ## 2026-10-10 zero-trust tenant verification
 
 - 修正 `RequireTenant` 违反零信任架构的 fallback 行为。原实现在缺失可信上下文时接受请求字段租户参数，违反零信任原则。
