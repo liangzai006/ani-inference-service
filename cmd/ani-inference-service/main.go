@@ -299,6 +299,7 @@ func buildKubernetesServers(pool *pgxpool.Pool, modelClient *modeldata.Client, r
 	if err != nil {
 		return nil, false, fmt.Errorf("build runtime diagnostics client: %w", err)
 	}
+	runtimeExecutor.Core = core
 	diagnostics := &kubernetes.RuntimeDiagnostics{Source: runtimeSource, Reader: mgr.GetAPIReader(), Core: core}
 	return []kratosTransport.Server{loopServer, &diagnosticsManagerServer{Server: &server.ManagerServer{Manager: mgr}, reader: diagnostics}}, managedGPUReady, nil
 }

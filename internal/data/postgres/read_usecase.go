@@ -157,9 +157,9 @@ func (u *ReadUseCase) GetService(ctx context.Context, tenantID, serviceID string
 		return nil, e
 	}
 	if e == nil {
-		result.RuntimePhase = runtime.RuntimePhase
-		result.PublicationPhase = runtime.PublicationPhase
-		result.InvocationHealth = runtime.InvocationHealth
+		result.RuntimePhase = normalizeRuntimePhase(runtime.RuntimePhase)
+		result.PublicationPhase = normalizePublicationPhase(runtime.PublicationPhase)
+		result.InvocationHealth = normalizeInvocationHealth(result.RuntimePhase, result.PublicationPhase, runtime.InvocationHealth)
 		if runtime.ObservedAt.Valid {
 			result.ObservedAt = timestamppb.New(runtime.ObservedAt.Time)
 		}
@@ -211,9 +211,10 @@ func (u *ReadUseCase) ListServices(ctx context.Context, tenantID string, pageSiz
 		item := &inferencev1.InferenceService{
 			Id: row.ID.String(), Name: row.Name, DesiredState: row.DesiredState,
 			Generation: row.DesiredGeneration, AppliedGeneration: row.AppliedGeneration, ModelVersionId: row.ModelVersionID.String(),
-			Replicas: row.Replicas, RuntimePhase: row.RuntimePhase,
-			PublicationPhase: row.PublicationPhase, InvocationHealth: row.InvocationHealth,
-			Runtime: &inferencev1.RuntimeSpec{Mode: runtimeModeEnum(row.RuntimeMode), WorkerReplicas: row.WorkerReplicas, Provider: runtimeProviderEnum(row.RuntimeProvider)},
+			Replicas: row.Replicas, RuntimePhase: normalizeRuntimePhase(row.RuntimePhase),
+			PublicationPhase: normalizePublicationPhase(row.PublicationPhase),
+			InvocationHealth: normalizeInvocationHealth(normalizeRuntimePhase(row.RuntimePhase), normalizePublicationPhase(row.PublicationPhase), row.InvocationHealth),
+			Runtime:          &inferencev1.RuntimeSpec{Mode: runtimeModeEnum(row.RuntimeMode), WorkerReplicas: row.WorkerReplicas, Provider: runtimeProviderEnum(row.RuntimeProvider)},
 		}
 		item.Runtime.Endpoint = endpointProto(row.EndpointContainerPort, row.EndpointServicePort, row.EndpointTargetPort, row.EndpointProtocol)
 		if err := applySpecProjection(item, row.ModelVersionID.String(), row.ArtifactProvider, row.ArtifactRef, row.ArtifactSha256, row.ImageRef, row.ServedModelName, row.EngineRuntime, row.CommandArgv); err != nil {
@@ -393,7 +394,9 @@ func (u *ReadUseCase) readTx(ctx context.Context) (pgx.Tx, error) {
 }
 
 func serviceFromListRow(row ListServicesRow) (*inferencev1.InferenceService, error) {
-	item := &inferencev1.InferenceService{Id: row.ID.String(), Name: row.Name, DesiredState: row.DesiredState, Generation: row.DesiredGeneration, AppliedGeneration: row.AppliedGeneration, ModelVersionId: row.ModelVersionID.String(), Replicas: row.Replicas, RuntimePhase: row.RuntimePhase, PublicationPhase: row.PublicationPhase, InvocationHealth: row.InvocationHealth, Runtime: &inferencev1.RuntimeSpec{Mode: runtimeModeEnum(row.RuntimeMode), WorkerReplicas: row.WorkerReplicas, Provider: runtimeProviderEnum(row.RuntimeProvider)}}
+	runtimePhase := normalizeRuntimePhase(row.RuntimePhase)
+	publicationPhase := normalizePublicationPhase(row.PublicationPhase)
+	item := &inferencev1.InferenceService{Id: row.ID.String(), Name: row.Name, DesiredState: row.DesiredState, Generation: row.DesiredGeneration, AppliedGeneration: row.AppliedGeneration, ModelVersionId: row.ModelVersionID.String(), Replicas: row.Replicas, RuntimePhase: runtimePhase, PublicationPhase: publicationPhase, InvocationHealth: normalizeInvocationHealth(runtimePhase, publicationPhase, row.InvocationHealth), Runtime: &inferencev1.RuntimeSpec{Mode: runtimeModeEnum(row.RuntimeMode), WorkerReplicas: row.WorkerReplicas, Provider: runtimeProviderEnum(row.RuntimeProvider)}}
 	item.Runtime.Endpoint = endpointProto(row.EndpointContainerPort, row.EndpointServicePort, row.EndpointTargetPort, row.EndpointProtocol)
 	if err := applySpecProjection(item, row.ModelVersionID.String(), row.ArtifactProvider, row.ArtifactRef, row.ArtifactSha256, row.ImageRef, row.ServedModelName, row.EngineRuntime, row.CommandArgv); err != nil {
 		return nil, err

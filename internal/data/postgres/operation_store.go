@@ -551,9 +551,12 @@ func (s *OperationStore) SaveRuntimeObservation(ctx context.Context, op inferenc
 	if s == nil || s.pool == nil {
 		return errors.New("nil postgres operation store")
 	}
-	phase, health := "degraded", "unknown"
+	phase, health := "degraded", fact.InvocationHealth
+	if health == "" {
+		health = "unhealthy"
+	}
 	if fact.Absent {
-		phase, health = "stopped", "unknown"
+		phase, health = "stopped", "unhealthy"
 	} else if fact.Ready {
 		phase = "ready"
 	}

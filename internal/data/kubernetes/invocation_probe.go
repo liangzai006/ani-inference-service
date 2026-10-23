@@ -22,14 +22,14 @@ func (d *RuntimeDiagnostics) ProbeInvocation(ctx context.Context, scope biz.Scop
 		return biz.InvocationHealth{}, err
 	}
 	if runtime.DesiredState != "running" || !runtime.PublicationPublished {
-		return biz.InvocationHealth{State: "unknown", Reason: "endpoint_not_published"}, nil
+		return biz.InvocationHealth{State: "unhealthy", Reason: "endpoint_not_ready"}, nil
 	}
 	port := int32(8000)
 	if runtime.Endpoint != nil {
 		port = runtime.Endpoint.ContainerPort
 	}
 	if port < 1 || port > 65535 || model == "" {
-		return biz.InvocationHealth{State: "unknown", Reason: "invocation_probe_not_configured"}, nil
+		return biz.InvocationHealth{State: "unhealthy", Reason: "invocation_probe_not_configured"}, nil
 	}
 	for _, pod := range pods {
 		if pod.DeletionTimestamp != nil || pod.Status.Phase != "Running" || net.ParseIP(pod.Status.PodIP) == nil {
@@ -86,5 +86,5 @@ func (d *RuntimeDiagnostics) ProbeInvocation(ctx context.Context, scope biz.Scop
 		}
 		return result, nil
 	}
-	return biz.InvocationHealth{State: "unknown", Reason: "no_ready_invocation_instance"}, nil
+	return biz.InvocationHealth{State: "unhealthy", Reason: "no_ready_invocation_instance"}, nil
 }

@@ -8,18 +8,22 @@ OpenAI-compatible data plane.
 ## Health semantics
 
 `GetRuntimeDiagnostics` separates the runtime observation timestamp from invocation
-health evidence. `unknown` means no conclusive invocation observation. Its reason
-identifies a stopped/deleted service, no runtime observation, an unpublished
-endpoint, or the absence of a configured invocation probe. Pod readiness never
-sets invocation health. Existing persisted `healthy`/`unhealthy` values are reported
-with `recorded_health_without_probe_timestamp`; `health_observed_at` stays absent
-because the current schema has no actual probe timestamp. `observed_at` is the time
-of this diagnostic read, not the last successful invocation.
+health evidence. `unknown` means a ready and published service still has no
+conclusive invocation observation, usually because the observation source is
+unavailable or the generation changed during the probe. Pod readiness never sets
+invocation health. The durable reconciler now records `healthy`/`unhealthy` after
+a successful bounded probe; the existing `observed_at` column is the runtime
+observation timestamp and is also used for the persisted health observation time.
+A diagnostics request may run a fresh probe and returns its own
+`health_observed_at`; `observed_at` in that response remains the time of the
+diagnostic read.
 
-There is no new periodic invocation probe or invented refresh interval. Runtime
-observations continue to update through reconciliation. The health evidence changes
-only when a producer records invocation evidence; this change does not create that
-producer.
+The durable reconciler now runs the bounded invocation probe after the exact
+generation is runtime-ready, published and model-ready. Its result is written
+through the existing generation/lease-fenced runtime observation path, so the
+service list and detail projections converge without a manual diagnostics read.
+The on-demand diagnostics endpoint remains available and keeps its separate
+request-time semantics.
 
 ## Runtime logs and events
 
