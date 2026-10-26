@@ -173,45 +173,57 @@ func TestManagedGPUReadinessGateFailsClosedForCommands(t *testing.T) {
 }
 
 func TestManagedCreatePersistsACCExecutionDigest(t *testing.T) {
-	tenant, resource, operation := uuid.New(), uuid.New(), uuid.New()
-	cluster, pool, profile := uuid.New(), uuid.New(), uuid.New()
-	execution := &acceleratorv1.GpuExecution{
-		SchedulerName: "volcano", QueueName: "gpu", RuntimeClassName: "nvidia",
-		NodeSelector: map[string]string{
-			"accelerator.ani.io/supply-group": pool.String(),
-			"accelerator.ani.io/model-key":    "nvidia-test",
-			"accelerator.ani.io/baseline-id":  profile.String(),
-		},
-		PodAnnotations: map[string]string{"volcano.sh/vgpu-mode": "hami-core"},
-		Resources:      map[string]string{"volcano.sh/vgpu-number": "1", "volcano.sh/vgpu-memory": "6144", "volcano.sh/vgpu-cores": "25"},
-	}
-	var err error
-	execution.ExecutionDigest, err = gpuprotocol.GpuExecutionDigest(execution)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req := &inferencev1.CreateInferenceServiceRequest{
-		RequestId: uuid.NewString(), Name: "managed-digest", ModelVersionId: uuid.NewString(), Replicas: 1,
-		Runtime:   &inferencev1.RuntimeSpec{Mode: inferencev1.RuntimeMode_RUNTIME_MODE_DEPLOYMENT, Provider: "kserve"},
-		Engine:    validEngine(),
-		Resource:  &inferencev1.ResourceSpec{Requests: map[string]string{"cpu": "1", "memory": "8Gi"}, Limits: map[string]string{"cpu": "1", "memory": "8Gi"}, Gpu: &inferencev1.GpuRequest{ClusterId: cluster.String(), PoolId: pool.String(), ProfileId: profile.String(), ProfileVersion: 1, Replicas: 1, DevicesPerReplica: 1, ContainerName: "kserve-container"}},
-		Context:   &inferencev1.CommandContext{TenantId: tenant.String(), ResourceId: resource.String(), OperationId: operation.String()},
-		ClusterId: cluster.String(), GpuExecution: execution,
-		GpuDisplay: &acceleratorv1.GpuDisplay{ProfileId: profile.String(), ProfileVersion: 1, ProfileName: "test", ModelKey: "nvidia-test", Mode: acceleratorv1.SupplyMode_SHARED_FIXED},
-	}
-	req.Context.RequestDigest, err = contractv1.ManagedCreateCommandHash(req, tenant.String(), "user", "42")
-	if err != nil {
-		t.Fatal(err)
-	}
-	f := &fakeCreate{}
-	ctx := WithActor(WithTenantID(gpubiz.WithGovernanceIdentity(context.Background()), tenant.String()), "user:42")
-	server := NewInferenceServer(f)
-	server.SetManagedGPUClusterID(cluster.String())
-	if _, err := server.CreateInferenceService(ctx, req); err != nil {
-		t.Fatal(err)
-	}
-	if f.in.GPUSnapshotDigest != execution.ExecutionDigest {
-		t.Fatalf("persisted GPU plan digest=%q, want ACC execution digest %q", f.in.GPUSnapshotDigest, execution.ExecutionDigest)
+	for _, factor := range []string{"", "10"} {
+		t.Run("factor="+factor, func(t *testing.T) {
+			tenant, resource, operation := uuid.New(), uuid.New(), uuid.New()
+			cluster, pool, profile := uuid.New(), uuid.New(), uuid.New()
+			execution := &acceleratorv1.GpuExecution{
+				SchedulerName: "volcano", QueueName: "gpu", RuntimeClassName: "nvidia",
+				NodeSelector: map[string]string{
+					"accelerator.ani.io/supply-group": pool.String(),
+					"accelerator.ani.io/model-key":    "nvidia-test",
+					"accelerator.ani.io/baseline-id":  profile.String(),
+				},
+				PodAnnotations: map[string]string{"volcano.sh/vgpu-mode": "hami-core"},
+				Resources:      map[string]string{"volcano.sh/vgpu-number": "1", "volcano.sh/vgpu-memory": "6144", "volcano.sh/vgpu-cores": "25"},
+			}
+			if factor != "" {
+				execution.Resources["volcano.sh/vgpu-memory"] = "2457"
+				execution.PodAnnotations["accelerator.ani.io/memory-block-mib"] = factor
+				execution.NodeSelector["kubernetes.io/hostname"] = "node3"
+			}
+			var err error
+			execution.ExecutionDigest, err = gpuprotocol.GpuExecutionDigest(execution)
+			if err != nil {
+				t.Fatal(err)
+			}
+			req := &inferencev1.CreateInferenceServiceRequest{
+				RequestId: uuid.NewString(), Name: "managed-digest", ModelVersionId: uuid.NewString(), Replicas: 1,
+				Runtime:   &inferencev1.RuntimeSpec{Mode: inferencev1.RuntimeMode_RUNTIME_MODE_DEPLOYMENT, Provider: "kserve"},
+				Engine:    validEngine(),
+				Resource:  &inferencev1.ResourceSpec{Requests: map[string]string{"cpu": "1", "memory": "8Gi"}, Limits: map[string]string{"cpu": "1", "memory": "8Gi"}, Gpu: &inferencev1.GpuRequest{ClusterId: cluster.String(), PoolId: pool.String(), ProfileId: profile.String(), ProfileVersion: 1, Replicas: 1, DevicesPerReplica: 1, ContainerName: "kserve-container"}},
+				Context:   &inferencev1.CommandContext{TenantId: tenant.String(), ResourceId: resource.String(), OperationId: operation.String()},
+				ClusterId: cluster.String(), GpuExecution: execution,
+				GpuDisplay: &acceleratorv1.GpuDisplay{ProfileId: profile.String(), ProfileVersion: 1, ProfileName: "test", ModelKey: "nvidia-test", Mode: acceleratorv1.SupplyMode_SHARED_FIXED},
+			}
+			req.Context.RequestDigest, err = contractv1.ManagedCreateCommandHash(req, tenant.String(), "user", "42")
+			if err != nil {
+				t.Fatal(err)
+			}
+			f := &fakeCreate{}
+			ctx := WithActor(WithTenantID(gpubiz.WithGovernanceIdentity(context.Background()), tenant.String()), "user:42")
+			server := NewInferenceServer(f)
+			server.SetManagedGPUClusterID(cluster.String())
+			if _, err := server.CreateInferenceService(ctx, req); err != nil {
+				t.Fatal(err)
+			}
+			if f.in.GPUSnapshotDigest != execution.ExecutionDigest {
+				t.Fatalf("persisted GPU plan digest=%q, want ACC execution digest %q", f.in.GPUSnapshotDigest, execution.ExecutionDigest)
+			}
+			if f.in.GPUSnapshot == nil || f.in.GPUSnapshot.Execution.Resources["volcano.sh/vgpu-memory"] != execution.Resources["volcano.sh/vgpu-memory"] || f.in.GPUSnapshot.Execution.PodAnnotations["accelerator.ani.io/memory-block-mib"] != factor {
+				t.Fatalf("frozen GPU execution changed: %+v", f.in.GPUSnapshot)
+			}
+		})
 	}
 }
 
