@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/go-kratos/kratos/v3/middleware"
+	"github.com/go-kratos/kratos/v3/transport"
 	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
 	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
 	"github.com/liangzai006/ani-inference-service/internal/service"
@@ -15,6 +16,14 @@ import (
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 )
+
+type accessCheckTransport struct{}
+
+func (accessCheckTransport) Kind() transport.Kind            { return transport.KindGRPC }
+func (accessCheckTransport) Endpoint() string                { return "grpc://inference" }
+func (accessCheckTransport) Operation() string               { return checkInferenceAccessMethod }
+func (accessCheckTransport) RequestHeader() transport.Header { return nil }
+func (accessCheckTransport) ReplyHeader() transport.Header   { return nil }
 
 func TestGovernancePolicyIncludesNonGPULifecycleReads(t *testing.T) {
 	policy := InferenceServicePolicy()
@@ -29,6 +38,11 @@ func TestGovernancePolicyIncludesNonGPULifecycleReads(t *testing.T) {
 		"/inference.v1.InferenceServiceManager/RestartInferenceService",
 		"/inference.v1.InferenceServiceManager/GetOperation",
 		"/inference.v1.InferenceServiceManager/ListOperations",
+		"/inference.v1.InferenceAccessKeyService/CreateInferenceAccessKey",
+		"/inference.v1.InferenceAccessKeyService/ListInferenceAccessKeys",
+		"/inference.v1.InferenceAccessKeyService/GetInferenceAccessKey",
+		"/inference.v1.InferenceAccessKeyService/RevokeInferenceAccessKey",
+		"/inference.v1.InferenceAccessKeyService/RotateInferenceAccessKey",
 	} {
 		if !policy.IsAllowed("ani-governance", method) {
 			t.Fatalf("Governance policy denied %s", method)
@@ -39,6 +53,28 @@ func TestGovernancePolicyIncludesNonGPULifecycleReads(t *testing.T) {
 	}
 	if policy.IsAllowed("ani-governance", "/inference.v1.InferenceServiceManager/UnknownMethod") {
 		t.Fatal("unknown method accepted")
+	}
+}
+
+func TestGatewayPolicyOnlyAllowsAccessCheck(t *testing.T) {
+	policy := InferenceServicePolicy()
+	if !policy.IsAllowed(gatewayAuthzCallerDNS, checkInferenceAccessMethod) {
+		t.Fatal("gateway authz identity denied CheckInferenceAccess")
+	}
+	for _, method := range []string{
+		"/inference.v1.InferenceAccessKeyService/CreateInferenceAccessKey",
+		"/inference.v1.InferenceAccessKeyService/ListInferenceAccessKeys",
+		"/inference.v1.InferenceAccessKeyService/GetInferenceAccessKey",
+		"/inference.v1.InferenceAccessKeyService/RevokeInferenceAccessKey",
+		"/inference.v1.InferenceAccessKeyService/RotateInferenceAccessKey",
+		"/inference.v1.InferenceServiceManager/GetInferenceService",
+	} {
+		if policy.IsAllowed(gatewayAuthzCallerDNS, method) {
+			t.Fatalf("gateway authz identity accepted %s", method)
+		}
+	}
+	if policy.IsAllowed(governanceCallerDNS, checkInferenceAccessMethod) {
+		t.Fatal("Governance identity accepted gateway-only CheckInferenceAccess")
 	}
 }
 
@@ -67,6 +103,35 @@ func TestTrustedTenantMiddlewareBindsGovernanceMetadata(t *testing.T) {
 	})
 	if _, err := handler(ctx, struct{}{}); err != nil || !called {
 		t.Fatalf("trusted metadata rejected: called=%v err=%v", called, err)
+	}
+}
+
+func TestTrustedTenantMiddlewareAllowsGatewayCheckWithoutTenant(t *testing.T) {
+	ctx := governancePeerContext(tls.VersionTLS13, gatewayAuthzCallerDNS, true)
+	ctx = transport.NewServerContext(ctx, accessCheckTransport{})
+	called := false
+	handler := trustedTenantMiddleware()(func(ctx context.Context, _ interface{}) (interface{}, error) {
+		called = true
+		if _, ok := service.TenantID(ctx); ok {
+			t.Fatal("gateway check unexpectedly received tenant context")
+		}
+		return nil, nil
+	})
+	if _, err := handler(ctx, &inferencev1.CheckInferenceAccessRequest{ApiKey: "iak_test"}); err != nil || !called {
+		t.Fatalf("gateway check rejected: called=%v err=%v", called, err)
+	}
+}
+
+func TestTrustedTenantMiddlewareRejectsGatewayTenantMetadata(t *testing.T) {
+	ctx := governancePeerContext(tls.VersionTLS13, gatewayAuthzCallerDNS, true)
+	ctx = transport.NewServerContext(ctx, accessCheckTransport{})
+	ctx = metadata.NewIncomingContext(ctx, metadata.Pairs("x-ani-tenant-id", "tenant-a"))
+	handler := trustedTenantMiddleware()(func(context.Context, interface{}) (interface{}, error) {
+		t.Fatal("gateway check with tenant metadata reached handler")
+		return nil, nil
+	})
+	if _, err := handler(ctx, &inferencev1.CheckInferenceAccessRequest{ApiKey: "iak_test"}); status.Code(err) != 7 {
+		t.Fatalf("code=%v err=%v; want PermissionDenied", status.Code(err), err)
 	}
 }
 
@@ -173,5 +238,19 @@ func TestTrustedTenantMiddlewareAcceptsOnlyVerifiedTLS13(t *testing.T) {
 				t.Fatalf("err=%v wantErr=%v", err, test.wantErr)
 			}
 		})
+	}
+}
+
+func TestServicePolicyRPCIdentityBoundary(t *testing.T) {
+	policy := InferenceServicePolicy()
+	for _, method := range []string{"/inference.v1.InferenceServiceManager/GetServicePolicy", "/inference.v1.InferenceServiceManager/UpdateServicePolicy"} {
+		if !policy.IsAllowed(governanceCallerDNS, method) {
+			t.Fatalf("governance cannot call %s", method)
+		}
+		for _, identity := range []string{gatewayAuthzCallerDNS, "ani-model.ani.internal", "unregistered"} {
+			if policy.IsAllowed(identity, method) {
+				t.Fatalf("%s can call %s", identity, method)
+			}
+		}
 	}
 }

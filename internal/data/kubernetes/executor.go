@@ -11,6 +11,7 @@ import (
 	"strconv"
 
 	crdv1 "github.com/liangzai006/ani-inference-service/api/inference/crd/v1"
+	diagnosticsbiz "github.com/liangzai006/ani-inference-service/internal/biz/diagnostics"
 	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
 	bizinference "github.com/liangzai006/ani-inference-service/internal/biz/inference"
 	bizreconcile "github.com/liangzai006/ani-inference-service/internal/biz/reconcile"
@@ -21,6 +22,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	lwsv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 )
@@ -84,6 +86,9 @@ type DesiredRuntimeSource interface {
 // ownership. Delete uses both UID and resourceVersion preconditions.
 type RuntimeExecutor struct {
 	Client client.Client
+	// Core is used only by the independent invocation probe. Runtime readiness
+	// remains based on controller-runtime reads and does not depend on it.
+	Core typedcorev1.CoreV1Interface
 	// APIReader is the uncached reader used immediately after an apply. The
 	// manager cache may lag the API server and cannot be used as the binding
 	// identity source at this crash-sensitive boundary.
@@ -217,8 +222,60 @@ func (e *RuntimeExecutor) ObserveRuntime(ctx context.Context, op bizinference.Op
 		ReadyGroups: observation.ReadyGroups, ReadyWorkers: observation.ReadyWorkers,
 		LWSUID: observation.LWSUID, Objects: observation.Objects, Reason: observation.Reason,
 		ModelReady: observation.ModelReady, ModelReadyKnown: observation.ModelReadyKnown,
-		ReleasePods: releasePods,
+		InvocationHealth: observation.InvocationHealth,
+		ReleasePods:      releasePods,
 	}, nil
+}
+
+// ProbeInvocation is separate from runtime readiness. It is promoted by the
+// KServe executor and used by the durable observer after the exact generation
+// is published.
+func (e *RuntimeExecutor) ProbeInvocation(ctx context.Context, scope diagnosticsbiz.Scope, model string) (diagnosticsbiz.InvocationHealth, error) {
+	if e == nil || e.Source == nil || e.Core == nil {
+		return diagnosticsbiz.InvocationHealth{}, diagnosticsbiz.ErrUnavailable
+	}
+	reader := e.APIReader
+	if reader == nil {
+		reader = e.Client
+	}
+	if reader == nil {
+		return diagnosticsbiz.InvocationHealth{}, diagnosticsbiz.ErrUnavailable
+	}
+	return (&RuntimeDiagnostics{Source: e.Source, Reader: reader, Core: e.Core}).ProbeInvocation(ctx, scope, model)
+}
+
+func (e *RuntimeExecutor) observeInvocation(ctx context.Context, spec DesiredRuntime, observation bizreconcile.Observation) bizreconcile.Observation {
+	if observation.RuntimePhase != "ready" || !spec.PublicationPublished || !spec.ModelReadyKnown || !spec.ModelReady {
+		observation.InvocationHealth = "unhealthy"
+		if observation.Reason == "" {
+			observation.Reason = "runtime_not_ready"
+		}
+		return observation
+	}
+	result, err := e.ProbeInvocation(ctx, diagnosticsbiz.Scope{TenantID: spec.TenantID, ServiceID: spec.ServiceID, Generation: spec.Generation}, spec.ServedModelName)
+	if err != nil {
+		observation.InvocationHealth = "unknown"
+		if observation.Reason == "" {
+			observation.Reason = "invocation_probe_unavailable"
+		}
+		return observation
+	}
+	observation.InvocationHealth = result.State
+	if result.Reason != "" {
+		observation.Reason = result.Reason
+	}
+	return observation
+}
+
+// runtimeLoadingPhase distinguishes a runtime object that is still starting
+// from one whose model materialization has not reached the runtime boundary.
+// The latter remains pending; once the model is known ready, Pod/KServe startup
+// is reported as loading until readiness is confirmed.
+func runtimeLoadingPhase(modelReadyKnown, modelReady bool) string {
+	if modelReadyKnown && modelReady {
+		return "loading"
+	}
+	return "pending"
 }
 
 // managedGPUReleasePods captures every current Pod UID for a managed GPU
@@ -312,7 +369,13 @@ func (e *RuntimeExecutor) observeHealth(ctx context.Context, spec DesiredRuntime
 		}
 	}
 	observation.ModelReady, observation.ModelReadyKnown = spec.ModelReady, spec.ModelReadyKnown
-	return observation, nil
+	if observation.RuntimePhase == "pending" && spec.ModelReadyKnown && spec.ModelReady {
+		observation.RuntimePhase = "loading"
+		if observation.Reason == "" {
+			observation.Reason = "runtime_loading"
+		}
+	}
+	return e.observeInvocation(ctx, spec, observation), nil
 }
 
 // DeleteRuntime issues fenced deletes for every persisted runtime binding.
@@ -356,7 +419,7 @@ func (e *RuntimeExecutor) ObserveAbsence(ctx context.Context, op bizinference.Op
 	if err != nil {
 		return bizinference.RuntimeObservation{}, err
 	}
-	return bizinference.RuntimeObservation{Absent: observation.RuntimePhase == "stopped", RuntimePhase: observation.RuntimePhase, RuntimeMode: observation.RuntimeMode, ReadyReplicas: observation.ReadyReplicas, ReadyGroups: observation.ReadyGroups, ReadyWorkers: observation.ReadyWorkers, LWSUID: observation.LWSUID, Objects: observation.Objects, Reason: observation.Reason}, nil
+	return bizinference.RuntimeObservation{Absent: observation.RuntimePhase == "stopped", RuntimePhase: observation.RuntimePhase, RuntimeMode: observation.RuntimeMode, ReadyReplicas: observation.ReadyReplicas, ReadyGroups: observation.ReadyGroups, ReadyWorkers: observation.ReadyWorkers, LWSUID: observation.LWSUID, Objects: observation.Objects, InvocationHealth: "unhealthy", Reason: observation.Reason}, nil
 }
 
 // DeleteCR removes the InferenceService projection only after runtime absence
@@ -456,7 +519,7 @@ func (e *RuntimeExecutor) Ensure(ctx context.Context, desired bizreconcile.Desir
 		}
 		if len(spec.Bindings) == 0 {
 			if spec.RuntimePhase == "stopped" {
-				return bizreconcile.Observation{Generation: desired.Generation, RuntimeMode: runtimeModeForSpec(spec.RuntimeSpec), RuntimePhase: "stopped", PublicationPhase: "unknown", InvocationHealth: "unknown"}, nil
+				return bizreconcile.Observation{Generation: desired.Generation, RuntimeMode: runtimeModeForSpec(spec.RuntimeSpec), RuntimePhase: "stopped", PublicationPhase: "withdrawn", InvocationHealth: "unhealthy"}, nil
 			}
 			return bizreconcile.Observation{}, errors.New("runtime deletion requires a persisted runtime binding")
 		}
@@ -613,7 +676,7 @@ func (e *RuntimeExecutor) observe(ctx context.Context, spec RuntimeSpec, expecte
 	if runtimeMode == "" {
 		runtimeMode = "deployment"
 	}
-	observation := bizreconcile.Observation{Generation: spec.Generation, RuntimeMode: runtimeMode, PublicationPhase: "unknown", InvocationHealth: "unknown"}
+	observation := bizreconcile.Observation{Generation: spec.Generation, RuntimeMode: runtimeMode, PublicationPhase: "unknown", InvocationHealth: "unhealthy"}
 	kind := kindForRuntimeMode(runtimeMode)
 	if expected != nil && expected.Kind != kind {
 		return bizreconcile.Observation{}, bizreconcile.ErrStaleGeneration
@@ -745,7 +808,7 @@ func (e *RuntimeExecutor) readyLWSWorkers(ctx context.Context, spec RuntimeSpec)
 }
 
 func (e *RuntimeExecutor) observeDeletion(ctx context.Context, desiredGeneration int64, spec RuntimeSpec, bindings []RuntimeBinding) (bizreconcile.Observation, error) {
-	observation := bizreconcile.Observation{Generation: desiredGeneration, RuntimeMode: spec.RuntimeMode, PublicationPhase: "unknown", InvocationHealth: "unknown", RuntimePhase: "stopped"}
+	observation := bizreconcile.Observation{Generation: desiredGeneration, RuntimeMode: spec.RuntimeMode, PublicationPhase: "withdrawn", InvocationHealth: "unhealthy", RuntimePhase: "stopped"}
 	for _, binding := range bindings {
 		if binding.Role != "" && binding.Role != "runtime" && binding.Role != "endpoint" {
 			continue

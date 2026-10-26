@@ -69,9 +69,13 @@ type RuntimeObservation struct {
 	LWSUID          string
 	ModelReady      bool
 	ModelReadyKnown bool
-	Absent          bool
-	Reason          string
-	Objects         []bizreconcile.RuntimeObject
+	// InvocationHealth is populated by an independent runtime probe after the
+	// endpoint is published. Empty means no probe fact was supplied; unknown is
+	// an explicit inconclusive result.
+	InvocationHealth string
+	Absent           bool
+	Reason           string
+	Objects          []bizreconcile.RuntimeObject
 	// ReleasePods is the complete Pod UID scope captured before a managed GPU
 	// runtime is removed. It is persisted separately from the runtime binding
 	// projection because a deployment may contain more than one Pod.

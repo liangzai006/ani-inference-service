@@ -8,15 +8,53 @@ Higress 版本为 2.2.4，启用 Gateway API。网关通过 NodePort `30090`（H
 指标和日志写入新集群 CephFS 提供的 PVC。
 
 model-router 插件配置为 `enableOnPathSuffix: ["*"]`，会从 OpenAI 兼容 JSON 请求中读取
-`model`，再写入 `x-higress-llm-model` 请求头。Inference Chart 会安装一条没有后端的
+`model`，再写入 `x-higress-llm-model` 请求头。Inference Chart 会安装一条指向无 selector sink Service 的
 `/v1/` 兜底路由，让插件有机会先执行并重新计算路由；ANI 随后为每个模型发布一条
 `/v1/` 模型路由，因此 `/v1/completions`、`/v1/chat/completions`、`/v1/embeddings`
 等带 `model` 的 API 都复用同一条模型路由。未知模型不会落到任意一个已部署模型，当前
-由无后端路由返回不可用错误。调用方只传 JSON `model`，不应手工添加内部模型路由头。
+由 sink Service 返回不可用错误。调用方只传 JSON `model`，不应手工添加内部模型路由头。
 
 ## 推理网关 API Key
 
-应用 `key-auth.yaml.tmpl` 后，推理网关要求请求携带 `x-api-key`。真实密钥
+动态 Inference-owned AK 的网关链路使用 `ani-inference-ext-auth`：Higress 的官方
+`ext-auth` WasmPlugin 把 `x-api-key`、model-router 生成的模型头和请求 ID 转发给
+`ani-inference-authz`，adapter 再用 `ani-inference-gateway.ani.internal` 的 mTLS
+身份调用 Inference `CheckInferenceAccess`。当前网关切片按 key 和 served model 做
+校验；服务级 scope 需要后续提供可信的 HTTPRoute 上下文后再启用。授权失败按 401/403/429 返回，Inference
+或 adapter 不可用时按 503 fail-close。先把 Chart 的 `gatewayAuthz.enabled` 打开并
+发布含 `/ani-inference-gateway-authz` 的镜像，再应用独立的 `ext-auth.yaml`
+对象；该插件只对 `/v1/` 前缀和 `/v1` 精确路径生效，`/api/v1/` 仍由 Governance BFF 处理；没有
+adapter 时不要应用这个插件。
+
+动态认证的启用顺序（使用已确认的 `KUBE_CONTEXT`）：
+
+```bash
+# 先部署并确认 Inference、gateway-authz companion 和客户端 Certificate Ready。
+# 官方插件 OCI 镜像必须先镜像到内部仓库；ext-auth.yaml 固定官方 2.0.3 manifest digest。
+KUBE_CONTEXT="$KUBE_CONTEXT" bash docs/deploy/higress/register-authz.sh
+kubectl --context "$KUBE_CONTEXT" apply --dry-run=server -f docs/deploy/higress/ext-auth.yaml
+kubectl --context "$KUBE_CONTEXT" apply -f docs/deploy/higress/ext-auth.yaml
+```
+
+`register-authz.sh` 仅向已有 `higress-system/default` McpBridge 追加私有 DNS 服务来源，
+保留其他条目并用 resourceVersion 防止并发覆盖，不创建公网 adapter 路由。
+Higress 插件使用这个来源的 `ani-inference-authz.dns:8080`，仅有 Kubernetes Service
+不足以保证 Envoy 已发现该 cluster。`match_type`/`match_list` 属于
+`spec.defaultConfig` 中的插件配置，不能写到 WasmPlugin 的 `spec` 顶层。
+
+通过 Envoy config dump 确认 ext-auth Wasm 已加载、authz cluster healthy 后，再移除迁移期
+`ani-inference-key-auth` WasmPlugin；通过 Gateway API bootstrap 路由接管时，移除同名旧
+`higress-system/ani-inference-model-router` Ingress。提前保存旧对象作为回滚输入。
+必须验证动态 key 通过、无效/撤销 key 401、模型 scope 403、key 限流 429、依赖失败 503，
+并独立验证 Governance 管理入口与 Higress 管理路径 404。公共 `plugins.yaml` 不包含
+ext-auth，避免基础安装在 companion 尚未部署时启用动态认证。
+
+adapter 镜像由仓库根目录的 `Dockerfile.authz` 构建：先编译
+`.build/ani-inference-gateway-authz`，再构建并推送
+`docker.changqingyun.cn/ani/inference-gateway-authz:<tag>`。Inference 主镜像仍由
+`Dockerfile` 构建，两者版本应保持同一源码提交。
+
+仅使用迁移期静态 bootstrap 模式时应用 `key-auth.yaml.tmpl`，推理网关要求请求携带 `x-api-key`。真实密钥
 不会写入 Git 或主插件清单。请在新环境的受保护终端中设置 context、网关节点
 地址和密钥，再渲染并应用模板：
 
@@ -47,6 +85,12 @@ curl -sS -X POST "${HIGRESS_PUBLIC_BASE_URL}/v1/completions" \
 其他公共路由，应在暴露前改为按路由认证。使用新密钥重新应用模板会轮换密钥，
 旧密钥随即失效。
 
+这里的模板仍是迁移期静态 bootstrap key，不是 Inference-owned 的多租户 AK
+签发模块。动态链路启用后，不要同时应用静态 `key-auth`，否则会把静态 consumer
+和 Inference-owned key 叠加成两套入口策略。动态 key 的签发、撤销、租户/模型范围
+和按 key 限流按[`docs/design/ai-gateway-auth-and-rate-limit.md`](../../design/ai-gateway-auth-and-rate-limit.md)
+分阶段落地。
+
 ## 镜像
 
 安装前把 Chart 使用的镜像和 Wasm 插件镜像复制到新环境可访问的镜像仓库。
@@ -65,6 +109,7 @@ higress-registry.cn-hangzhou.cr.aliyuncs.com/plugins/model-router:2.0.2
 higress-registry.cn-hangzhou.cr.aliyuncs.com/plugins/ai-statistics:2.0.2
 higress-registry.cn-hangzhou.cr.aliyuncs.com/plugins/key-rate-limit:1.0.0
 higress-registry.cn-hangzhou.cr.aliyuncs.com/plugins/key-auth:2.0.0
+higress-registry.cn-hangzhou.cr.aliyuncs.com/plugins/ext-auth:2.0.3
 ```
 
 部署 values 和插件清单已经指向对应的
@@ -93,7 +138,8 @@ kubectl apply -f docs/deploy/higress/plugins.yaml
 ```
 
 随后按 [Inference Helm 部署文档](../helm/ani-inference.md) 部署或更新新环境 Inference 服务。最后按上面的 API Key
-步骤应用 `key-auth.yaml.tmpl`，避免入口在认证前被公开。
+步骤应用 `key-auth.yaml.tmpl`，避免入口在认证前被公开。Console 可以继续作为运维 UI
+部署，但 Inference 不再调用其 REST API；后续可单独移除 Console Pod。
 
 ## 验证
 

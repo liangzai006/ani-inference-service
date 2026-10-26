@@ -1,0 +1,18 @@
+{{- if .Values.gatewayAuthz.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ani-inference.gatewayAuthzServiceName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ani-inference.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway-authz
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "ani-inference.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: authz
+      port: {{ .Values.gatewayAuthz.servicePort }}
+      targetPort: authz
+{{- end }}

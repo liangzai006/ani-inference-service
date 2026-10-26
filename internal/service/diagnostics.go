@@ -23,6 +23,7 @@ type DiagnosticsServer struct {
 	inferencev1.UnimplementedInferenceDiagnosticsServer
 	Read    inferencebiz.ReadUseCase
 	Runtime biz.Reader
+	probes  biz.ProbeCache
 }
 
 func (s *DiagnosticsServer) scope(ctx context.Context, id string) (biz.Scope, *inferencev1.InferenceService, error) {
@@ -78,6 +79,17 @@ func (s *DiagnosticsServer) GetRuntimeDiagnostics(ctx context.Context, req *infe
 	}
 	health, reason := invocationHealthExplanation(resource)
 	result := &inferencev1.RuntimeDiagnostics{InvocationHealth: health, HealthReason: reason, RuntimeObservedAt: resource.ObservedAt, ObservedAt: timestamppb.Now()}
+	if prober, ok := s.Runtime.(biz.InvocationProber); ok && resource.DesiredState == "running" && resource.PublicationPhase == "published" {
+		observed, err := s.probes.Observe(ctx, prober, scope, resource.ServedModelName)
+		if err != nil {
+			return nil, diagnosticsError(err)
+		}
+		result.InvocationHealth, result.HealthReason = observed.State, observed.Reason
+		if !observed.ObservedAt.IsZero() {
+			result.HealthObservedAt = timestamppb.New(observed.ObservedAt)
+		}
+	}
+
 	for _, instance := range instances {
 		result.Instances = append(result.Instances, &inferencev1.RuntimeInstance{Name: instance.Name, Uid: instance.UID, Phase: instance.Phase, Containers: instance.Containers})
 	}

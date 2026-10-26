@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/go-kratos/kratos/v3/middleware"
+	"github.com/go-kratos/kratos/v3/transport"
 	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
 	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
 	"github.com/liangzai006/ani-inference-service/internal/service"
@@ -27,7 +28,17 @@ func trustedTenantMiddleware() middleware.Middleware {
 				return nil, status.Errorf(codes.Unauthenticated, "trusted service identity unavailable: %v", err)
 			}
 			if identity != governanceCallerDNS && identity != "ani-model.ani.internal" {
-				return nil, status.Errorf(codes.PermissionDenied, "unregistered trusted service %q", identity)
+				if identity != gatewayAuthzCallerDNS {
+					return nil, status.Errorf(codes.PermissionDenied, "unregistered trusted service %q", identity)
+				}
+				tr, ok := transport.FromServerContext(ctx)
+				if !ok || tr.Operation() != checkInferenceAccessMethod {
+					return nil, status.Errorf(codes.PermissionDenied, "gateway identity is not authorized for this method")
+				}
+				if hasTrustedTenantOrActorMetadata(ctx) {
+					return nil, status.Error(codes.PermissionDenied, "gateway authz calls must not supply tenant or actor metadata")
+				}
+				return next(ctx, req)
 			}
 			tenant, err := trustedTenantMetadata(ctx)
 			if err != nil {
@@ -60,6 +71,21 @@ func trustedTenantMiddleware() middleware.Middleware {
 			return next(ctx, req)
 		}
 	}
+}
+
+func hasTrustedTenantOrActorMetadata(ctx context.Context) bool {
+	md, ok := grpcmetadata.FromIncomingContext(ctx)
+	if !ok {
+		return false
+	}
+	for _, key := range []string{"x-ani-tenant-id", "tenant-id", "x-tenant-id", "x-md-tenant-id", "x-ani-actor"} {
+		for _, value := range md.Get(key) {
+			if strings.TrimSpace(value) != "" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // bindGovernanceGPUContext keeps the single ordinary listener usable for both

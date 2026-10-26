@@ -13,7 +13,7 @@ SELECT s.applied_generation,
        COALESCE(control.object_namespace, '') AS control_namespace,
        COALESCE(control.object_name, '') AS control_name,
        COALESCE(control.object_uid, '') AS control_uid,
-       COALESCE(rt.runtime_phase, 'unknown') AS runtime_phase,
+       COALESCE(rt.runtime_phase, 'pending') AS runtime_phase,
        COALESCE(rt.ready_replicas, 0)::int4 AS ready_replicas,
        CASE WHEN rt.model_ready_known AND rt.model_ready THEN TRUE ELSE FALSE END AS model_ready,
        COALESCE(pub.observed_phase, 'withdrawn') AS publication_phase,
@@ -21,7 +21,7 @@ SELECT s.applied_generation,
                   AND pub.desired_phase = 'published'
                   AND pub.observed_phase = 'published'
             THEN TRUE ELSE FALSE END AS publication_effective,
-       COALESCE(rt.invocation_health, 'unknown') AS invocation_health,
+       COALESCE(rt.invocation_health, 'unhealthy') AS invocation_health,
        rt.observed_at AS observed_at,
        rt.stale_after AS runtime_stale_after,
        pub.observed_at AS publication_observed_at,
@@ -79,9 +79,9 @@ SELECT s.tenant_id, s.id, s.name, s.desired_state, s.desired_generation, s.appli
        sp.endpoint_container_port, sp.endpoint_service_port,
        sp.endpoint_target_port, sp.endpoint_protocol,
        sp.gpu_request, sp.gpu_plan, sp.gpu_plan_digest,
-       COALESCE(rt.runtime_phase, 'unknown') AS runtime_phase,
+       COALESCE(rt.runtime_phase, 'pending') AS runtime_phase,
        COALESCE(pub.observed_phase, 'withdrawn') AS publication_phase,
-       COALESCE(rt.invocation_health, 'unknown') AS invocation_health,
+       COALESCE(rt.invocation_health, 'unhealthy') AS invocation_health,
        rt.observed_at
 FROM inference_services s
 LEFT JOIN LATERAL (
@@ -464,8 +464,8 @@ SELECT
 
 -- name: InsertRuntime :exec
 INSERT INTO inference_runtime
-  (tenant_id, service_id, generation, runtime_mode, runtime_phase, publication_phase, invocation_health)
-VALUES ($1, $2, $3, $4, 'unknown', 'withdrawn', 'unknown');
+  (tenant_id, service_id, generation, runtime_mode, runtime_phase, publication_phase, invocation_health, reason)
+VALUES ($1, $2, $3, $4, 'pending', 'withdrawn', 'unhealthy', 'runtime_pending');
 
 -- name: PutIdempotency :execrows
 INSERT INTO inference_idempotency_requests
@@ -748,7 +748,7 @@ LEFT JOIN LATERAL (
 ) sp ON TRUE
 LEFT JOIN inference_runtime rt ON rt.tenant_id = s.tenant_id AND rt.service_id = s.id
 WHERE s.tenant_id = sqlc.arg(tenant_id) AND s.deleted_at IS NULL
-  AND (sqlc.arg(status)::text = '' OR (s.desired_state = 'running' AND COALESCE(rt.runtime_phase, 'unknown') = 'ready'))
+  AND (sqlc.arg(status)::text = '' OR (s.desired_state = 'running' AND COALESCE(rt.runtime_phase, 'pending') = 'ready'))
   AND (sqlc.arg(capability)::text = '' OR EXISTS (
     SELECT 1 FROM jsonb_array_elements_text(COALESCE(sp.spec_json->'model_capabilities', '[]'::jsonb)) AS c(value)
     WHERE lower(trim(c.value)) = sqlc.arg(capability)::text
@@ -773,9 +773,9 @@ SELECT s.tenant_id, s.id, s.name, s.desired_state, s.desired_generation, s.appli
        sp.endpoint_container_port, sp.endpoint_service_port,
        sp.endpoint_target_port, sp.endpoint_protocol,
        sp.gpu_request, sp.gpu_plan, sp.gpu_plan_digest,
-       COALESCE(rt.runtime_phase, 'unknown') AS runtime_phase,
+       COALESCE(rt.runtime_phase, 'pending') AS runtime_phase,
        COALESCE(pub.observed_phase, 'withdrawn') AS publication_phase,
-       COALESCE(rt.invocation_health, 'unknown') AS invocation_health,
+       COALESCE(rt.invocation_health, 'unhealthy') AS invocation_health,
        rt.observed_at
 FROM inference_services s
 LEFT JOIN LATERAL (
@@ -795,7 +795,7 @@ LEFT JOIN LATERAL (
   ORDER BY p.generation DESC LIMIT 1
 ) pub ON TRUE
 WHERE s.tenant_id = sqlc.arg(tenant_id) AND s.deleted_at IS NULL
-  AND (sqlc.arg(status)::text = '' OR (s.desired_state = 'running' AND COALESCE(rt.runtime_phase, 'unknown') = 'ready'))
+  AND (sqlc.arg(status)::text = '' OR (s.desired_state = 'running' AND COALESCE(rt.runtime_phase, 'pending') = 'ready'))
   AND (sqlc.arg(capability)::text = '' OR EXISTS (
     SELECT 1 FROM jsonb_array_elements_text(COALESCE(sp.spec_json->'model_capabilities', '[]'::jsonb)) AS c(value)
     WHERE lower(trim(c.value)) = sqlc.arg(capability)::text

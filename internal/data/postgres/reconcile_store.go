@@ -92,11 +92,11 @@ func (s *ReconcileStore) SaveObservation(ctx context.Context, tenantID, serviceI
 	}
 	runtimePhase := observation.RuntimePhase
 	if runtimePhase == "" {
-		runtimePhase = "unknown"
+		runtimePhase = "pending"
 	}
 	publication := observation.PublicationPhase
 	if publication == "" {
-		publication = "unknown"
+		publication = "withdrawn"
 	}
 	health := observation.InvocationHealth
 	if health == "" {
@@ -173,11 +173,11 @@ func (s *ReconcileStore) SaveObservationForWork(ctx context.Context, item work.I
 	}
 	runtimePhase := observation.RuntimePhase
 	if runtimePhase == "" {
-		runtimePhase = "unknown"
+		runtimePhase = "pending"
 	}
 	publication := observation.PublicationPhase
 	if publication == "" {
-		publication = "unknown"
+		publication = "withdrawn"
 	}
 	health := observation.InvocationHealth
 	if health == "" {

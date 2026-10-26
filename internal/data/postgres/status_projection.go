@@ -35,14 +35,16 @@ func (s *StatusProjectionSource) GetStatusProjection(ctx context.Context, tenant
 	if err != nil {
 		return kube.StatusProjection{}, err
 	}
+	runtimePhase := normalizeRuntimePhase(snapshot.RuntimePhase)
+	publicationPhase := normalizePublicationPhase(snapshot.PublicationPhase)
 	projection := kube.StatusProjection{
 		AppliedGeneration:    snapshot.AppliedGeneration,
-		RuntimePhase:         snapshot.RuntimePhase,
+		RuntimePhase:         runtimePhase,
 		ReadyReplicas:        snapshot.ReadyReplicas,
 		ModelReady:           snapshot.ModelReady,
-		PublicationPhase:     snapshot.PublicationPhase,
+		PublicationPhase:     publicationPhase,
 		PublicationEffective: snapshot.PublicationEffective,
-		InvocationHealth:     snapshot.InvocationHealth,
+		InvocationHealth:     normalizeInvocationHealth(runtimePhase, publicationPhase, snapshot.InvocationHealth),
 	}
 	if snapshot.ControlGeneration > 0 {
 		projection.ControlBinding = &kube.RuntimeBinding{
