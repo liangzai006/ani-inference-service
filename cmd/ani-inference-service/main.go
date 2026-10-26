@@ -33,6 +33,7 @@ import (
 	policybiz "github.com/liangzai006/ani-inference-service/internal/biz/servicepolicy"
 	"github.com/liangzai006/ani-inference-service/internal/biz/work"
 	"github.com/liangzai006/ani-inference-service/internal/data/accelerator"
+	imagedata "github.com/liangzai006/ani-inference-service/internal/data/image"
 	"github.com/liangzai006/ani-inference-service/internal/data/kubernetes"
 	modeldata "github.com/liangzai006/ani-inference-service/internal/data/model"
 	"github.com/liangzai006/ani-inference-service/internal/data/postgres"
@@ -97,6 +98,11 @@ func run(logger *slog.Logger) error {
 	}
 	var pool *pgxpool.Pool
 	var modelClient *modeldata.Client
+	imageClient, closeImageClient, err := configuredImageClient()
+	if err != nil {
+		return err
+	}
+	defer closeImageClient()
 	var background []kratosTransport.Server
 	{
 		dsn := os.Getenv("ANI_DATABASE_DSN")
@@ -123,7 +129,8 @@ func run(logger *slog.Logger) error {
 			return err
 		}
 		defer closeRefund()
-		create = postgres.NewCreateUseCase(repo)
+		durableCreate := postgres.NewCreateUseCase(repo)
+		create = durableCreate
 		var closeModel func()
 		var modelErr error
 		modelClient, closeModel, modelErr = configuredModelClient()
@@ -136,11 +143,16 @@ func run(logger *slog.Logger) error {
 		}
 		read = postgres.NewReadUseCase(pool)
 		command = postgres.NewCommandUseCase(repo)
-		update = postgres.NewUpdateUseCase(repo)
+		durableUpdate := postgres.NewUpdateUseCase(repo)
+		update = durableUpdate
 		if modelClient != nil {
 			update = modeldata.NewUpdateUseCase(modelClient, update)
 		}
-		servers, ready, err := configureKubernetesRuntime(pool, modelClient, refund)
+		if imageClient != nil {
+			create = &imagedata.CreateUseCase{Client: imageClient, Next: create, Preflight: durableCreate}
+			update = &imagedata.UpdateUseCase{Client: imageClient, Next: update, Preflight: durableUpdate}
+		}
+		servers, ready, err := configureKubernetesRuntimeWithImages(pool, modelClient, imageClient, refund)
 		if err != nil {
 			return err
 		}
@@ -159,10 +171,18 @@ func run(logger *slog.Logger) error {
 }
 
 func configureKubernetesRuntime(pool *pgxpool.Pool, modelClient *modeldata.Client, reporters ...gpu.RefundReporter) ([]kratosTransport.Server, bool, error) {
-	return buildKubernetesServers(pool, modelClient, reporters...)
+	return configureKubernetesRuntimeWithImages(pool, modelClient, nil, reporters...)
+}
+
+func configureKubernetesRuntimeWithImages(pool *pgxpool.Pool, modelClient *modeldata.Client, imageClient *imagedata.Client, reporters ...gpu.RefundReporter) ([]kratosTransport.Server, bool, error) {
+	return buildKubernetesServersWithImages(pool, modelClient, imageClient, reporters...)
 }
 
 func buildKubernetesServers(pool *pgxpool.Pool, modelClient *modeldata.Client, reporters ...gpu.RefundReporter) ([]kratosTransport.Server, bool, error) {
+	return buildKubernetesServersWithImages(pool, modelClient, nil, reporters...)
+}
+
+func buildKubernetesServersWithImages(pool *pgxpool.Pool, modelClient *modeldata.Client, imageClient *imagedata.Client, reporters ...gpu.RefundReporter) ([]kratosTransport.Server, bool, error) {
 	namespace := os.Getenv("ANI_INFERENCE_NAMESPACE")
 	if namespace == "" {
 		return nil, false, errors.New("ANI_INFERENCE_NAMESPACE is required for Kubernetes runtime")
@@ -205,6 +225,9 @@ func buildKubernetesServers(pool *pgxpool.Pool, modelClient *modeldata.Client, r
 	runtimeExecutor.Client = mgr.GetClient()
 	runtimeExecutor.APIReader = mgr.GetAPIReader()
 	runtimeExecutor.CRClient = mgr.GetClient()
+	if imageClient != nil {
+		runtimeRouter.PullSecrets = &kubernetes.SharedPullSecrets{Client: mgr.GetClient(), Material: imageClient}
+	}
 	controller.Status = &kubernetes.StatusProjector{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Source: postgres.NewStatusProjectionSource(pool)}
 	modelMaterializer := &modeldata.Materializer{
 		Catalog:             modelClient,

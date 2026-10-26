@@ -53,3 +53,39 @@ recovery implementation that understands them. This change does not deploy,
 apply a real business migration, create a model workload or prove physical GPU
 release. Formal root-module consumption and software acceptance require the
 new API's published immutable version with `GOWORK=off`.
+
+## Catalog image intake
+
+Deploy a compatible receiver before enabling the new producer. Set
+`imageRegistry.enabled`, its Resource runtime gRPC address, verified OS/architecture
+and a client TLS Secret with the exact identity `ani-inference-service`. The
+Resource runtime server identity is `ani-network-service`; this client never
+borrows a Governance certificate. The environment equivalents are
+`ANI_IMAGE_RUNTIME_GRPC_ADDR`, `ANI_IMAGE_RUNTIME_{CA,CERT,KEY}_FILE`, and
+`ANI_IMAGE_TARGET_{OS,ARCH,VARIANT}`. Namespace remains `ANI_INFERENCE_NAMESPACE`.
+
+When enabled, new creates and engine updates require catalog contract version
+2. Durable accepted replays run before directory access. First acceptance
+resolves outside the database transaction and stores the digest in `ImageRef`,
+with selection/platform/Secret reference in existing `spec_json`. An engine
+update resolves into a new generation; other updates inherit that frozen spec.
+Start/restart and recovery retain the accepted generation's reference. Legacy
+raw-image services retain their historical reference and lifecycle semantics;
+they are not represented as digest-controlled catalog services. Migrate one by
+an explicit complete-engine update with a catalog selection. There is no
+automatic lookup or fabricated image ID for old tags.
+
+The sole Secret writer is `SharedPullSecrets`. Each tenant/namespace/registry
+scope has its own deterministic Secret; ownership, ImageSpace, registry,
+credential generation and resourceVersion are fenced. Runtime Pods reference
+it explicitly; the no-token runtime ServiceAccount and system materializer
+credentials remain separate. Stop/delete do not call Resource or delete this
+shared Secret.
+
+A structured Resource business denial before owner acceptance is returned as
+`FailedPrecondition / IMAGE_ADMISSION_REJECTED`, with `ErrorInfo` domain
+`ani-inference`, `stage=pre_accept`, original tenant/resource/operation/digest
+and a bounded `image_reason`. Generic gRPC failures and unknown results do not
+produce this signal. Governance persists the original error and a correlated
+independent DELETE, then follows the existing CPU/GPU closing and original
+ledger settlement rules. A DELETE ACK alone is not release completion.

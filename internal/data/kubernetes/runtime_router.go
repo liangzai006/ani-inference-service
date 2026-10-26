@@ -20,6 +20,9 @@ type RuntimeRouter struct {
 	KServe              inferencebiz.RuntimePort
 	DeploymentReconcile bizreconcile.Runtime
 	KServeReconcile     bizreconcile.Runtime
+	PullSecrets         interface {
+		Ensure(context.Context, RuntimeSpec) error
+	}
 }
 
 var _ inferencebiz.RuntimePort = (*RuntimeRouter)(nil)
@@ -99,6 +102,9 @@ func (r *RuntimeRouter) ApplyCR(ctx context.Context, op inferencebiz.OperationCo
 	if err != nil {
 		return err
 	}
+	if err := r.ensurePullSecrets(ctx, spec.RuntimeSpec); err != nil {
+		return err
+	}
 	provider, err := r.choose(spec)
 	if err != nil {
 		return err
@@ -109,6 +115,9 @@ func (r *RuntimeRouter) ApplyCR(ctx context.Context, op inferencebiz.OperationCo
 func (r *RuntimeRouter) ApplyRuntime(ctx context.Context, op inferencebiz.OperationContext) error {
 	spec, err := r.desired(ctx, op)
 	if err != nil {
+		return err
+	}
+	if err := r.ensurePullSecrets(ctx, spec.RuntimeSpec); err != nil {
 		return err
 	}
 	provider, err := r.choose(spec)
@@ -174,9 +183,24 @@ func (r *RuntimeRouter) Ensure(ctx context.Context, desired bizreconcile.Desired
 	if err != nil {
 		return bizreconcile.Observation{}, err
 	}
+	if spec.DesiredState == "running" {
+		if err := r.ensurePullSecrets(ctx, spec.RuntimeSpec); err != nil {
+			return bizreconcile.Observation{}, err
+		}
+	}
 	provider, err := r.chooseReconcile(spec)
 	if err != nil {
 		return bizreconcile.Observation{}, err
 	}
 	return provider.Ensure(ctx, desired)
+}
+
+func (r *RuntimeRouter) ensurePullSecrets(ctx context.Context, spec RuntimeSpec) error {
+	if spec.ImageSelection == nil {
+		return nil
+	}
+	if r.PullSecrets == nil {
+		return errors.New("accepted image requires configured pull Secret synchronization")
+	}
+	return r.PullSecrets.Ensure(ctx, spec)
 }

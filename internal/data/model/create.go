@@ -33,7 +33,7 @@ func (u *CreateUseCase) Create(ctx context.Context, in inference.CreateInput) (*
 			return out, err
 		}
 	}
-	if strings.TrimSpace(in.EngineRuntime) == "" || strings.TrimSpace(in.ImageRef) == "" || strings.TrimSpace(in.EngineCommand) == "" {
+	if strings.TrimSpace(in.EngineRuntime) == "" || (strings.TrimSpace(in.ImageRef) == "" && in.ImageID == "") || strings.TrimSpace(in.EngineCommand) == "" {
 		return nil, status.Error(codes.InvalidArgument, "engine type, image and startup command are required")
 	}
 	v, err := u.client.GetReadyVersion(ctx, in.TenantID, in.ModelVersionID)

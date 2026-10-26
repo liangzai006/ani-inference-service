@@ -465,6 +465,13 @@ func applyGPUSnapshotToPredictor(predictor map[string]interface{}, pod *corev1.P
 	if strings.TrimSpace(pod.ServiceAccountName) != "" {
 		predictor["serviceAccountName"] = pod.ServiceAccountName
 	}
+	if len(pod.ImagePullSecrets) > 0 {
+		refs := make([]interface{}, 0, len(pod.ImagePullSecrets))
+		for _, ref := range pod.ImagePullSecrets {
+			refs = append(refs, map[string]interface{}{"name": ref.Name})
+		}
+		predictor["imagePullSecrets"] = refs
+	}
 	if pod.SecurityContext != nil {
 		securityContext, err := runtime.DefaultUnstructuredConverter.ToUnstructured(pod.SecurityContext)
 		if err != nil {
@@ -536,6 +543,9 @@ func renderKServeInferenceService(spec RuntimeSpec) (*unstructured.Unstructured,
 	}
 	schedulingAnnotations, err := applyInferenceScheduling(spec, &pod, "kserve-container")
 	if err != nil {
+		return nil, err
+	}
+	if err := applyImageProjection(spec, &pod); err != nil {
 		return nil, err
 	}
 	containerMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&pod.Containers[0])
@@ -644,6 +654,9 @@ func renderKServeLLMInferenceService(spec RuntimeSpec) (*unstructured.Unstructur
 	// remains rejected by validateGPUSnapshot until its projection is supported.
 	_, err = applyInferenceScheduling(spec, &pod, "main")
 	if err != nil {
+		return nil, err
+	}
+	if err := applyImageProjection(spec, &pod); err != nil {
 		return nil, err
 	}
 	containerMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&pod.Containers[0])
@@ -1082,6 +1095,30 @@ func kservePodPlacementMatches(template map[string]interface{}, actual *corev1.P
 	}
 	if scheduler, found, _ := unstructured.NestedString(template, "schedulerName"); found && scheduler != actual.SchedulerName {
 		return false
+	}
+	if refs, found, err := unstructured.NestedSlice(template, "imagePullSecrets"); err != nil {
+		return false
+	} else if found {
+		for _, entry := range refs {
+			ref, ok := entry.(map[string]interface{})
+			if !ok {
+				return false
+			}
+			name, ok := ref["name"].(string)
+			if !ok || name == "" {
+				return false
+			}
+			matched := false
+			for _, actualRef := range actual.ImagePullSecrets {
+				if actualRef.Name == name {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				return false
+			}
+		}
 	}
 	if selector, found, err := unstructured.NestedStringMap(template, "nodeSelector"); err != nil {
 		return false

@@ -71,6 +71,7 @@ SELECT s.tenant_id, s.id, s.name, s.desired_state, s.desired_generation, s.appli
        COALESCE(sp.served_model_name, '') AS served_model_name,
        COALESCE(sp.engine_runtime, '') AS engine_runtime,
        COALESCE(sp.command_argv, '[]'::jsonb) AS command_argv,
+       COALESCE(sp.spec_json, '{}'::jsonb) AS spec_json,
        COALESCE(sp.resources, '{}'::jsonb) AS resources,
        COALESCE(sp.replicas, 0)::int4 AS replicas,
        COALESCE(sp.runtime_mode, 'deployment') AS runtime_mode,
@@ -196,7 +197,7 @@ SELECT s.tenant_id, sqlc.arg(id), s.service_id, sqlc.arg(target_generation), s.m
        sqlc.arg(resources), sqlc.arg(replicas),
        sqlc.arg(runtime_mode), sqlc.arg(worker_replicas),
        CASE WHEN sqlc.arg(runtime_provider)::text <> '' THEN sqlc.arg(runtime_provider) ELSE s.runtime_provider END,
-       CASE WHEN sqlc.arg(model_version_id)::uuid IS NOT NULL THEN s.spec_json || sqlc.arg(model_capabilities)::jsonb ELSE s.spec_json END,
+       CASE WHEN sqlc.arg(model_capabilities)::jsonb IS NOT NULL THEN s.spec_json || sqlc.arg(model_capabilities)::jsonb ELSE s.spec_json END,
        sqlc.arg(endpoint_container_port), sqlc.arg(endpoint_service_port), sqlc.arg(endpoint_target_port), sqlc.arg(endpoint_protocol),
        sqlc.arg(gpu_request), sqlc.arg(gpu_plan), sqlc.arg(gpu_plan_digest)
 FROM inference_specs s
@@ -765,6 +766,7 @@ SELECT s.tenant_id, s.id, s.name, s.desired_state, s.desired_generation, s.appli
        COALESCE(sp.served_model_name, '') AS served_model_name,
        COALESCE(sp.engine_runtime, '') AS engine_runtime,
        COALESCE(sp.command_argv, '[]'::jsonb) AS command_argv,
+       COALESCE(sp.spec_json, '{}'::jsonb) AS spec_json,
        COALESCE(sp.resources, '{}'::jsonb) AS resources,
        COALESCE(sp.replicas, 0)::int4 AS replicas,
        COALESCE(sp.runtime_mode, 'deployment') AS runtime_mode,
