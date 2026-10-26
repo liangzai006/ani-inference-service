@@ -95,6 +95,17 @@ func governanceHash(object map[string]any) (string, error) {
 }
 
 func canonicalMessage(msg protoreflect.Message, business bool) (map[string]any, error) {
+	version := uint64(0)
+	if field := msg.Descriptor().Fields().ByName("contract_version"); field != nil {
+		version = msg.Get(field).Uint()
+	}
+	if version != 0 && version != 2 {
+		return nil, fmt.Errorf("unsupported command contract version")
+	}
+	return canonicalMessageVersion(msg, business, version == 2)
+}
+
+func canonicalMessageVersion(msg protoreflect.Message, business, catalog bool) (map[string]any, error) {
 	if len(msg.GetUnknown()) != 0 {
 		return nil, fmt.Errorf("unknown business fields are not allowed")
 	}
@@ -103,6 +114,12 @@ func canonicalMessage(msg protoreflect.Message, business bool) (map[string]any, 
 	for i := 0; i < fields.Len(); i++ {
 		field := fields.Get(i)
 		name := string(field.Name())
+		if !catalog && (name == "contract_version" || (msg.Descriptor().FullName() == "inference.v1.EngineSpec" && (name == "image_id" || name == "image_scope"))) {
+			if msg.Has(field) {
+				return nil, fmt.Errorf("catalog fields require contract_version 2")
+			}
+			continue
+		}
 		if business && (name == "request_id" || name == "context") {
 			continue
 		}
@@ -111,7 +128,7 @@ func canonicalMessage(msg protoreflect.Message, business bool) (map[string]any, 
 			entries := make(map[string]any)
 			var failure error
 			value.Map().Range(func(key protoreflect.MapKey, item protoreflect.Value) bool {
-				converted, err := canonicalValue(field.MapValue(), item)
+				converted, err := canonicalValueVersion(field.MapValue(), item, catalog)
 				if err != nil {
 					failure = err
 					return false
@@ -126,7 +143,7 @@ func canonicalMessage(msg protoreflect.Message, business bool) (map[string]any, 
 		} else if field.IsList() {
 			entries := make([]any, 0, value.List().Len())
 			for j := 0; j < value.List().Len(); j++ {
-				converted, err := canonicalValue(field, value.List().Get(j))
+				converted, err := canonicalValueVersion(field, value.List().Get(j), catalog)
 				if err != nil {
 					return nil, err
 				}
@@ -136,7 +153,7 @@ func canonicalMessage(msg protoreflect.Message, business bool) (map[string]any, 
 		} else if field.Kind() == protoreflect.MessageKind && !msg.Has(field) {
 			out[name] = nil
 		} else {
-			converted, err := canonicalValue(field, value)
+			converted, err := canonicalValueVersion(field, value, catalog)
 			if err != nil {
 				return nil, err
 			}
@@ -147,9 +164,13 @@ func canonicalMessage(msg protoreflect.Message, business bool) (map[string]any, 
 }
 
 func canonicalValue(field protoreflect.FieldDescriptor, value protoreflect.Value) (any, error) {
+	return canonicalValueVersion(field, value, false)
+}
+
+func canonicalValueVersion(field protoreflect.FieldDescriptor, value protoreflect.Value, catalog bool) (any, error) {
 	switch field.Kind() {
 	case protoreflect.MessageKind:
-		return canonicalMessage(value.Message(), false)
+		return canonicalMessageVersion(value.Message(), false, catalog)
 	case protoreflect.StringKind:
 		return value.String(), nil
 	case protoreflect.BoolKind:

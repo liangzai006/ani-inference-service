@@ -39,8 +39,8 @@ func ValidateBusinessPayload(req *inferencev1.CreateInferenceServiceRequest) err
 		return fmt.Errorf("model_version_id must be a UUID")
 	}
 	engine := req.GetEngine()
-	if engine == nil || strings.TrimSpace(engine.GetType()) == "" || strings.TrimSpace(engine.GetImage()) == "" || strings.TrimSpace(engine.GetCommand()) == "" {
-		return fmt.Errorf("engine type, image and command are required")
+	if err := ValidateEngineSelection(engine, req.GetContractVersion()); err != nil {
+		return err
 	}
 	if req.GetReplicas() < 1 {
 		return fmt.Errorf("replicas must be positive")
