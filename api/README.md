@@ -53,6 +53,8 @@ No local `replace` or `go.work` is committed for normal builds.
 Catalog image commands use `contract_version=2` on CREATE/UPDATE and
 `engine.image_id` / `engine.image_scope` (`platform` or `tenant`). They must
 omit `engine.image`; the receiver resolves and persists the execution digest.
+Image IDs follow Resource's existing `img_[0-9a-f]{32}` contract, distinct from
+the UUIDs used for tenant, model version and operation identities.
 The default zero version retains the original canonical field set and digest.
 Populated catalog fields in a zero-version command are rejected. Persisted
 legacy commands remain replayable; new public creates and image changes use
