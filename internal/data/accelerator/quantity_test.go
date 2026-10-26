@@ -19,6 +19,21 @@ func TestExecutionAdapterPreservesOpaqueMaps(t *testing.T) {
 	if got.Execution.Resources["volcano.sh/vgpu-memory"] != "2" || got.Execution.PodAnnotations["volcano.sh/vgpu-mode"] != "hami-core" {
 		t.Fatalf("snapshot=%+v", got)
 	}
+	execution.Resources["volcano.sh/vgpu-memory"] = "2457"
+	execution.PodAnnotations["accelerator.ani.io/memory-block-mib"] = "10"
+	execution.ExecutionDigest, _ = gpuprotocol.GpuExecutionDigest(execution)
+	got, err = fromProtoSnapshot(in, r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Execution.Resources["volcano.sh/vgpu-memory"] != "2457" || got.Execution.PodAnnotations["accelerator.ani.io/memory-block-mib"] != "10" {
+		t.Fatal("factor-10 native execution was changed")
+	}
+	execution.PodAnnotations["accelerator.ani.io/memory-block-mib"] = "100"
+	execution.ExecutionDigest, _ = gpuprotocol.GpuExecutionDigest(execution)
+	if _, err := fromProtoSnapshot(in, r); err == nil {
+		t.Fatal("unsupported memory factor accepted")
+	}
 }
 
 func TestExecutionAdapterRejectsMalformedExecution(t *testing.T) {

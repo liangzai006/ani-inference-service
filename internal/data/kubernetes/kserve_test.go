@@ -176,46 +176,57 @@ func TestRenderKServeMountsModelWithoutExplicitEndpoint(t *testing.T) {
 }
 
 func TestRenderKServeAppliesFrozenGPUPlan(t *testing.T) {
-	request, plan := testGPUPlan(t, "kserve-container")
-	obj, err := renderKServeInferenceService(RuntimeSpec{
-		TenantID: "tenant", ServiceID: "service", Name: "gpu-model", Namespace: "models", Image: "registry/vllm:1",
-		ArtifactProvider: "model", ModelClaim: "ani-model-claim", Generation: 4, Replicas: 1,
-		Resources: resources.Normalized{GPU: request}, GPUSnapshot: plan,
-		Endpoint: &EndpointSpec{ContainerPort: 8080, ServicePort: 80, Protocol: corev1.ProtocolTCP},
-	})
-	if err != nil {
-		t.Fatalf("render GPU KServe service: %v", err)
-	}
-	predictor, found, err := unstructured.NestedMap(obj.Object, "spec", "predictor")
-	if err != nil || !found {
-		t.Fatalf("predictor = %#v, found=%v, err=%v", predictor, found, err)
-	}
-	if got, _ := predictor["schedulerName"].(string); got != "volcano" {
-		t.Fatalf("schedulerName = %q", got)
-	}
-	assertKServeNonRoot(t, predictor)
-	nodeSelector, found, err := unstructured.NestedMap(predictor, "nodeSelector")
-	if err != nil || !found || nodeSelector["accelerator.ani.io/baseline-id"] != "baseline-a" {
-		t.Fatalf("nodeSelector = %#v, found=%v, err=%v", nodeSelector, found, err)
-	}
-	if got, _ := predictor["runtimeClassName"].(string); got != "gpu-runtime" {
-		t.Fatalf("runtimeClassName = %q", got)
-	}
-	containers, found, err := unstructured.NestedSlice(predictor, "containers")
-	if err != nil || !found || len(containers) != 1 {
-		t.Fatalf("containers = %#v, found=%v, err=%v", containers, found, err)
-	}
-	containerMap := containers[0].(map[string]interface{})
-	limits, found, err := unstructured.NestedMap(containerMap, "resources", "limits")
-	if err != nil || !found || limits["volcano.sh/vgpu-number"] != "1" {
-		t.Fatalf("limits = %#v, found=%v, err=%v", limits, found, err)
-	}
-	annotations, found, err := unstructured.NestedMap(predictor, "annotations")
-	if err != nil || !found || annotations["volcano.sh/vgpu-mode"] != "hami-core" {
-		t.Fatalf("pod annotations = %#v, found=%v, err=%v", annotations, found, err)
-	}
-	if annotations["scheduling.volcano.sh/queue-name"] != "inference" {
-		t.Fatalf("queue was not delivered to Volcano PodGroup contract: %#v", annotations)
+	for _, factor := range []string{"", "10"} {
+		t.Run("factor="+factor, func(t *testing.T) {
+			request, plan := testGPUPlan(t, "kserve-container")
+			if factor != "" {
+				plan.Execution.Resources["volcano.sh/vgpu-memory"] = "2457"
+				plan.Execution.PodAnnotations["accelerator.ani.io/memory-block-mib"] = factor
+			}
+			obj, err := renderKServeInferenceService(RuntimeSpec{
+				TenantID: "tenant", ServiceID: "service", Name: "gpu-model", Namespace: "models", Image: "registry/vllm:1",
+				ArtifactProvider: "model", ModelClaim: "ani-model-claim", Generation: 4, Replicas: 1,
+				Resources: resources.Normalized{GPU: request}, GPUSnapshot: plan,
+				Endpoint: &EndpointSpec{ContainerPort: 8080, ServicePort: 80, Protocol: corev1.ProtocolTCP},
+			})
+			if err != nil {
+				t.Fatalf("render GPU KServe service: %v", err)
+			}
+			predictor, found, err := unstructured.NestedMap(obj.Object, "spec", "predictor")
+			if err != nil || !found {
+				t.Fatalf("predictor = %#v, found=%v, err=%v", predictor, found, err)
+			}
+			if got, _ := predictor["schedulerName"].(string); got != "volcano" {
+				t.Fatalf("schedulerName = %q", got)
+			}
+			assertKServeNonRoot(t, predictor)
+			nodeSelector, found, err := unstructured.NestedMap(predictor, "nodeSelector")
+			if err != nil || !found || nodeSelector["accelerator.ani.io/baseline-id"] != "baseline-a" {
+				t.Fatalf("nodeSelector = %#v, found=%v, err=%v", nodeSelector, found, err)
+			}
+			if got, _ := predictor["runtimeClassName"].(string); got != "gpu-runtime" {
+				t.Fatalf("runtimeClassName = %q", got)
+			}
+			containers, found, err := unstructured.NestedSlice(predictor, "containers")
+			if err != nil || !found || len(containers) != 1 {
+				t.Fatalf("containers = %#v, found=%v, err=%v", containers, found, err)
+			}
+			containerMap := containers[0].(map[string]interface{})
+			limits, found, err := unstructured.NestedMap(containerMap, "resources", "limits")
+			if err != nil || !found || limits["volcano.sh/vgpu-number"] != "1" {
+				t.Fatalf("limits = %#v, found=%v, err=%v", limits, found, err)
+			}
+			annotations, found, err := unstructured.NestedMap(predictor, "annotations")
+			if err != nil || !found || annotations["volcano.sh/vgpu-mode"] != "hami-core" {
+				t.Fatalf("pod annotations = %#v, found=%v, err=%v", annotations, found, err)
+			}
+			if annotations["scheduling.volcano.sh/queue-name"] != "inference" {
+				t.Fatalf("queue was not delivered to Volcano PodGroup contract: %#v", annotations)
+			}
+			if factor != "" && (limits["volcano.sh/vgpu-memory"] != "2457" || annotations["accelerator.ani.io/memory-block-mib"] != factor) {
+				t.Fatalf("native GPU execution changed: limits=%v annotations=%v", limits, annotations)
+			}
+		})
 	}
 }
 

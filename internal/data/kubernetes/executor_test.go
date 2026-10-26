@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strconv"
+	"strings"
 	"testing"
 
 	crdv1 "github.com/liangzai006/ani-inference-service/api/inference/crd/v1"
@@ -15,6 +16,7 @@ import (
 	"github.com/liangzai006/ani-inference-service/internal/biz/resources"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -197,6 +199,60 @@ func TestManagedGPUReleaseScopeFindsKServeOwnedPods(t *testing.T) {
 	}
 	if len(scope) != 1 || scope[0].UID != "pod-uid" || scope[0].Name != pod.Name {
 		t.Fatalf("release scope=%+v, want KServe pod UID", scope)
+	}
+}
+
+func TestManagedGPUReleaseScopeSeparatesModelMaterializer(t *testing.T) {
+	spec := RuntimeSpec{
+		TenantID: "tenant", ServiceID: "service", Name: "model", Namespace: "ns", Generation: 3,
+		RuntimeProvider: "kserve", ArtifactProvider: "model", ManagedGPU: true,
+		Resources: resources.Normalized{GPU: &gpu.Request{ContainerName: "kserve-container"}},
+	}
+	for _, tc := range []struct {
+		name   string
+		mutate func(*corev1.Pod, *corev1.Pod)
+		fails  bool
+	}{
+		{name: "completed download is excluded and runtime UID is deduplicated"},
+		{name: "missing component marker", fails: true, mutate: func(fetch, _ *corev1.Pod) { delete(fetch.Labels, "ani.kubercloud.com/component") }},
+		{name: "different Job", fails: true, mutate: func(fetch, _ *corev1.Pod) { fetch.OwnerReferences[0].Name = "another-job" }},
+		{name: "missing controller ownership", fails: true, mutate: func(fetch, _ *corev1.Pod) { fetch.OwnerReferences[0].Controller = boolPtr(false) }},
+		{name: "missing owner UID", fails: true, mutate: func(fetch, _ *corev1.Pod) { fetch.OwnerReferences[0].UID = "" }},
+		{name: "GPU limit on download", fails: true, mutate: func(fetch, _ *corev1.Pod) {
+			fetch.Spec.Containers[0].Resources.Limits = corev1.ResourceList{"volcano.sh/vgpu-memory": resource.MustParse("2457")}
+		}},
+		{name: "GPU request on init container", fails: true, mutate: func(fetch, _ *corev1.Pod) {
+			fetch.Spec.InitContainers = []corev1.Container{{Name: "gpu-init", Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{"nvidia.com/gpu": resource.MustParse("1")}}}}
+		}},
+		{name: "runtime missing GPU container remains invalid", fails: true, mutate: func(_, runtime *corev1.Pod) {
+			runtime.Spec.Containers[0].Name = "wrong-container"
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fetch := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+				Name: ModelClaimName(spec) + "-fetch-pod", Namespace: spec.Namespace, UID: "download-pod-uid",
+				Labels:          map[string]string{tenantIDLabel: spec.TenantID, serviceIDLabel: spec.ServiceID, generationLabel: "3", "ani.kubercloud.com/component": "model-materializer"},
+				OwnerReferences: []metav1.OwnerReference{{APIVersion: "batch/v1", Kind: "Job", Name: ModelClaimName(spec) + "-fetch", UID: "download-job-uid", Controller: boolPtr(true)}},
+			}, Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "download", Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("100m")}}}}}, Status: corev1.PodStatus{Phase: corev1.PodSucceeded}}
+			runtime := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+				Name: "model-predictor-0", Namespace: spec.Namespace, UID: "runtime-pod-uid",
+				Labels: map[string]string{tenantIDLabel: spec.TenantID, serviceIDLabel: spec.ServiceID, generationLabel: "3", "serving.kserve.io/inferenceservice": spec.Name},
+			}, Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "kserve-container"}}}}
+			if tc.mutate != nil {
+				tc.mutate(fetch, runtime)
+			}
+			fc := fake.NewClientBuilder().WithScheme(executorScheme(t)).WithObjects(fetch, runtime).Build()
+			scope, err := (&RuntimeExecutor{Client: fc}).managedGPUReleasePods(context.Background(), spec)
+			if tc.fails {
+				if err == nil || !strings.Contains(err.Error(), "is missing container") {
+					t.Fatalf("ambiguous or GPU-bearing Pod was excluded: scope=%+v error=%v", scope, err)
+				}
+				return
+			}
+			if err != nil || len(scope) != 1 || scope[0].UID != "runtime-pod-uid" || scope[0].ContainerName != "kserve-container" {
+				t.Fatalf("scope=%+v error=%v, want only the GPU runtime Pod UID", scope, err)
+			}
+		})
 	}
 }
 

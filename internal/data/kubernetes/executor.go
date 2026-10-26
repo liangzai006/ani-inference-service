@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 
 	crdv1 "github.com/liangzai006/ani-inference-service/api/inference/crd/v1"
 	diagnosticsbiz "github.com/liangzai006/ani-inference-service/internal/biz/diagnostics"
@@ -322,6 +323,9 @@ func (e *RuntimeExecutor) managedGPUReleasePods(ctx context.Context, spec Runtim
 		if value := labels[generationLabel]; value != "" && value != strconv.FormatInt(spec.Generation, 10) {
 			continue
 		}
+		if isOwnedModelMaterializerPod(pod, spec) {
+			continue
+		}
 		containerName := spec.Resources.GPU.ContainerName
 		found := false
 		for _, container := range pod.Spec.Containers {
@@ -341,6 +345,33 @@ func (e *RuntimeExecutor) managedGPUReleasePods(ctx context.Context, spec Runtim
 		result = append(result, gpu.PodRef{ClusterID: spec.Resources.GPU.ClusterID, Namespace: pod.Namespace, Name: pod.Name, UID: uid, ContainerName: containerName})
 	}
 	return result, nil
+}
+
+// Model download Jobs share the business generation labels with the GPU
+// runtime. Exclude only that explicit auxiliary owner; ambiguous Pods still
+// have to supply the expected GPU container for release evidence.
+func isOwnedModelMaterializerPod(pod *corev1.Pod, spec RuntimeSpec) bool {
+	if spec.ArtifactProvider != "model" || pod.Labels["ani.kubercloud.com/component"] != "model-materializer" {
+		return false
+	}
+	owner := metav1.GetControllerOf(pod)
+	if owner == nil || owner.APIVersion != "batch/v1" || owner.Kind != "Job" || owner.UID == "" || owner.Name != ModelClaimName(spec)+"-fetch" {
+		return false
+	}
+	// The materializer uses only native CPU/memory resources. Reject every
+	// extended resource, including accelerators on init containers, instead of
+	// guessing which provider-specific GPU keys might acquire an allocation.
+	containers := append(append([]corev1.Container(nil), pod.Spec.Containers...), pod.Spec.InitContainers...)
+	for _, container := range containers {
+		for _, list := range []corev1.ResourceList{container.Resources.Requests, container.Resources.Limits} {
+			for name := range list {
+				if strings.Contains(string(name), "/") {
+					return false
+				}
+			}
+		}
+	}
+	return true
 }
 
 // Both active operations and terminal-operation scans use the same health
