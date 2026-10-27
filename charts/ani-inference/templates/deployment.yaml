@@ -125,6 +125,18 @@ spec:
             - name: ANI_ACCELERATOR_SERVER_NAME
               value: {{ required "accelerator.serverName is required when accelerator.enabled is true" .Values.accelerator.serverName | quote }}
             {{- end }}
+            {{- if .Values.governanceQuota.enabled }}
+            - name: ANI_GOVERNANCE_QUOTA_GRPC_ADDR
+              value: {{ required "governanceQuota.grpcAddress is required" .Values.governanceQuota.grpcAddress | quote }}
+            - name: ANI_GOVERNANCE_QUOTA_SERVER_NAME
+              value: {{ required "governanceQuota.serverName is required" .Values.governanceQuota.serverName | quote }}
+            - name: ANI_GOVERNANCE_QUOTA_CA_FILE
+              value: /var/run/secrets/service-client/ca.crt
+            - name: ANI_GOVERNANCE_QUOTA_CERT_FILE
+              value: /var/run/secrets/service-client/tls.crt
+            - name: ANI_GOVERNANCE_QUOTA_KEY_FILE
+              value: /var/run/secrets/service-client/tls.key
+            {{- end }}
           ports:
             - name: grpc
               containerPort: {{ .Values.service.grpcPort }}
@@ -167,6 +179,11 @@ spec:
             {{- if .Values.accelerator.enabled }}
             - name: accelerator-tls
               mountPath: /var/run/secrets/accelerator
+              readOnly: true
+            {{- end }}
+            {{- if .Values.governanceQuota.enabled }}
+            - name: service-client-tls
+              mountPath: /var/run/secrets/service-client
               readOnly: true
             {{- end }}
         {{- if .Values.gatewayAuthz.enabled }}
@@ -240,12 +257,17 @@ spec:
         {{- if .Values.imageRegistry.enabled }}
         - name: image-runtime-tls
           secret:
-            secretName: {{ required "imageRegistry.existingSecret is required" (trim .Values.imageRegistry.existingSecret) }}
+            secretName: {{ default .Values.serviceClientTLS.existingSecret .Values.imageRegistry.existingSecret | quote }}
         {{- end }}
         {{- if .Values.accelerator.enabled }}
         - name: accelerator-tls
           secret:
-            secretName: {{ required "accelerator.tls.secretName is required when accelerator.enabled is true" .Values.accelerator.tls.secretName }}
+            secretName: {{ default .Values.serviceClientTLS.existingSecret .Values.accelerator.tls.secretName | quote }}
+        {{- end }}
+        {{- if .Values.governanceQuota.enabled }}
+        - name: service-client-tls
+          secret:
+            secretName: {{ required "serviceClientTLS.existingSecret is required" .Values.serviceClientTLS.existingSecret }}
         {{- end }}
         {{- if .Values.gatewayAuthz.enabled }}
         - name: gateway-authz-tls
