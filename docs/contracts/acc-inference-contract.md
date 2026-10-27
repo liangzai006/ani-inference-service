@@ -50,6 +50,9 @@ ACC 的解析 RPC。它是事务外解析，不代表锁定、占用或创建已
 - `ObserveRelease(ObserveReleaseRequest) -> ReleaseObservation`
 
 ACC main 的 `ObserveRelease` 明确要求 `cluster_id` 和 RFC3339Nano 的 `sealed_at`。
+Inference 删除退额不调用 `ObserveRelease`：运行时由 Inference 删除并由 Inference
+观察到不存在（absence seal + Pod UID 范围），即为释放证据，随后直接向 Gov
+报告 `ReportResourceReleased`。上表消息仅作为 ACC 侧现有合同记录。
 `AcceleratorUsageService` 没有 `RegisterConsumer`、`MarkClosing` 或 `Finalize`。
 
 ### 持久命令确认消息
@@ -92,7 +95,7 @@ import "accelerator/integration/v1/owner_gpu_attachment.proto";
 | --- | --- | --- |
 | `CreateInferenceServiceRequest` | `gpu_owner_attachment = 10` | 退休；由 Inference 根据 `ResourceSpec.gpu` 调 ACC 解析，并持久化解析结果 |
 | `CreateInferenceServiceRequest` | `original_charges = 11` | 退休；配额账本由 Governance/ACC 新合同提供 |
-| `DeleteInferenceServiceRequest` | `gpu_owner_attachment = 4` | 退休；删除时使用持久化的 GPU 关联和 ACC `ObserveRelease` |
+| `DeleteInferenceServiceRequest` | `gpu_owner_attachment = 4` | 退休；删除时使用持久化的 GPU 关联和 Inference 本地 absence 证据，不调用 ACC |
 | `DeleteInferenceServiceRequest` | `original_charges = 5` | 退休；退款依据改为新账本合同 |
 | `OperationResponse` | `durable_owner_ack = 3`（旧 integration 包） | 退休或替换为 `accelerator.command.v1.DurableOwnerAck`，迁移前不能改变 wire 编号语义 |
 | 持久化/内部对象 | `GpuPlan`、`GpuPlanDigest`、`ResolvedGpuPlan`、`GpuChargeRef` | 不再作为 ACC main 的输入输出；迁移期可读旧数据，但不得用旧类型生成新请求 |

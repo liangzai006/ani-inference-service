@@ -336,7 +336,7 @@ committed; durable retries must tolerate that uncertainty.
 The inference owner still owns model loading/inference, real scheduling and
 hardware restrictions, trusted Pod signing and complete Pod history, fencing
 all create execution points, reconciling in-flight writes, full workload/GPU
-cleanup and `ObserveRelease`, the persistent closed fact, reliable notification
+cleanup confirmed by Inference's own absence observation, the persistent closed fact, reliable notification
 outbox, notification triggering/retry scheduling and real environment recovery.
 These remain `not_verified` by software command/refund wiring.
 

@@ -175,8 +175,8 @@ type RuntimePort interface {
 
 // ManagedGPUReleasePort is called only after a managed GPU delete has
 // withdrawn publication, removed the runtime and observed its absence. Its
-// implementation must prove release through Accelerator and obtain the
-// Governance receipt before returning nil.
+// implementation must require that sealed absence fact, persist the release
+// report and obtain the Governance receipt before returning nil.
 type ManagedGPUReleasePort interface {
 	ReleaseManagedGPU(context.Context, OperationContext) error
 }

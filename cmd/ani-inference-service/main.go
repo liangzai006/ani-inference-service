@@ -253,9 +253,7 @@ func buildKubernetesServers(pool *pgxpool.Pool, modelClient *modeldata.Client, r
 	}
 	var managedGPURelease inferencebiz.ManagedGPUReleasePort
 	if len(reporters) > 0 && reporters[0] != nil {
-		if observer, ok := gpuResolver.(gpu.ReleaseObserver); ok {
-			managedGPURelease = &service.ManagedGPUReleaseCoordinator{Observer: observer, Contexts: postgres.NewRepository(pool), Reporter: reporters[0]}
-		}
+		managedGPURelease = &service.ManagedGPUReleaseCoordinator{Contexts: postgres.NewRepository(pool), Reporter: reporters[0]}
 	}
 	managedGPUConfigured := strings.TrimSpace(os.Getenv("ANI_ACCELERATOR_GRPC_ADDR")) != "" || (len(reporters) > 0 && reporters[0] != nil)
 	managedGPUReady := managedGPUReadiness(managedGPUConfigured, managedGPURelease)

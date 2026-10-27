@@ -1,7 +1,7 @@
 package main
 
 // This opt-in fixture runs production acceptance, Model wrappers, PostgreSQL,
-// runner, close recovery and mTLS. Only Model's RPC and external runtime/ACC
+// runner, close recovery and mTLS. Only Model's RPC and external runtime
 // ports are controlled. It never constructs a Kubernetes client or downloads
 // an artifact; its Ready/Released values are software-test inputs only.
 import (
@@ -70,7 +70,7 @@ func TestComputeOwnerProcess(t *testing.T) {
 	}
 	defer closeReporter()
 	boundary.reporter = reporter
-	coordinator := &service.ManagedGPUReleaseCoordinator{Observer: boundary, Contexts: repo, Reporter: boundary}
+	coordinator := &service.ManagedGPUReleaseCoordinator{Contexts: repo, Reporter: boundary}
 	store := postgres.NewWorkStore(pool, postgres.WorkStoreOptions{Owner: "compute-software-fixture", LeaseSeconds: 2, ObserveSeconds: .01, RetrySeconds: .01})
 	runner := &inferencebiz.Runner{Store: postgres.NewOperationStore(pool), Admission: boundary, Model: boundary, GPU: boundary, Quota: boundary, Publication: boundary, Runtime: boundary, ManagedGPURelease: coordinator, RetryAfter: 10 * time.Millisecond}
 	worker := &work.Worker{Store: store, Execute: runner.Execute}
@@ -243,18 +243,6 @@ func (p *computeProcessBoundary) Get(context.Context, string, string) (quota.Res
 func (p *computeProcessBoundary) ResolveGPU(_ context.Context, o inferencebiz.OperationContext) (*gpu.Snapshot, error) {
 	p.event("gpu_resolve", o.ID)
 	return nil, errors.New("managed resource reached owner GPU resolver")
-}
-func (p *computeProcessBoundary) ObserveRelease(_ context.Context, in gpu.ReleaseObservationInput) (gpu.ReleaseObservation, error) {
-	p.event("observe_release", in)
-	var result gpu.ReleaseObservation
-	raw, err := os.ReadFile(filepath.Join(p.dir, "acc-result.json"))
-	if err != nil {
-		return result, err
-	}
-	if err = json.Unmarshal(raw, &result); err != nil {
-		return result, err
-	}
-	return result, nil
 }
 func (p *computeProcessBoundary) ReportResourceReleased(ctx context.Context, n gpu.ReleaseNotification) error {
 	p.event("release_report", n)

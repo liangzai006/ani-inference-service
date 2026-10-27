@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
@@ -14,79 +15,115 @@ func (s *releaseContextStoreFake) LoadRefundContext(context.Context, string, str
 	return s.original, nil
 }
 
-type releaseObserverFake struct {
-	input gpu.ReleaseObservationInput
+// releaseReportStoreFake records the persisted proof but never replays it, so
+// every call recomputes evidence from the operation context.
+type releaseReportStoreFake struct {
+	releaseContextStoreFake
+	evidenceIDs, digests []string
 }
 
-func (f *releaseObserverFake) ObserveRelease(_ context.Context, input gpu.ReleaseObservationInput) (gpu.ReleaseObservation, error) {
-	f.input = input
-	return gpu.ReleaseObservation{EvidenceID: "10000000-0000-4000-8000-000000000014", EvidenceDigest: "digest", Finding: gpu.ReleaseFindingReleased}, nil
+func (s *releaseReportStoreFake) LoadManagedReleaseReport(context.Context, gpu.RefundContext) (gpu.ReleaseNotification, bool, error) {
+	return gpu.ReleaseNotification{}, false, nil
 }
 
-type releaseReporterFake struct {
-	notification gpu.ReleaseNotification
-}
-
-func (f *releaseReporterFake) ReportResourceReleased(_ context.Context, notification gpu.ReleaseNotification) error {
-	f.notification = notification
+func (s *releaseReportStoreFake) SaveManagedReleaseReport(_ context.Context, _ gpu.RefundContext, evidenceID, digest string, _ gpu.ReleaseNotification, _ string) error {
+	s.evidenceIDs, s.digests = append(s.evidenceIDs, evidenceID), append(s.digests, digest)
 	return nil
 }
 
-func TestManagedGPUReleaseRequiresAcceleratorEvidenceBeforeGovernance(t *testing.T) {
-	observer := &releaseObserverFake{}
-	reporter := &releaseReporterFake{}
-	coordinator := &ManagedGPUReleaseCoordinator{
-		Observer: observer,
-		Contexts: &releaseContextStoreFake{original: gpu.RefundContext{
-			TenantID: "10000000-0000-4000-8000-000000000001", ResourceID: "10000000-0000-4000-8000-000000000002",
-			OriginalCreateOperationID: "10000000-0000-4000-8000-000000000003", DeleteOperationID: "10000000-0000-4000-8000-000000000004",
-			OwnerService: "ani-inference", ClusterID: "10000000-0000-4000-8000-000000000006",
-		}},
-		Reporter: reporter,
+type releaseReporterFake struct {
+	calls []gpu.ReleaseNotification
+}
+
+func (f *releaseReporterFake) ReportResourceReleased(_ context.Context, notification gpu.ReleaseNotification) error {
+	f.calls = append(f.calls, notification)
+	return nil
+}
+
+func releaseFixture() (gpu.RefundContext, inferencebiz.OperationContext) {
+	original := gpu.RefundContext{
+		TenantID: "10000000-0000-4000-8000-000000000001", ResourceID: "10000000-0000-4000-8000-000000000002",
+		OriginalCreateOperationID: "10000000-0000-4000-8000-000000000003", DeleteOperationID: "10000000-0000-4000-8000-000000000004",
+		OwnerService: "ani-inference", ClusterID: "10000000-0000-4000-8000-000000000006",
 	}
 	op := inferencebiz.OperationContext{
-		TenantID: "10000000-0000-4000-8000-000000000001", ServiceID: "10000000-0000-4000-8000-000000000002", ID: "10000000-0000-4000-8000-000000000004", Kind: "delete", ManagedGPU: true,
-		ManagedGPUCreateOperationID: "10000000-0000-4000-8000-000000000003", Actor: "ani-inference:owner",
-		GPURequest:            &gpu.Request{ClusterID: "10000000-0000-4000-8000-000000000006"},
-		ManagedGPUReleasePods: []gpu.PodRef{{ClusterID: "10000000-0000-4000-8000-000000000006", Namespace: "ani-system", Name: "model-0", UID: "10000000-0000-4000-8000-000000000007", ContainerName: "kserve-container"}},
+		TenantID: original.TenantID, ServiceID: original.ResourceID, ID: original.DeleteOperationID, Kind: "delete", ManagedGPU: true,
+		ManagedGPUCreateOperationID: original.OriginalCreateOperationID, Actor: "ani-inference:owner",
+		ManagedGPUReleaseSealedAt: "2026-10-18T00:00:00.000000000Z",
+		ManagedGPUReleasePods: []gpu.PodRef{
+			{ClusterID: original.ClusterID, Namespace: "ani-system", Name: "model-0", UID: "10000000-0000-4000-8000-000000000007", ContainerName: "kserve-container"},
+			{ClusterID: original.ClusterID, Namespace: "ani-system", Name: "model-1", UID: "10000000-0000-4000-8000-000000000008", ContainerName: "kserve-container"},
+		},
 	}
+	return original, op
+}
+
+func TestManagedGPUReleaseReportsGovernanceAfterLocalAbsence(t *testing.T) {
+	original, op := releaseFixture()
+	reporter := &releaseReporterFake{}
+	coordinator := &ManagedGPUReleaseCoordinator{Contexts: &releaseContextStoreFake{original: original}, Reporter: reporter}
 	if err := coordinator.ReleaseManagedGPU(context.Background(), op); err != nil {
 		t.Fatal(err)
 	}
-	if observer.input.DeleteOperationID != op.ID || len(observer.input.Pods) != 1 || reporter.notification.ReleaseEventID == "" {
-		t.Fatalf("observer=%+v notification=%+v", observer.input, reporter.notification)
+	if len(reporter.calls) != 1 {
+		t.Fatalf("reports=%v", reporter.calls)
 	}
-	if reporter.notification.CreateOperationID != op.ManagedGPUCreateOperationID || reporter.notification.ResourceID != op.ServiceID || reporter.notification.Reason != gpu.ResourceReleased {
-		t.Fatalf("notification=%+v", reporter.notification)
+	n := reporter.calls[0]
+	if n.ReleaseEventID == "" || n.CreateOperationID != op.ManagedGPUCreateOperationID || n.ResourceID != op.ServiceID || n.Reason != gpu.ResourceReleased {
+		t.Fatalf("notification=%+v", n)
 	}
 }
 
-func TestManagedGPUReleaseAllowsEmptyPodScopeAndReusesPersistedSeal(t *testing.T) {
-	observer := &releaseObserverFake{}
+func TestManagedGPUReleaseRequiresAbsenceSeal(t *testing.T) {
+	original, op := releaseFixture()
+	op.ManagedGPUReleaseSealedAt = ""
 	reporter := &releaseReporterFake{}
-	coordinator := &ManagedGPUReleaseCoordinator{
-		Observer: observer,
-		Contexts: &releaseContextStoreFake{original: gpu.RefundContext{
-			TenantID: "10000000-0000-4000-8000-000000000001", ResourceID: "10000000-0000-4000-8000-000000000002",
-			OriginalCreateOperationID: "10000000-0000-4000-8000-000000000003", DeleteOperationID: "10000000-0000-4000-8000-000000000004",
-			OwnerService: "ani-inference", ClusterID: "10000000-0000-4000-8000-000000000006",
-		}},
-		Reporter: reporter,
+	coordinator := &ManagedGPUReleaseCoordinator{Contexts: &releaseContextStoreFake{original: original}, Reporter: reporter}
+	if err := coordinator.ReleaseManagedGPU(context.Background(), op); !errors.Is(err, ErrManagedGPUReleaseNotProven) {
+		t.Fatalf("err=%v, want not proven", err)
 	}
-	op := inferencebiz.OperationContext{
-		TenantID: "10000000-0000-4000-8000-000000000001", ServiceID: "10000000-0000-4000-8000-000000000002", ID: "10000000-0000-4000-8000-000000000004", Kind: "delete", ManagedGPU: true,
-		ManagedGPUCreateOperationID: "10000000-0000-4000-8000-000000000003", Actor: "ani-inference:owner", RequestID: "delete-request",
-		ManagedGPUReleaseSealedAt: "2026-10-18T00:00:00.000000000Z",
-		GPURequest:                &gpu.Request{ClusterID: "10000000-0000-4000-8000-000000000006"},
+	if len(reporter.calls) != 0 {
+		t.Fatalf("unsealed delete reported release: %v", reporter.calls)
 	}
+}
+
+func TestManagedGPUReleaseRejectsAmbiguousPodScope(t *testing.T) {
+	original, op := releaseFixture()
+	op.ManagedGPUReleasePods[1].UID = op.ManagedGPUReleasePods[0].UID
+	reporter := &releaseReporterFake{}
+	coordinator := &ManagedGPUReleaseCoordinator{Contexts: &releaseContextStoreFake{original: original}, Reporter: reporter}
+	if err := coordinator.ReleaseManagedGPU(context.Background(), op); !errors.Is(err, ErrManagedGPUReleaseNotProven) || len(reporter.calls) != 0 {
+		t.Fatalf("err=%v reports=%v", err, reporter.calls)
+	}
+}
+
+func TestManagedGPUReleaseProofIsStableAcrossRetries(t *testing.T) {
+	original, op := releaseFixture()
+	store := &releaseReportStoreFake{releaseContextStoreFake: releaseContextStoreFake{original: original}}
+	reporter := &releaseReporterFake{}
+	coordinator := &ManagedGPUReleaseCoordinator{Contexts: store, Reporter: reporter}
 	if err := coordinator.ReleaseManagedGPU(context.Background(), op); err != nil {
 		t.Fatal(err)
 	}
-	firstSeal := observer.input.SealedAt
+	// A restarted worker may load the same scope in a different order.
+	op.ManagedGPUReleasePods[0], op.ManagedGPUReleasePods[1] = op.ManagedGPUReleasePods[1], op.ManagedGPUReleasePods[0]
 	if err := coordinator.ReleaseManagedGPU(context.Background(), op); err != nil {
 		t.Fatal(err)
 	}
-	if firstSeal != op.ManagedGPUReleaseSealedAt || observer.input.SealedAt != firstSeal || len(observer.input.Pods) != 0 {
-		t.Fatalf("observer input=%+v", observer.input)
+	if len(store.digests) != 2 || store.evidenceIDs[0] == "" || store.evidenceIDs[0] != store.evidenceIDs[1] || store.digests[0] != store.digests[1] {
+		t.Fatalf("unstable proof ids=%v digests=%v", store.evidenceIDs, store.digests)
+	}
+	if len(reporter.calls) != 2 || reporter.calls[0] != reporter.calls[1] {
+		t.Fatalf("unstable report: %v", reporter.calls)
+	}
+}
+
+func TestManagedGPUReleaseAllowsEmptyPodScope(t *testing.T) {
+	original, op := releaseFixture()
+	op.ManagedGPUReleasePods = nil
+	reporter := &releaseReporterFake{}
+	coordinator := &ManagedGPUReleaseCoordinator{Contexts: &releaseContextStoreFake{original: original}, Reporter: reporter}
+	if err := coordinator.ReleaseManagedGPU(context.Background(), op); err != nil || len(reporter.calls) != 1 {
+		t.Fatalf("err=%v reports=%v", err, reporter.calls)
 	}
 }

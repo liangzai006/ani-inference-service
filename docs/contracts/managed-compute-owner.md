@@ -30,10 +30,16 @@ resource lock proves absence of accepted execution facts before CPU is marked
 complete at generation 0. Unknown prior execution remains explicitly pending
 recovery. GPU persists its empty scope and seal, then the existing `work.Loop`
 scans `ListManagedCloseTenants` and claims a short leased close even if CREATE
-never returns. Unknown/StillPresent/missing evidence cannot send Gov a report.
+never returns. A missing absence seal or invalid Pod scope cannot send Gov a report.
 
 Normal GPU deletion retains ObserveAbsence, DeleteCR/CleanupModel and then
-release coordination. The coordinator persists release evidence and the stable
+release coordination. Runtime deletion uses foreground propagation, and managed
+GPU ObserveAbsence reports absent only when the workload objects are gone and no
+non-terminal Pod of the service (any generation, Terminating included, plus every
+recorded release-scope UID) remains; the CPU-only owned model download Pod is
+excluded. Accelerator is not consulted: the sealed runtime absence
+and persisted Pod UID scope are the release proof. The coordinator derives a
+deterministic evidence ID/digest from them and persists it with the stable
 four-field report before its RPC. The event is UUID SHA1 over
 `ani-inference/managed-gpu-release/` plus DELETE ID, with reason
 `RESOURCE_RELEASED`. Restarted retries reuse the saved report without refreshing

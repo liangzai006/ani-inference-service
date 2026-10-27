@@ -105,8 +105,8 @@ CM 的评分参数可变与受保护 GPU 配置由 ACC 单一算法区分；没�
 | [`internal/data/postgres/managed_gpu.go`](../../internal/data/postgres/managed_gpu.go)：`prepareManagedGPU` / `persistManagedGPUCommand` / `LoadRefundContext` | 原子保存原 CREATE、完整 plan/原账、命令/ACK 与重放快照；tenant+resource+原 CREATE 保持绑定 |
 | 同文件 `acceptManagedGPUDelete` | 最新上游会为已存在服务保存 deleted 目标、delete operation/work；DELETE 先到仍保留 closing/tombstone 语义。不能沿用旧批次“只落 closing 意图”的描述 |
 | [`internal/biz/inference/runner.go`](../../internal/biz/inference/runner.go)、[`internal/data/kubernetes/kserve.go`](../../internal/data/kubernetes/kserve.go) | 从受理快照取得 Runtime，经生产 renderer 投影；模型、运行、发布/调用状态仍分层观察 |
-| [`internal/service/managed_gpu_release.go`](../../internal/service/managed_gpu_release.go)：`ManagedGPUReleaseCoordinator.ReleaseManagedGPU` | 核对原退款上下文、DELETE 和完整 Pod UID 范围，向 ACC `ObserveRelease` 请求释放事实；要求 `ALLOCATION_RELEASED` 及 evidence ID/digest，再按原 charge 累计额报告 Gov |
-| [`cmd/ani-inference-service/main.go`](../../cmd/ani-inference-service/main.go)、[`internal/data/postgres/operation_store.go`](../../internal/data/postgres/operation_store.go) | observer/reporter 均配置时给 runner 接入 release coordinator；000019 迁移持久化释放所需 Pod UID 范围。源码接线不等于现场释放已验 |
+| [`internal/service/managed_gpu_release.go`](../../internal/service/managed_gpu_release.go)：`ManagedGPUReleaseCoordinator.ReleaseManagedGPU` | 核对原退款上下文、DELETE、runtime absence seal 和完整 Pod UID 范围，在本地生成确定性 evidence ID/digest 并落库，再报告 Gov；不调用 ACC |
+| [`cmd/ani-inference-service/main.go`](../../cmd/ani-inference-service/main.go)、[`internal/data/postgres/operation_store.go`](../../internal/data/postgres/operation_store.go) | Gov reporter 配置时给 runner 接入 release coordinator；000019 迁移持久化释放证据所需 Pod UID 范围。源码接线不等于现场释放已验 |
 
 当前只有普通业务 gRPC **19090**；TLS 1.3、入站唯一精确 DNS SAN `ani-governance`，可信 metadata 绑定 tenant/actor，GPU 附件 tenant 必须与上下文一致。不再使用独立 19092 或入站 SPIFFE URI。退款方向使用 Inference 自己登记的客户端 DNS 身份，账本 owner 仍为 `ani-inference`。详见[单入口设计](../superpowers/specs/2026-10-16-single-grpc-gpu-design.md)与[现有 GPU owner handoff](managed-gpu-owner-handoff.md)。管理 `/api/v1/...` 走 Gov；Higress 只负责 `/v1/...` 推理调用。
 
