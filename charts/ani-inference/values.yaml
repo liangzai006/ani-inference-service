@@ -43,6 +43,17 @@ database:
   existingSecret: inference-database
   secretKey: dsn
 
+imageRegistry:
+  enabled: false
+  grpcAddress: ""
+  # Set from verified cluster/scheduling facts before enabling catalog intake.
+  targetOS: ""
+  targetArchitecture: ""
+  targetVariant: ""
+  # Client certificate must have the exact DNS SAN ani-inference-service.
+  existingSecret: ""
+  mountPath: /var/run/secrets/image-runtime
+
 model:
   grpcAddress: ani-model-grpc.ani-system.svc.cluster.local:19090
   materializerImage: docker.changqingyun.cn/ani/model-import-worker:model-search-20261014-r1

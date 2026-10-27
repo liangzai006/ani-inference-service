@@ -81,6 +81,22 @@ spec:
               value: {{ .Values.higress.rateLimitPlugin | quote }}
             - name: ANI_MODEL_GRPC_ADDR
               value: {{ required "model.grpcAddress is required" (trim .Values.model.grpcAddress) | quote }}
+            {{- if .Values.imageRegistry.enabled }}
+            - name: ANI_IMAGE_RUNTIME_GRPC_ADDR
+              value: {{ required "imageRegistry.grpcAddress is required" (trim .Values.imageRegistry.grpcAddress) | quote }}
+            - name: ANI_IMAGE_RUNTIME_CA_FILE
+              value: {{ printf "%s/ca.crt" (trim .Values.imageRegistry.mountPath) | quote }}
+            - name: ANI_IMAGE_RUNTIME_CERT_FILE
+              value: {{ printf "%s/tls.crt" (trim .Values.imageRegistry.mountPath) | quote }}
+            - name: ANI_IMAGE_RUNTIME_KEY_FILE
+              value: {{ printf "%s/tls.key" (trim .Values.imageRegistry.mountPath) | quote }}
+            - name: ANI_IMAGE_TARGET_OS
+              value: {{ required "imageRegistry.targetOS is required" (trim .Values.imageRegistry.targetOS) | quote }}
+            - name: ANI_IMAGE_TARGET_ARCH
+              value: {{ required "imageRegistry.targetArchitecture is required" (trim .Values.imageRegistry.targetArchitecture) | quote }}
+            - name: ANI_IMAGE_TARGET_VARIANT
+              value: {{ .Values.imageRegistry.targetVariant | quote }}
+            {{- end }}
             - name: ANI_MODEL_CA_FILE
               value: {{ printf "%s/%s" (trim .Values.model.tls.mountPath) (trim .Values.model.tls.caKey) | quote }}
             - name: ANI_MODEL_CERT_FILE
@@ -143,6 +159,11 @@ spec:
             - name: model-tls
               mountPath: {{ .Values.model.tls.mountPath | quote }}
               readOnly: true
+            {{- if .Values.imageRegistry.enabled }}
+            - name: image-runtime-tls
+              mountPath: {{ required "imageRegistry.mountPath is required" (trim .Values.imageRegistry.mountPath) | quote }}
+              readOnly: true
+            {{- end }}
             {{- if .Values.accelerator.enabled }}
             - name: accelerator-tls
               mountPath: /var/run/secrets/accelerator
@@ -216,6 +237,11 @@ spec:
         - name: model-tls
           secret:
             secretName: {{ required "model.tls.existingSecret is required" (trim .Values.model.tls.existingSecret) }}
+        {{- if .Values.imageRegistry.enabled }}
+        - name: image-runtime-tls
+          secret:
+            secretName: {{ required "imageRegistry.existingSecret is required" (trim .Values.imageRegistry.existingSecret) }}
+        {{- end }}
         {{- if .Values.accelerator.enabled }}
         - name: accelerator-tls
           secret:

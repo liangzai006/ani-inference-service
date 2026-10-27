@@ -10,6 +10,8 @@ import (
 
 // CreateInput is the transport-independent command accepted after admission.
 type CreateInput struct {
+	ImageID, ImageScope                              string
+	ImageSelection                                   *ImageSelection
 	TenantID, RequestID, Actor, Name, ModelVersionID string
 	ArtifactProvider, ArtifactRef, ArtifactSHA256    string
 	ModelCapabilities                                []string

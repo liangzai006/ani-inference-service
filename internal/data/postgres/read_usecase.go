@@ -134,6 +134,9 @@ func (u *ReadUseCase) GetService(ctx context.Context, tenantID, serviceID string
 		if err := applySpecProjection(result, spec.ModelVersionID.String(), spec.ArtifactProvider, spec.ArtifactRef, spec.ArtifactSha256, spec.ImageRef, spec.ServedModelName, spec.EngineRuntime, spec.CommandArgv); err != nil {
 			return nil, err
 		}
+		if err := applyImageSelectionProjection(result, spec.SpecJson); err != nil {
+			return nil, err
+		}
 		result.Replicas = spec.Replicas
 		result.Runtime = &inferencev1.RuntimeSpec{Mode: runtimeModeEnum(spec.RuntimeMode), WorkerReplicas: spec.WorkerReplicas, Provider: runtimeProviderEnum(spec.RuntimeProvider)}
 		result.Runtime.Endpoint = endpointProto(spec.EndpointContainerPort, spec.EndpointServicePort, spec.EndpointTargetPort, spec.EndpointProtocol)
@@ -220,6 +223,9 @@ func (u *ReadUseCase) ListServices(ctx context.Context, tenantID string, pageSiz
 		if err := applySpecProjection(item, row.ModelVersionID.String(), row.ArtifactProvider, row.ArtifactRef, row.ArtifactSha256, row.ImageRef, row.ServedModelName, row.EngineRuntime, row.CommandArgv); err != nil {
 			return nil, "", err
 		}
+		if err := applyImageSelectionProjection(item, row.SpecJson); err != nil {
+			return nil, "", err
+		}
 		var resource struct {
 			Requests map[string]string `json:"requests"`
 			Limits   map[string]string `json:"limits"`
@@ -284,6 +290,22 @@ func applySpecProjection(result *inferencev1.InferenceService, modelVersionID, p
 		return err
 	}
 	result.Engine = &inferencev1.EngineSpec{Type: engine, Image: image, Command: command}
+	return nil
+}
+
+func applyImageSelectionProjection(result *inferencev1.InferenceService, raw []byte) error {
+	if len(raw) == 0 {
+		return nil
+	}
+	var spec struct {
+		Image *inferencebiz.ImageSelection `json:"image_selection"`
+	}
+	if err := json.Unmarshal(raw, &spec); err != nil {
+		return err
+	}
+	if spec.Image != nil && result.Engine != nil {
+		result.Engine.ImageId, result.Engine.ImageScope = spec.Image.ImageID, spec.Image.Scope
+	}
 	return nil
 }
 
@@ -401,6 +423,9 @@ func serviceFromListRow(row ListServicesRow) (*inferencev1.InferenceService, err
 	if err := applySpecProjection(item, row.ModelVersionID.String(), row.ArtifactProvider, row.ArtifactRef, row.ArtifactSha256, row.ImageRef, row.ServedModelName, row.EngineRuntime, row.CommandArgv); err != nil {
 		return nil, err
 	}
+	if err := applyImageSelectionProjection(item, row.SpecJson); err != nil {
+		return nil, err
+	}
 	var resource struct {
 		Requests map[string]string `json:"requests"`
 		Limits   map[string]string `json:"limits"`
@@ -422,7 +447,7 @@ func serviceFromListRow(row ListServicesRow) (*inferencev1.InferenceService, err
 }
 
 func pageServiceRow(row ListServicesPageRow) ListServicesRow {
-	return ListServicesRow{TenantID: row.TenantID, ID: row.ID, Name: row.Name, DesiredState: row.DesiredState, DesiredGeneration: row.DesiredGeneration, AppliedGeneration: row.AppliedGeneration, CreatedAt: row.CreatedAt, ModelVersionID: row.ModelVersionID, ArtifactProvider: row.ArtifactProvider, ArtifactRef: row.ArtifactRef, ArtifactSha256: row.ArtifactSha256, ImageRef: row.ImageRef, ServedModelName: row.ServedModelName, EngineRuntime: row.EngineRuntime, CommandArgv: row.CommandArgv, Resources: row.Resources, Replicas: row.Replicas, RuntimeMode: row.RuntimeMode, WorkerReplicas: row.WorkerReplicas, RuntimeProvider: row.RuntimeProvider, EndpointContainerPort: row.EndpointContainerPort, EndpointServicePort: row.EndpointServicePort, EndpointTargetPort: row.EndpointTargetPort, EndpointProtocol: row.EndpointProtocol, GpuRequest: row.GpuRequest, GpuPlan: row.GpuPlan, GpuPlanDigest: row.GpuPlanDigest, RuntimePhase: row.RuntimePhase, PublicationPhase: row.PublicationPhase, InvocationHealth: row.InvocationHealth, ObservedAt: row.ObservedAt}
+	return ListServicesRow{TenantID: row.TenantID, ID: row.ID, Name: row.Name, DesiredState: row.DesiredState, DesiredGeneration: row.DesiredGeneration, AppliedGeneration: row.AppliedGeneration, CreatedAt: row.CreatedAt, ModelVersionID: row.ModelVersionID, ArtifactProvider: row.ArtifactProvider, ArtifactRef: row.ArtifactRef, ArtifactSha256: row.ArtifactSha256, ImageRef: row.ImageRef, ServedModelName: row.ServedModelName, EngineRuntime: row.EngineRuntime, CommandArgv: row.CommandArgv, SpecJson: row.SpecJson, Resources: row.Resources, Replicas: row.Replicas, RuntimeMode: row.RuntimeMode, WorkerReplicas: row.WorkerReplicas, RuntimeProvider: row.RuntimeProvider, EndpointContainerPort: row.EndpointContainerPort, EndpointServicePort: row.EndpointServicePort, EndpointTargetPort: row.EndpointTargetPort, EndpointProtocol: row.EndpointProtocol, GpuRequest: row.GpuRequest, GpuPlan: row.GpuPlan, GpuPlanDigest: row.GpuPlanDigest, RuntimePhase: row.RuntimePhase, PublicationPhase: row.PublicationPhase, InvocationHealth: row.InvocationHealth, ObservedAt: row.ObservedAt}
 }
 
 func (u *ReadUseCase) ListServicesPage(ctx context.Context, tenantID string, options inferencebiz.ListOptions) ([]*inferencev1.InferenceService, int64, error) {

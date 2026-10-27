@@ -58,7 +58,11 @@ func (u *CreateUseCase) Create(ctx context.Context, in inferencebiz.CreateInput)
 	if err != nil {
 		return nil, err
 	}
-	specJSON, err := json.Marshal(map[string]any{"model_capabilities": in.ModelCapabilities})
+	specValues := map[string]any{"model_capabilities": in.ModelCapabilities}
+	if in.ImageSelection != nil {
+		specValues["image_selection"] = in.ImageSelection
+	}
+	specJSON, err := json.Marshal(specValues)
 	if err != nil {
 		return nil, err
 	}
@@ -107,6 +111,9 @@ func (u *CreateUseCase) Create(ctx context.Context, in inferencebiz.CreateInput)
 
 func createResponse(in inferencebiz.CreateInput, result CreateAggregateResult) *inferencev1.OperationResponse {
 	engine := &inferencev1.EngineSpec{Type: in.EngineRuntime, Image: in.ImageRef, Command: in.EngineCommand}
+	if in.ImageSelection != nil {
+		engine.ImageId, engine.ImageScope = in.ImageSelection.ImageID, in.ImageSelection.Scope
+	}
 	artifact := &inferencev1.ModelArtifact{Provider: in.ArtifactProvider, Reference: in.ArtifactRef, Sha256: in.ArtifactSHA256}
 	runtime := &inferencev1.RuntimeSpec{Mode: runtimeModeEnum(in.RuntimeMode), WorkerReplicas: in.WorkerReplicas, Provider: runtimeProviderEnum(in.RuntimeProvider)}
 	if in.Endpoint != nil {

@@ -234,8 +234,17 @@ func (u *UpdateUseCase) Update(ctx context.Context, in inferencebiz.UpdateInput)
 	provider := in.RuntimeProvider
 	ec, es, et, ep := endpointValues(in.Endpoint)
 	var modelCapabilitiesJSON []byte
+	specOverlay := map[string]any{}
 	if in.ModelVersionID != "" {
-		modelCapabilitiesJSON, err = json.Marshal(map[string]any{"model_capabilities": in.ModelCapabilities})
+		specOverlay["model_capabilities"] = in.ModelCapabilities
+	}
+	if in.ImageSelection != nil {
+		specOverlay["image_selection"] = in.ImageSelection
+	} else if in.ImageRef != "" {
+		specOverlay["image_selection"] = nil
+	}
+	if len(specOverlay) != 0 {
+		modelCapabilitiesJSON, err = json.Marshal(specOverlay)
 		if err != nil {
 			return nil, err
 		}
