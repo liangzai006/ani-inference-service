@@ -1,0 +1,24 @@
+{{- if and (or .Values.imageRegistry.enabled .Values.accelerator.enabled .Values.governanceQuota.enabled) .Values.serviceClientTLS.certificate.create }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ required "serviceClientTLS.existingSecret is required" .Values.serviceClientTLS.existingSecret }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ani-inference.labels" . | nindent 4 }}
+spec:
+  secretName: {{ .Values.serviceClientTLS.existingSecret }}
+  dnsNames:
+    - ani-inference-service
+  usages:
+    - digital signature
+    - client auth
+  duration: {{ .Values.serviceClientTLS.certificate.duration }}
+  renewBefore: {{ .Values.serviceClientTLS.certificate.renewBefore }}
+  issuerRef:
+    {{- toYaml .Values.serverTLS.certificate.issuer | nindent 4 }}
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+{{- end }}
