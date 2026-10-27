@@ -20,6 +20,14 @@ managed-by, credential generation and resourceVersion. It rejects foreign or
 same-generation inconsistent objects and uses optimistic updates for a new
 credential generation. No individual service owner reference is attached.
 
+During running reconciliation, a credential RPC `Unavailable` or timeout only
+blocks synchronization and runtime writes. The selected provider continues
+read-only readiness/invocation observation, and the existing reconciler saves
+those facts with its generation and lease fences. Missing objects are reported
+without repair or adoption. Apply operations, ownership/material errors and
+canceled work still fail; recovery resumes normal synchronization. This does
+not cache credentials or reduce refresh frequency.
+
 Deployment, LWS and KServe predictor/leader/worker templates explicitly refer
 to that Secret and constrain OS/architecture from the accepted resolution.
 The runtime ServiceAccount keeps its existing no-token permissions; system

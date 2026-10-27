@@ -409,6 +409,59 @@ func (e *RuntimeExecutor) observeHealth(ctx context.Context, spec DesiredRuntime
 	return e.observeInvocation(ctx, spec, observation), nil
 }
 
+// observeCurrent is the continuous reconciler's read-only fallback when pull
+// credentials cannot be refreshed. It never applies a CR, repairs a workload
+// or writes a binding. Existing observation helpers retain their ownership,
+// UID and generation fences.
+func (e *RuntimeExecutor) observeCurrent(ctx context.Context, spec DesiredRuntime) (bizreconcile.Observation, error) {
+	if e == nil || e.Client == nil || e.Source == nil {
+		return bizreconcile.Observation{}, errors.New("kubernetes runtime observation is not configured")
+	}
+	if err := validateCurrentRuntimeSpec(spec); err != nil {
+		return bizreconcile.Observation{}, err
+	}
+	binding, err := runtimeBindingForMode(spec)
+	if err != nil {
+		return bizreconcile.Observation{}, err
+	}
+	if binding == nil {
+		obj, err := objectForKind(kindForRuntimeMode(spec.RuntimeMode))
+		if err != nil {
+			return bizreconcile.Observation{}, err
+		}
+		return observeUnboundCurrent(ctx, e.Client, obj, spec, "runtime object is missing")
+	}
+	return e.observeHealth(ctx, spec, binding)
+}
+
+func validateCurrentRuntimeSpec(spec DesiredRuntime) error {
+	if spec.TenantID == "" || spec.ServiceID == "" || spec.Generation < 1 || spec.Namespace == "" || spec.Name == "" {
+		return errors.New("runtime observation requires tenant, service, generation, namespace and name")
+	}
+	if spec.DesiredState != "" && spec.DesiredState != "running" {
+		return errors.New("read-only runtime observation requires a running desired state")
+	}
+	return nil
+}
+
+// Without a persisted binding, a missing object is observable but an existing
+// object cannot be adopted by deterministic name alone.
+func observeUnboundCurrent(ctx context.Context, reader client.Reader, obj client.Object, spec DesiredRuntime, reason string) (bizreconcile.Observation, error) {
+	obj.SetNamespace(spec.Namespace)
+	obj.SetName(spec.Name)
+	if err := reader.Get(ctx, client.ObjectKeyFromObject(obj), obj); err != nil {
+		if apierrors.IsNotFound(err) {
+			return bizreconcile.Observation{
+				Generation: spec.Generation, RuntimeMode: runtimeModeForSpec(spec.RuntimeSpec),
+				RuntimePhase: "degraded", PublicationPhase: "unknown", InvocationHealth: "unhealthy", Reason: reason,
+				ModelReady: spec.ModelReady, ModelReadyKnown: spec.ModelReadyKnown,
+			}, nil
+		}
+		return bizreconcile.Observation{}, err
+	}
+	return bizreconcile.Observation{}, bizreconcile.ErrStaleGeneration
+}
+
 // DeleteRuntime issues fenced deletes for every persisted runtime binding.
 // Publication withdrawal is checked again here so a runner retry cannot
 // delete a published runtime due to stale operation state.

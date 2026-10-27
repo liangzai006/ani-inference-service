@@ -225,6 +225,31 @@ func (e *KServeRuntimeExecutor) Ensure(ctx context.Context, desired bizreconcile
 	}
 }
 
+// observeCurrent retains KServe's provider-specific readiness and invocation
+// checks without entering its apply or deletion paths.
+func (e *KServeRuntimeExecutor) observeCurrent(ctx context.Context, spec DesiredRuntime) (bizreconcile.Observation, error) {
+	if e == nil || e.RuntimeExecutor == nil || e.Client == nil || e.Source == nil {
+		return bizreconcile.Observation{}, errors.New("KServe runtime observation is not configured")
+	}
+	if err := validateCurrentRuntimeSpec(spec); err != nil {
+		return bizreconcile.Observation{}, err
+	}
+	binding := kserveBindingForSpec(spec)
+	if binding == nil {
+		reader := client.Reader(e.Client)
+		if e.APIReader != nil {
+			reader = e.APIReader
+		}
+		return observeUnboundCurrent(ctx, reader, newKServeObject(spec.Namespace, spec.Name, kserveKindForMode(spec.RuntimeMode)), spec, "KServe runtime object is missing")
+	}
+	observation, err := e.observeKServe(ctx, spec, binding)
+	if err != nil {
+		return bizreconcile.Observation{}, err
+	}
+	observation.ModelReady, observation.ModelReadyKnown = spec.ModelReady, spec.ModelReadyKnown
+	return e.observeInvocation(ctx, spec, observation), nil
+}
+
 func (e *KServeRuntimeExecutor) applyKServe(ctx context.Context, spec DesiredRuntime, expected *RuntimeBinding) (bizreconcile.Observation, error) {
 	obj, err := RenderKServeRuntime(spec.RuntimeSpec)
 	if err != nil {

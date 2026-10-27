@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
@@ -27,6 +28,10 @@ type RuntimeRouter struct {
 
 var _ inferencebiz.RuntimePort = (*RuntimeRouter)(nil)
 var _ bizreconcile.Runtime = (*RuntimeRouter)(nil)
+
+type currentRuntimeObserver interface {
+	observeCurrent(context.Context, DesiredRuntime) (bizreconcile.Observation, error)
+}
 
 func (r *RuntimeRouter) desired(ctx context.Context, op inferencebiz.OperationContext) (DesiredRuntime, error) {
 	if r == nil || r.Source == nil {
@@ -185,6 +190,21 @@ func (r *RuntimeRouter) Ensure(ctx context.Context, desired bizreconcile.Desired
 	}
 	if spec.DesiredState == "running" {
 		if err := r.ensurePullSecrets(ctx, spec.RuntimeSpec); err != nil {
+			var unavailable *pullMaterialUnavailableError
+			if errors.As(err, &unavailable) && ctx.Err() == nil {
+				if spec.TenantID != desired.TenantID || spec.ServiceID != desired.ServiceID || spec.Generation != desired.Generation {
+					return bizreconcile.Observation{}, bizreconcile.ErrStaleGeneration
+				}
+				provider, providerErr := r.chooseReconcile(spec)
+				if providerErr != nil {
+					return bizreconcile.Observation{}, providerErr
+				}
+				if observer, ok := provider.(currentRuntimeObserver); ok {
+					// Never log the RPC error: its message may contain credential data.
+					slog.WarnContext(ctx, "image pull credential refresh temporarily unavailable", "tenant_id", spec.TenantID, "service_id", spec.ServiceID, "generation", spec.Generation)
+					return observer.observeCurrent(ctx, spec)
+				}
+			}
 			return bizreconcile.Observation{}, err
 		}
 	}

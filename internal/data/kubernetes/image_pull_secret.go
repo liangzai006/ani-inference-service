@@ -14,6 +14,8 @@ import (
 
 	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
 	imagev1 "github.com/zhangzhe-ctrl/ani-resource-service/api/image/v1"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -30,6 +32,16 @@ const imageCredentialGenerationAnnotation = "ani.kubercloud.com/image-credential
 type PullMaterialSource interface {
 	PullMaterial(context.Context, string) (*imagev1.GetTenantPullMaterialResponse, error)
 }
+
+// Only a temporary failure at the credential RPC boundary permits read-only
+// runtime observation. Kubernetes writes and invalid material remain hard errors.
+type pullMaterialUnavailableError struct{ cause error }
+
+func (e *pullMaterialUnavailableError) Error() string {
+	return "image pull material temporarily unavailable"
+}
+
+func (e *pullMaterialUnavailableError) Unwrap() error { return e.cause }
 
 // SharedPullSecrets is the sole writer for Inference's tenant/namespace/registry
 // credential scope. Its Secrets have no individual workload owner reference.
@@ -53,6 +65,9 @@ func (s *SharedPullSecrets) Ensure(ctx context.Context, spec RuntimeSpec) error 
 	}
 	material, err := s.Material.PullMaterial(ctx, spec.TenantID)
 	if err != nil {
+		if ctx.Err() == nil && (status.Code(err) == codes.Unavailable || status.Code(err) == codes.DeadlineExceeded || errors.Is(err, context.DeadlineExceeded)) {
+			return &pullMaterialUnavailableError{cause: err}
+		}
 		return fmt.Errorf("obtain image pull material: %w", err)
 	}
 	now := time.Now()
