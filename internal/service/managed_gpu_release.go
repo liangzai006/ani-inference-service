@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
@@ -17,8 +16,10 @@ var (
 	ErrManagedGPUReleaseNotProven     = errors.New("managed GPU release was not proven")
 )
 
+// ManagedGPUReleaseCoordinator refunds a managed GPU resource once Inference
+// itself has confirmed the runtime is gone. The proof is the persisted
+// absence seal and Pod scope; Accelerator is not consulted on release.
 type ManagedGPUReleaseCoordinator struct {
-	Observer gpu.ReleaseObserver
 	Contexts gpu.RefundContextStore
 	Reporter gpu.RefundReporter
 }
@@ -26,7 +27,7 @@ type ManagedGPUReleaseCoordinator struct {
 var _ inferencebiz.ManagedGPUReleasePort = (*ManagedGPUReleaseCoordinator)(nil)
 
 func (c *ManagedGPUReleaseCoordinator) ReleaseManagedGPU(ctx context.Context, op inferencebiz.OperationContext) error {
-	if c == nil || c.Observer == nil || c.Contexts == nil || c.Reporter == nil {
+	if c == nil || c.Contexts == nil || c.Reporter == nil {
 		return ErrManagedGPUReleaseNotConfigured
 	}
 	if !op.ManagedGPU || op.Kind != "delete" {
@@ -51,31 +52,20 @@ func (c *ManagedGPUReleaseCoordinator) ReleaseManagedGPU(ctx context.Context, op
 			return c.Reporter.ReportResourceReleased(ctx, saved)
 		}
 	}
-	clusterID := original.ClusterID
-	if clusterID == "" && op.GPURequest != nil {
-		clusterID = op.GPURequest.ClusterID
-	}
-	if clusterID == "" && op.GPUSnapshot != nil && op.GPUSnapshot.Request != nil {
-		clusterID = op.GPUSnapshot.Request.ClusterID
-	}
-	if clusterID == "" {
-		return fmt.Errorf("%w: GPU cluster identity is missing", ErrManagedGPUReleaseNotProven)
-	}
+	// The seal is written only after runtime absence was observed. Without it
+	// there is no evidence the GPU is free, so never fabricate one here.
 	sealedAt := strings.TrimSpace(op.ManagedGPUReleaseSealedAt)
 	if sealedAt == "" {
-		sealedAt = time.Now().UTC().Format(time.RFC3339Nano)
+		return fmt.Errorf("%w: runtime absence was not sealed", ErrManagedGPUReleaseNotProven)
 	}
-	observed, err := c.Observer.ObserveRelease(ctx, gpu.ReleaseObservationInput{TenantID: op.TenantID, RequestID: op.RequestID, Actor: op.Actor, ResourceID: op.ServiceID, CreateOperationID: op.ManagedGPUCreateOperationID, OwnerService: original.OwnerService, DeleteOperationID: op.ID, ClusterID: clusterID, SealedAt: sealedAt, Pods: append([]gpu.PodRef(nil), op.ManagedGPUReleasePods...)})
+	proof, err := gpu.NewReleaseProof(gpu.ReleaseProofInput{TenantID: op.TenantID, ResourceID: op.ServiceID, CreateOperationID: op.ManagedGPUCreateOperationID, DeleteOperationID: op.ID, SealedAt: sealedAt, Pods: append([]gpu.PodRef(nil), op.ManagedGPUReleasePods...)})
 	if err != nil {
-		return fmt.Errorf("observe managed GPU release: %w", err)
-	}
-	if observed.Finding != gpu.ReleaseFindingReleased || strings.TrimSpace(observed.EvidenceID) == "" || strings.TrimSpace(observed.EvidenceDigest) == "" {
-		return fmt.Errorf("%w: accelerator finding=%q", ErrManagedGPUReleaseNotProven, observed.Finding)
+		return fmt.Errorf("%w: %v", ErrManagedGPUReleaseNotProven, err)
 	}
 	releaseEventID := uuid.NewSHA1(uuid.NameSpaceURL, []byte("ani-inference/managed-gpu-release/"+op.ID)).String()
 	notification := gpu.ReleaseNotification{ReleaseEventID: releaseEventID, CreateOperationID: op.ManagedGPUCreateOperationID, ResourceID: op.ServiceID, Reason: gpu.ResourceReleased}
 	if store, ok := c.Contexts.(gpu.ReleaseReportStore); ok {
-		if err := store.SaveManagedReleaseReport(ctx, original, observed.EvidenceID, observed.EvidenceDigest, notification, op.LeaseToken); err != nil {
+		if err := store.SaveManagedReleaseReport(ctx, original, proof.EvidenceID, proof.EvidenceDigest, notification, op.LeaseToken); err != nil {
 			return fmt.Errorf("persist managed GPU release report: %w", err)
 		}
 	}

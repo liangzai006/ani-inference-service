@@ -1,14 +1,20 @@
 package gpu
 
 import (
-	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
+	"time"
+
+	"github.com/google/uuid"
 )
 
-// PodRef is the complete Kubernetes identity range supplied to the
-// accelerator owner. UID is mandatory: names alone cannot prove that a
-// replacement Pod has released the original allocation.
+// PodRef is the complete Kubernetes identity range recorded while the
+// managed runtime existed. UID is mandatory: names alone cannot distinguish
+// a replacement Pod from the original allocation holder.
 type PodRef struct {
 	ClusterID     string `json:"cluster_id"`
 	Namespace     string `json:"namespace"`
@@ -17,49 +23,35 @@ type PodRef struct {
 	ContainerName string `json:"container_name"`
 }
 
-// ReleaseObservationInput is the immutable owner context needed by
-// AcceleratorUsageService.ObserveRelease. It is deliberately separate from
-// the Governance refund notification: accelerator evidence comes first, and
-// only a released finding may be reported to Governance.
-type ReleaseObservationInput struct {
-	TenantID, RequestID, Actor                                     string
-	ResourceID, CreateOperationID, OwnerService, DeleteOperationID string
-	ClusterID, SealedAt                                            string
-	Pods                                                           []PodRef
+// ReleaseProofInput is the Inference-owned fact that the managed runtime is
+// gone. SealedAt is written only when the runner (or DELETE-first close)
+// confirmed runtime absence; the Pod scope is whatever was ever observed.
+// No external owner is consulted: Inference deleted the runtime and is the
+// only party that has to confirm it before Governance refunds.
+type ReleaseProofInput struct {
+	TenantID, ResourceID, CreateOperationID, DeleteOperationID string
+	SealedAt                                                   string
+	Pods                                                       []PodRef
 }
 
-type ReleaseFinding string
-
-const (
-	ReleaseFindingReleased     ReleaseFinding = "ALLOCATION_RELEASED"
-	ReleaseFindingStillPresent ReleaseFinding = "ALLOCATION_STILL_PRESENT"
-	ReleaseFindingUnknown      ReleaseFinding = "RELEASE_UNKNOWN"
-)
-
-type ReleaseObservation struct {
+// ReleaseProof is the durable evidence persisted with the release report.
+// It is deterministic so a retried release reproduces the same row.
+type ReleaseProof struct {
 	EvidenceID, EvidenceDigest string
-	Finding                    ReleaseFinding
-	ActivePodUIDs              []string
-	UncertainNodeUIDs          []string
 }
 
-// ReleaseObserver is the Inference-side port for the accelerator release
-// evidence check. The implementation must not turn an absent or incomplete
-// Pod scope into a successful release.
-type ReleaseObserver interface {
-	ObserveRelease(context.Context, ReleaseObservationInput) (ReleaseObservation, error)
-}
-
-func ValidateReleaseObservationInput(in ReleaseObservationInput) error {
+func ValidateReleaseProofInput(in ReleaseProofInput) error {
 	for name, value := range map[string]string{
-		"tenant_id": in.TenantID, "request_id": in.RequestID, "actor": in.Actor,
-		"resource_id": in.ResourceID, "create_operation_id": in.CreateOperationID,
-		"owner_service": in.OwnerService, "delete_operation_id": in.DeleteOperationID,
-		"cluster_id": in.ClusterID, "sealed_at": in.SealedAt,
+		"tenant_id": in.TenantID, "resource_id": in.ResourceID,
+		"create_operation_id": in.CreateOperationID, "delete_operation_id": in.DeleteOperationID,
+		"sealed_at": in.SealedAt,
 	} {
 		if strings.TrimSpace(value) == "" {
 			return fmt.Errorf("%s is required", name)
 		}
+	}
+	if _, err := time.Parse(time.RFC3339Nano, in.SealedAt); err != nil {
+		return fmt.Errorf("sealed_at must be RFC3339Nano: %w", err)
 	}
 	seen := make(map[string]struct{}, len(in.Pods))
 	for _, pod := range in.Pods {
@@ -71,13 +63,30 @@ func ValidateReleaseObservationInput(in ReleaseObservationInput) error {
 				return fmt.Errorf("%s is required", name)
 			}
 		}
-		if pod.ClusterID != in.ClusterID {
-			return fmt.Errorf("pod cluster_id %q does not match release cluster", pod.ClusterID)
-		}
 		if _, ok := seen[pod.UID]; ok {
 			return fmt.Errorf("duplicate pod UID %q", pod.UID)
 		}
 		seen[pod.UID] = struct{}{}
 	}
 	return nil
+}
+
+// NewReleaseProof derives the evidence identity from the delete operation
+// and the digest from the sealed absence fact plus the UID-sorted Pod scope.
+func NewReleaseProof(in ReleaseProofInput) (ReleaseProof, error) {
+	if err := ValidateReleaseProofInput(in); err != nil {
+		return ReleaseProof{}, err
+	}
+	pods := append([]PodRef(nil), in.Pods...)
+	sort.Slice(pods, func(i, j int) bool { return pods[i].UID < pods[j].UID })
+	in.Pods = pods
+	payload, err := json.Marshal(in)
+	if err != nil {
+		return ReleaseProof{}, err
+	}
+	sum := sha256.Sum256(payload)
+	return ReleaseProof{
+		EvidenceID:     uuid.NewSHA1(uuid.NameSpaceURL, []byte("ani-inference/managed-gpu-release-proof/"+in.DeleteOperationID)).String(),
+		EvidenceDigest: "sha256:" + hex.EncodeToString(sum[:]),
+	}, nil
 }

@@ -165,6 +165,9 @@ func (e *KServeRuntimeExecutor) ObserveAbsence(ctx context.Context, op inference
 	if err != nil {
 		return inferencebiz.RuntimeObservation{}, err
 	}
+	if err := e.requireManagedGPUPodsGone(ctx, spec.RuntimeSpec, op.ManagedGPUReleasePods, &observation); err != nil {
+		return inferencebiz.RuntimeObservation{}, err
+	}
 	return inferencebiz.RuntimeObservation{Absent: observation.RuntimePhase == "stopped", RuntimePhase: observation.RuntimePhase, RuntimeMode: observation.RuntimeMode, InvocationHealth: "unhealthy", Reason: observation.Reason}, nil
 }
 

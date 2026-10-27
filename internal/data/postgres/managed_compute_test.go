@@ -35,16 +35,6 @@ func (m *unavailableModel) AbortTrainedArtifact(context.Context, *modelv1.AbortT
 	return nil, status.Error(codes.Unimplemented, "AbortTrainedArtifact is outside this fixture")
 }
 
-type closeObserver struct {
-	finding gpu.ReleaseFinding
-	calls   []gpu.ReleaseObservationInput
-}
-
-func (o *closeObserver) ObserveRelease(_ context.Context, in gpu.ReleaseObservationInput) (gpu.ReleaseObservation, error) {
-	o.calls = append(o.calls, in)
-	return gpu.ReleaseObservation{Finding: o.finding, EvidenceID: "isolated-evidence", EvidenceDigest: "isolated-digest"}, nil
-}
-
 type closeReporter struct {
 	calls       []gpu.ReleaseNotification
 	unknownOnce bool
@@ -127,40 +117,41 @@ func TestManagedComputeDeleteFirstPersistentRecovery(t *testing.T) {
 					t.Fatalf("closing consulted Model again: %d", boundary.calls)
 				}
 				if gpuResource {
-					observer := &closeObserver{finding: gpu.ReleaseFindingUnknown}
+					// No ACC call: DELETE-first already sealed runtime absence locally,
+					// so the first scan persists proof/report and only Gov can fail.
 					reporter := &closeReporter{unknownOnce: true}
 					coordinator := func(r *Repository) *service.ManagedGPUReleaseCoordinator {
-						return &service.ManagedGPUReleaseCoordinator{Observer: observer, Contexts: r, Reporter: reporter}
+						return &service.ManagedGPUReleaseCoordinator{Contexts: r, Reporter: reporter}
 					}
-					if err := NewRepository(pool).RunManagedCloses(ctx, coordinator(NewRepository(pool))); err == nil {
-						t.Fatal("Unknown completed close")
-					}
-					if len(reporter.calls) != 0 || (get(del.Context.OperationId).Phase != "pending" || get(del.Context.OperationId).Step != "observe_release") {
-						t.Fatal("Unknown reported release or completed delete")
-					}
-					observer.finding = gpu.ReleaseFindingReleased
-					ready := func() {
-						t.Helper()
-						if _, err := pool.Exec(ctx, "UPDATE inference_managed_gpu_commands SET retry_at=now() WHERE tenant_id=$1 AND operation_id=$2", tenant, uuid.MustParse(del.Context.OperationId)); err != nil {
-							t.Fatal(err)
-						}
-					}
-					ready()
 					if err := NewRepository(pool).RunManagedCloses(ctx, coordinator(NewRepository(pool))); err == nil {
 						t.Fatal("lost completion was not retained for retry")
 					}
 					if pending := get(del.Context.OperationId); pending.Phase != "pending" || pending.Step != "report_resource_released" {
 						t.Fatalf("durable release/report pending query=%v", pending)
 					}
-					ready()
+					evidence := func() (string, string) {
+						t.Helper()
+						var id, digest string
+						if err := pool.QueryRow(ctx, "SELECT release_evidence_id, release_evidence_digest FROM inference_managed_gpu_commands WHERE tenant_id=$1 AND operation_id=$2", tenant, uuid.MustParse(del.Context.OperationId)).Scan(&id, &digest); err != nil {
+							t.Fatal(err)
+						}
+						return id, digest
+					}
+					firstID, firstDigest := evidence()
+					if firstID == "" || firstDigest == "" {
+						t.Fatal("release report persisted without local evidence")
+					}
+					if _, err := pool.Exec(ctx, "UPDATE inference_managed_gpu_commands SET retry_at=now() WHERE tenant_id=$1 AND operation_id=$2", tenant, uuid.MustParse(del.Context.OperationId)); err != nil {
+						t.Fatal(err)
+					}
 					if err := NewRepository(pool).RunManagedCloses(ctx, coordinator(NewRepository(pool))); err != nil {
 						t.Fatal(err)
 					}
-					if len(observer.calls) != 2 || len(reporter.calls) != 2 || reporter.calls[0] != reporter.calls[1] {
-						t.Fatalf("unstable report/observation: observes=%d reports=%v", len(observer.calls), reporter.calls)
+					if len(reporter.calls) != 2 || reporter.calls[0] != reporter.calls[1] {
+						t.Fatalf("unstable report: %v", reporter.calls)
 					}
-					if observer.calls[0].SealedAt == "" || observer.calls[0].SealedAt != observer.calls[1].SealedAt {
-						t.Fatal("seal changed across restarted scans")
+					if id, digest := evidence(); id != firstID || digest != firstDigest {
+						t.Fatal("evidence changed across restarted scans")
 					}
 				}
 				terminal := get(del.Context.OperationId)

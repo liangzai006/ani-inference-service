@@ -347,6 +347,104 @@ func (e *RuntimeExecutor) managedGPUReleasePods(ctx context.Context, spec Runtim
 	return result, nil
 }
 
+// requireManagedGPUPodsGone downgrades a stopped observation while any Pod
+// may still hold the managed GPU. The seal that authorizes the Governance
+// refund is written only on a stopped observation, so this is the release gate.
+func (e *RuntimeExecutor) requireManagedGPUPodsGone(ctx context.Context, spec RuntimeSpec, recorded []gpu.PodRef, observation *bizreconcile.Observation) error {
+	if observation.RuntimePhase != "stopped" {
+		return nil
+	}
+	remaining, err := e.managedGPUPodsRemaining(ctx, spec, recorded)
+	if err != nil {
+		return err
+	}
+	if len(remaining) > 0 {
+		observation.RuntimePhase = "degraded"
+		observation.Reason = fmt.Sprintf("managed GPU Pods still present: %s", strings.Join(remaining, ","))
+	}
+	return nil
+}
+
+// managedGPUPodsRemaining lists every Pod that may still hold this managed
+// service's GPU allocation. A missing workload object is not enough: Pods
+// outlive their owner during GC and graceful termination. Any generation
+// counts on delete, Terminating Pods count, and so does every recorded
+// release-scope UID. Only terminal-phase Pods and the owned CPU-only model
+// download Pod are excluded. The read is uncached when available so a lagging
+// cache cannot report absence early.
+func (e *RuntimeExecutor) managedGPUPodsRemaining(ctx context.Context, spec RuntimeSpec, recorded []gpu.PodRef) ([]string, error) {
+	if e == nil || e.Client == nil || !spec.ManagedGPU || spec.Resources.GPU == nil {
+		return nil, nil
+	}
+	reader := client.Reader(e.Client)
+	if e.APIReader != nil {
+		reader = e.APIReader
+	}
+	var owned corev1.PodList
+	if err := reader.List(ctx, &owned, client.InNamespace(spec.Namespace), client.MatchingLabels{tenantIDLabel: spec.TenantID, serviceIDLabel: spec.ServiceID}); err != nil {
+		return nil, err
+	}
+	pods := append([]corev1.Pod(nil), owned.Items...)
+	if spec.RuntimeProvider == "kserve" {
+		var kservePods corev1.PodList
+		if err := reader.List(ctx, &kservePods, client.InNamespace(spec.Namespace), client.MatchingLabels{"serving.kserve.io/inferenceservice": spec.Name}); err != nil {
+			return nil, err
+		}
+		pods = append(pods, kservePods.Items...)
+	}
+	recordedUIDs := make(map[string]struct{}, len(recorded))
+	for _, ref := range recorded {
+		recordedUIDs[ref.UID] = struct{}{}
+	}
+	var remaining []string
+	seen := map[string]struct{}{}
+	for i := range pods {
+		pod := &pods[i]
+		uid := string(pod.UID)
+		if _, dup := seen[uid]; dup {
+			continue
+		}
+		seen[uid] = struct{}{}
+		if pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed {
+			continue
+		}
+		if _, isRecorded := recordedUIDs[uid]; !isRecorded {
+			if value := pod.Labels[tenantIDLabel]; value != "" && value != spec.TenantID {
+				continue
+			}
+			if value := pod.Labels[serviceIDLabel]; value != "" && value != spec.ServiceID {
+				continue
+			}
+			podSpec := spec
+			if generation, err := strconv.ParseInt(pod.Labels[generationLabel], 10, 64); err == nil {
+				podSpec.Generation = generation
+			}
+			if isOwnedModelMaterializerPod(pod, podSpec) {
+				continue
+			}
+		}
+		remaining = append(remaining, pod.Namespace+"/"+pod.Name)
+	}
+	// Recorded Pods carry identities from the running generation; check each
+	// by name so a Pod whose labels drifted still blocks absence.
+	for _, ref := range recorded {
+		if _, listed := seen[ref.UID]; listed {
+			continue
+		}
+		var pod corev1.Pod
+		if err := reader.Get(ctx, client.ObjectKey{Namespace: ref.Namespace, Name: ref.Name}, &pod); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return nil, err
+		}
+		if string(pod.UID) == ref.UID && pod.Status.Phase != corev1.PodSucceeded && pod.Status.Phase != corev1.PodFailed {
+			remaining = append(remaining, pod.Namespace+"/"+pod.Name)
+		}
+	}
+	return remaining, nil
+}
+
 // Model download Jobs share the business generation labels with the GPU
 // runtime. Exclude only that explicit auxiliary owner; ambiguous Pods still
 // have to supply the expected GPU container for release evidence.
@@ -438,6 +536,8 @@ func (e *RuntimeExecutor) DeleteRuntime(ctx context.Context, op bizinference.Ope
 
 // ObserveAbsence confirms all persisted runtime bindings are gone. A delete
 // request succeeding is not treated as absence until this check converges.
+// For managed GPU it also requires every Pod that could hold the allocation
+// to be gone, because absence seals the Governance refund.
 func (e *RuntimeExecutor) ObserveAbsence(ctx context.Context, op bizinference.OperationContext) (bizinference.RuntimeObservation, error) {
 	spec, err := e.operationRuntime(ctx, op)
 	if err != nil {
@@ -448,6 +548,9 @@ func (e *RuntimeExecutor) ObserveAbsence(ctx context.Context, op bizinference.Op
 	}
 	observation, err := e.observeDeletion(ctx, op.TargetGeneration, spec.RuntimeSpec, spec.Bindings)
 	if err != nil {
+		return bizinference.RuntimeObservation{}, err
+	}
+	if err := e.requireManagedGPUPodsGone(ctx, spec.RuntimeSpec, op.ManagedGPUReleasePods, &observation); err != nil {
 		return bizinference.RuntimeObservation{}, err
 	}
 	return bizinference.RuntimeObservation{Absent: observation.RuntimePhase == "stopped", RuntimePhase: observation.RuntimePhase, RuntimeMode: observation.RuntimeMode, ReadyReplicas: observation.ReadyReplicas, ReadyGroups: observation.ReadyGroups, ReadyWorkers: observation.ReadyWorkers, LWSUID: observation.LWSUID, Objects: observation.Objects, InvocationHealth: "unhealthy", Reason: observation.Reason}, nil
@@ -1155,10 +1258,31 @@ func (e *RuntimeExecutor) Delete(ctx context.Context, binding RuntimeBinding) er
 	obj.SetNamespace(binding.Namespace)
 	obj.SetName(binding.Name)
 	uid, rv := types.UID(binding.UID), binding.ResourceVersion
-	if err := e.Client.Delete(ctx, obj, client.Preconditions{UID: &uid, ResourceVersion: &rv}); err != nil && !apierrors.IsNotFound(err) {
+	// Foreground keeps the workload visible until its Pods are gone, matching
+	// the KServe path. The foreground finalizer bumps resourceVersion, so a
+	// retried delete against the same binding conflicts; that conflict is
+	// success only when the bound object is already being deleted.
+	err = e.Client.Delete(ctx, obj, client.Preconditions{UID: &uid, ResourceVersion: &rv}, client.PropagationPolicy(metav1.DeletePropagationForeground))
+	if err == nil || apierrors.IsNotFound(err) {
+		return nil
+	}
+	if !apierrors.IsConflict(err) {
 		return err
 	}
-	return nil
+	current, kindErr := objectForKind(binding.Kind)
+	if kindErr != nil {
+		return kindErr
+	}
+	if getErr := e.Client.Get(ctx, client.ObjectKeyFromObject(obj), current); getErr != nil {
+		if apierrors.IsNotFound(getErr) {
+			return nil
+		}
+		return getErr
+	}
+	if current.GetUID() == uid && current.GetDeletionTimestamp() != nil {
+		return nil
+	}
+	return err
 }
 
 func objectForKind(kind string) (client.Object, error) {

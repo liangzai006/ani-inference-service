@@ -21,7 +21,6 @@ import (
 
 var (
 	ErrResolverNotConfigured = errors.New("accelerator resolver is not configured")
-	ErrUsageNotConfigured    = errors.New("accelerator usage observer is not configured")
 	ErrClusterNotConfigured  = errors.New("accelerator cluster identity is not configured")
 	ErrInvalidTLSConfig      = errors.New("invalid accelerator TLS configuration")
 	ErrInvalidActor          = errors.New("accelerator actor must be type:id")
@@ -59,7 +58,6 @@ type Config struct {
 // Client resolves explicit GPU requests through the accelerator catalog.
 type Client struct {
 	catalog   acceleratorv1.AcceleratorCatalogServiceClient
-	usage     acceleratorv1.AcceleratorUsageServiceClient
 	conn      *grpc.ClientConn
 	clusterID string
 }
@@ -116,7 +114,6 @@ func Dial(ctx context.Context, cfg Config) (*Client, func() error, error) {
 	}
 	return &Client{
 		catalog:   acceleratorv1.NewAcceleratorCatalogServiceClient(conn),
-		usage:     acceleratorv1.NewAcceleratorUsageServiceClient(conn),
 		conn:      conn,
 		clusterID: strings.TrimSpace(cfg.ClusterID),
 	}, conn.Close, nil
@@ -174,72 +171,6 @@ func (c *Client) Resolve(ctx context.Context, input gpu.ResolveInput) (*gpu.Snap
 		return nil, err
 	}
 	return plan, nil
-}
-
-// ObserveRelease asks Accelerator for evidence that the complete Pod UID
-// scope no longer owns a GPU allocation. A positive result is evidence only;
-// the caller remains responsible for persisting the release event and then
-// notifying Governance.
-func (c *Client) ObserveRelease(ctx context.Context, input gpu.ReleaseObservationInput) (gpu.ReleaseObservation, error) {
-	if c == nil || c.usage == nil {
-		return gpu.ReleaseObservation{}, ErrUsageNotConfigured
-	}
-	if err := gpu.ValidateReleaseObservationInput(input); err != nil {
-		return gpu.ReleaseObservation{}, err
-	}
-	if c.clusterID == "" {
-		return gpu.ReleaseObservation{}, ErrClusterNotConfigured
-	}
-	if c.clusterID != input.ClusterID {
-		return gpu.ReleaseObservation{}, fmt.Errorf("release cluster_id %q does not match configured cluster", input.ClusterID)
-	}
-	actorType, actorID, err := parseActor(input.Actor)
-	if err != nil {
-		return gpu.ReleaseObservation{}, err
-	}
-	ctx = metadata.AppendToOutgoingContext(ctx,
-		"x-ani-tenant-id", input.TenantID,
-		"x-ani-action", "ObserveRelease",
-		"x-ani-actor-type", actorType,
-		"x-ani-actor-id", actorID,
-	)
-	pods := make([]*acceleratorv1.PodRef, 0, len(input.Pods))
-	for _, pod := range input.Pods {
-		pod := pod
-		pods = append(pods, &acceleratorv1.PodRef{ClusterId: pod.ClusterID, Namespace: pod.Namespace, Name: pod.Name, Uid: pod.UID, ContainerName: pod.ContainerName})
-	}
-	response, err := c.usage.ObserveRelease(ctx, &acceleratorv1.ObserveReleaseRequest{
-		RequestId: input.RequestID,
-		Ref: &acceleratorv1.GpuUsageRef{
-			TenantId: input.TenantID, OwnerService: input.OwnerService,
-			ResourceId: input.ResourceID, CreateOperationId: input.CreateOperationID,
-		},
-		DeleteOperationId: input.DeleteOperationID,
-		ClusterId:         input.ClusterID, SealedAt: input.SealedAt,
-		Pods: pods,
-	})
-	if err != nil {
-		return gpu.ReleaseObservation{}, err
-	}
-	if response == nil {
-		return gpu.ReleaseObservation{}, errors.New("accelerator release observation is empty")
-	}
-	finding := gpu.ReleaseFindingUnknown
-	switch response.GetFinding() {
-	case acceleratorv1.ReleaseFinding_ALLOCATION_RELEASED:
-		finding = gpu.ReleaseFindingReleased
-	case acceleratorv1.ReleaseFinding_ALLOCATION_STILL_PRESENT:
-		finding = gpu.ReleaseFindingStillPresent
-	case acceleratorv1.ReleaseFinding_RELEASE_UNKNOWN, acceleratorv1.ReleaseFinding_RELEASE_FINDING_UNSPECIFIED:
-		finding = gpu.ReleaseFindingUnknown
-	}
-	return gpu.ReleaseObservation{
-		EvidenceID:        response.GetEvidenceId(),
-		EvidenceDigest:    response.GetEvidenceDigest(),
-		Finding:           finding,
-		ActivePodUIDs:     append([]string(nil), response.GetActivePodUids()...),
-		UncertainNodeUIDs: append([]string(nil), response.GetUncertainNodeUids()...),
-	}, nil
 }
 
 func parseActor(actor string) (string, string, error) {

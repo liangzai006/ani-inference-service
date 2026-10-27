@@ -39,8 +39,8 @@ func NewOperationStore(pool *pgxpool.Pool) *OperationStore { return &OperationSt
 var _ inferencebiz.OperationStore = (*OperationStore)(nil)
 var _ inferencebiz.AtomicStepStore = (*OperationStore)(nil)
 
-// SaveManagedGPUReleasePods persists the complete Pod identity scope needed
-// by AcceleratorUsageService.ObserveRelease. The scope is keyed by the
+// SaveManagedGPUReleasePods persists the complete Pod identity scope that
+// backs the local managed GPU release proof. The scope is keyed by the
 // tenant, service and durable delete operation so retries and process
 // restarts reuse the same UIDs rather than rediscovering replacement Pods.
 func (s *OperationStore) SaveManagedGPUReleasePods(ctx context.Context, op inferencebiz.OperationContext, pods []gpu.PodRef) error {
@@ -108,7 +108,7 @@ func mergeManagedGPUReleasePods(existing, incoming []gpu.PodRef) ([]gpu.PodRef, 
 
 // LoadManagedGPUReleasePods returns the exact persisted Pod scope for a
 // managed delete operation. The scope may be empty when no Pod was ever
-// observed; its sealed timestamp still fences the ACC release observation.
+// observed; its sealed timestamp is still the runtime absence proof.
 func (s *OperationStore) LoadManagedGPUReleasePods(ctx context.Context, op inferencebiz.OperationContext) ([]gpu.PodRef, error) {
 	if s == nil || s.pool == nil {
 		return nil, errors.New("nil postgres operation store")

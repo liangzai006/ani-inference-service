@@ -40,7 +40,7 @@ func TestManagedGPUIsolationFromLegacyQuotaAndResolve(t *testing.T) {
 	}
 }
 
-func TestManagedGPUDeleteDoesNotCompleteWithoutReleaseObserver(t *testing.T) {
+func TestManagedGPUDeleteDoesNotCompleteWithoutReleasePort(t *testing.T) {
 	store := &runnerStore{op: operation(string(StepReleaseQuota))}
 	store.op.Kind, store.op.ManagedGPU = "delete", true
 	runner := &Runner{Store: store, Audit: &runnerAudit{}}
