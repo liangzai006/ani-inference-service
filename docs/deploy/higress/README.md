@@ -19,12 +19,19 @@ model-router 插件配置为 `enableOnPathSuffix: ["*"]`，会从 OpenAI 兼容 
 动态 Inference-owned AK 的网关链路使用 `ani-inference-ext-auth`：Higress 的官方
 `ext-auth` WasmPlugin 把 `x-api-key`、model-router 生成的模型头和请求 ID 转发给
 `ani-inference-authz`，adapter 再用 `ani-inference-gateway.ani.internal` 的 mTLS
-身份调用 Inference `CheckInferenceAccess`。当前网关切片按 key 和 served model 做
-校验；服务级 scope 需要后续提供可信的 HTTPRoute 上下文后再启用。授权失败按 401/403/429 返回，Inference
+身份调用 Inference `CheckInferenceAccess`。当前网关按 key 和 model-router 从请求体提取的 served model 做校验。Inference
+在持久发布记录中解析实际服务和租户，再同时检查 Key 的服务、模型范围及服务访问策略；
+不信任调用方提供的服务 ID 或租户头。授权失败按 401/403/429 返回，Inference
 或 adapter 不可用时按 503 fail-close。先把 Chart 的 `gatewayAuthz.enabled` 打开并
 发布含 `/ani-inference-gateway-authz` 的镜像，再应用独立的 `ext-auth.yaml`
 对象；该插件只对 `/v1/` 前缀和 `/v1` 精确路径生效，`/api/v1/` 仍由 Governance BFF 处理；没有
 adapter 时不要应用这个插件。
+
+已有 release 如包含额外的环境变量、挂载或证书配置，先保存现场 Deployment 并审查
+增量部署。记录 `gatewayAuthz.enabled`、主服务与 companion 镜像、证书 issuer 覆盖项；
+后续 Helm 升级须将这些覆盖项与现有现场配置一起合入 values，经渲染比对后应用，
+避免旧 release values 覆盖已验证的运行配置。不要仅用基础 Chart 重建现场 Deployment。
+
 
 动态认证的启用顺序（使用已确认的 `KUBE_CONTEXT`）：
 
