@@ -15,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	kubefake "k8s.io/client-go/kubernetes/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
@@ -59,6 +60,123 @@ func TestDiagnosticsRequiresUIDAncestryNotOnlyLabels(t *testing.T) {
 		t.Fatal("cross tenant runtime source must fail closed")
 	}
 }
+
+type diagnosticCountingReader struct {
+	client.Reader
+	gets map[string]int
+	err  error
+}
+
+func (r *diagnosticCountingReader) Get(ctx context.Context, key client.ObjectKey, object client.Object, opts ...client.GetOption) error {
+	r.gets[object.GetObjectKind().GroupVersionKind().String()+":"+key.String()]++
+	if r.err != nil {
+		return r.err
+	}
+	return r.Reader.Get(ctx, key, object, opts...)
+}
+
+func TestDiagnosticsReadsSharedOwnerOncePerRequest(t *testing.T) {
+	d, scope := diagnosticFixture(t)
+	ctx := context.Background()
+	writer := d.Reader.(client.Client)
+	replicaSet := &appsv1.ReplicaSet{}
+	if err := writer.Get(ctx, client.ObjectKey{Namespace: "runtime", Name: "replica"}, replicaSet); err != nil {
+		t.Fatal(err)
+	}
+	replicaSet.Name = "replica-two"
+	replicaSet.UID = "replica-two-uid"
+	replicaSet.ResourceVersion = ""
+	if err := writer.Create(ctx, replicaSet); err != nil {
+		t.Fatal(err)
+	}
+	pod, err := d.Core.Pods("runtime").Get(ctx, "owned", metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 2; i <= 3; i++ {
+		sibling := pod.DeepCopy()
+		sibling.Name = fmt.Sprintf("owned-%d", i)
+		sibling.UID = types.UID(sibling.Name + "-uid")
+		if i == 3 {
+			sibling.OwnerReferences[0].Name = replicaSet.Name
+			sibling.OwnerReferences[0].UID = replicaSet.UID
+		}
+		if _, err := d.Core.Pods("runtime").Create(ctx, sibling, metav1.CreateOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reader := &diagnosticCountingReader{Reader: d.Reader, gets: map[string]int{}}
+	d.Reader = reader
+	instances, err := d.Instances(ctx, scope)
+	if err != nil || len(instances) != 3 {
+		t.Fatalf("owned instances = %+v, err = %v", instances, err)
+	}
+	// The stale same-name ReplicaSet reference in diagnosticFixture must still
+	// be rejected even when another Pod has already loaded its current object.
+	for _, instance := range instances {
+		if instance.Name == "replaced-owner" {
+			t.Fatal("cached owner bypassed UID validation")
+		}
+	}
+	if len(reader.gets) != 3 {
+		t.Fatalf("owner objects read = %+v, want two ReplicaSets and one Deployment", reader.gets)
+	}
+	for key, count := range reader.gets {
+		if count != 1 {
+			t.Errorf("owner %s read %d times, want once per request", key, count)
+		}
+	}
+}
+
+func TestDiagnosticsOwnerReadsAreFreshAcrossRequests(t *testing.T) {
+	d, scope := diagnosticFixture(t)
+	ctx := context.Background()
+	writer := d.Reader.(client.Client)
+	reader := &diagnosticCountingReader{Reader: d.Reader, gets: map[string]int{}}
+	d.Reader = reader
+	instances, err := d.Instances(ctx, scope)
+	if err != nil || len(instances) != 1 {
+		t.Fatalf("initial instances = %+v, err = %v", instances, err)
+	}
+	deployment := &appsv1.Deployment{}
+	if err := writer.Get(ctx, client.ObjectKey{Namespace: "runtime", Name: "runtime"}, deployment); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Delete(ctx, deployment); err != nil {
+		t.Fatal(err)
+	}
+	deployment.UID = "replacement-deployment-uid"
+	deployment.ResourceVersion = ""
+	if err := writer.Create(ctx, deployment); err != nil {
+		t.Fatal(err)
+	}
+	instances, err = d.Instances(ctx, scope)
+	if err != nil || len(instances) != 0 {
+		t.Fatalf("replacement owner authorized using an earlier request: %+v, err = %v", instances, err)
+	}
+	for key, count := range reader.gets {
+		if count != 2 {
+			t.Errorf("owner %s read %d times, want once in each request", key, count)
+		}
+	}
+}
+
+func TestDiagnosticsOwnerReadFailureIsNotAuthorization(t *testing.T) {
+	d, scope := diagnosticFixture(t)
+	sentinel := errors.New("owner lookup unavailable")
+	reader := &diagnosticCountingReader{Reader: d.Reader, gets: map[string]int{}, err: sentinel}
+	d.Reader = reader
+	instances, err := d.Instances(context.Background(), scope)
+	if !errors.Is(err, sentinel) || len(instances) != 0 {
+		t.Fatalf("owner lookup failed open: instances = %+v, err = %v", instances, err)
+	}
+	reader.err = nil
+	instances, err = d.Instances(context.Background(), scope)
+	if err != nil || len(instances) != 1 {
+		t.Fatalf("next request did not retry owner lookup: instances = %+v, err = %v", instances, err)
+	}
+}
+
 func TestDiagnosticEventsFilterBeforeTotalAndPage(t *testing.T) {
 	d, scope := diagnosticFixture(t)
 	ctx := context.Background()
