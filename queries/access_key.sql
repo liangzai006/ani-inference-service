@@ -7,6 +7,7 @@ INSERT INTO inference_access_keys (
 ) VALUES (
   $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
 )
+ON CONFLICT (tenant_id, create_idempotency_key) DO NOTHING
 RETURNING tenant_id, id, name, key_prefix, secret_hash, hash_version,
   allowed_service_ids, allowed_model_names,
   requests_per_second, requests_per_minute, requests_per_hour,

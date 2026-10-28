@@ -27,7 +27,7 @@ func (r *Repository) Create(ctx context.Context, input accesskey.CreatePersistIn
 	if err != nil {
 		return accesskey.PersistResult{}, err
 	}
-	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return accesskey.PersistResult{}, err
 	}
@@ -56,7 +56,10 @@ func (r *Repository) Create(ctx context.Context, input accesskey.CreatePersistIn
 		CreatedBy: in.CreatedBy, CreateIdempotencyKey: textParam(in.CreateIdempotencyKey),
 	})
 	if err != nil {
-		if in.CreateIdempotencyKey != "" {
+		// The INSERT only ignores this tenant's idempotency conflict. Unlike a
+		// uniqueness violation, DO NOTHING leaves the transaction usable; the
+		// following READ COMMITTED query sees the concurrent winner's commit.
+		if errors.Is(err, pgx.ErrNoRows) && in.CreateIdempotencyKey != "" {
 			existing, lookupErr := q.GetInferenceAccessKeyByCreateIdempotency(ctx, GetInferenceAccessKeyByCreateIdempotencyParams{
 				TenantID: tenant, CreateIdempotencyKey: textParam(in.CreateIdempotencyKey),
 			})
@@ -66,6 +69,7 @@ func (r *Repository) Create(ctx context.Context, input accesskey.CreatePersistIn
 				}
 				return accesskey.PersistResult{Record: accessKeyRecord(existing), Replayed: true}, nil
 			}
+			return accesskey.PersistResult{}, lookupErr
 		}
 		return accesskey.PersistResult{}, err
 	}
@@ -93,13 +97,23 @@ func (r *Repository) List(ctx context.Context, tenantID string, options accesske
 	if err != nil {
 		return nil, 0, err
 	}
-	q := New(r.pool)
+	// Keep the page and its count on the same snapshot while other requests
+	// create or remove keys. READ COMMITTED would take one snapshot per query.
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return nil, 0, err
+	}
+	defer tx.Rollback(ctx)
+	q := New(tx)
 	items, err := q.ListInferenceAccessKeys(ctx, ListInferenceAccessKeysParams{TenantID: tenant, Limit: int32(options.Limit), Offset: int32(options.Offset)})
 	if err != nil {
 		return nil, 0, err
 	}
 	total, err := q.CountInferenceAccessKeys(ctx, tenant)
 	if err != nil {
+		return nil, 0, err
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return nil, 0, err
 	}
 	out := make([]accesskey.Record, 0, len(items))

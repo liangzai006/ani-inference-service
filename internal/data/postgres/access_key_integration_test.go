@@ -4,13 +4,85 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	accesskey "github.com/liangzai006/ani-inference-service/internal/biz/accesskey"
 )
+
+type accessKeyPageTrace struct {
+	pageRead func()
+}
+
+type accessKeyPageQuery struct{}
+
+func (t *accessKeyPageTrace) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
+	return context.WithValue(ctx, accessKeyPageQuery{}, strings.Contains(data.SQL, "-- name: ListInferenceAccessKeys"))
+}
+
+func (t *accessKeyPageTrace) TraceQueryEnd(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryEndData) {
+	if page, _ := ctx.Value(accessKeyPageQuery{}).(bool); page && data.Err == nil {
+		t.pageRead()
+	}
+}
+
+func TestInferenceAccessKeyListSnapshotIntegration(t *testing.T) {
+	dsn := os.Getenv("INFERENCE_PG_DSN")
+	if dsn == "" {
+		t.Skip("set INFERENCE_PG_DSN to run PostgreSQL integration test")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	writer, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(writer.Close)
+	tenant := uuid.NewString()
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cleanupCancel()
+		if _, err := writer.Exec(cleanupCtx, `DELETE FROM inference_access_keys WHERE tenant_id=$1`, tenant); err != nil {
+			t.Errorf("cleanup snapshot keys: %v", err)
+		}
+	})
+	service := accesskey.NewService(NewRepository(writer))
+	create := func(name string) error {
+		_, err := service.Create(ctx, accesskey.CreateInput{
+			TenantID: tenant, Name: name, CreatedBy: "snapshot-test", AllowedModelNames: []string{"snapshot-model"},
+		})
+		return err
+	}
+	if err := create("before-page"); err != nil {
+		t.Fatal(err)
+	}
+	config, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var writeErr error
+	config.ConnConfig.Tracer = &accessKeyPageTrace{pageRead: func() { writeErr = create("after-page") }}
+	reader, err := pgxpool.NewWithConfig(ctx, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(reader.Close)
+	items, total, err := NewRepository(reader).List(ctx, tenant, accesskey.ListOptions{Limit: 10})
+	if err != nil || writeErr != nil {
+		t.Fatalf("list=%v concurrent insert=%v", err, writeErr)
+	}
+	var committed int
+	if err := writer.QueryRow(ctx, `SELECT count(*) FROM inference_access_keys WHERE tenant_id=$1`, tenant).Scan(&committed); err != nil {
+		t.Fatal(err)
+	}
+	if committed != 2 || len(items) != 1 || total != 1 || items[0].Name != "before-page" {
+		t.Fatalf("list/count must share a snapshot: committed=%d items=%d total=%d", committed, len(items), total)
+	}
+}
 
 func TestInferenceAccessKeyRepositoryIntegration(t *testing.T) {
 	dsn := os.Getenv("INFERENCE_PG_DSN")
