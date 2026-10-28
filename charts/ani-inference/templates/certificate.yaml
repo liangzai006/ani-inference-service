@@ -15,7 +15,7 @@ spec:
   usages:
     - digital signature
     - client auth
-  # The client loads this key pair once at startup and never reloads it.
+  # Bind this workload to the platform service-mtls renewal restart job.
   duration: {{ .Values.model.tls.certificate.duration }}
   renewBefore: {{ .Values.model.tls.certificate.renewBefore }}
   issuerRef:

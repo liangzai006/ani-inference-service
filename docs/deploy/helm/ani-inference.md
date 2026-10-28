@@ -1,5 +1,33 @@
 # 新环境 Inference Helm 部署
 
+## 内部证书与退额配置
+
+所有服务身份使用平台现有 cert-manager Issuer，不另建临时 CA。本文默认值中的
+`ani-internal` 是签发者名称示例；现有平台使用 `ClusterIssuer/ani-ca` 时，统一设置
+`serverTLS.certificate.issuer.name=ani-ca`、`model.tls.issuer.name=ani-ca`，启用
+gatewayAuthz 时再设置 `gatewayAuthz.tls.issuer.name=ani-ca`。
+服务端和 Model 客户端身份仍分别按本文登记，不因为更换签发者而改名。
+
+开启镜像目录、Accelerator 或 Gov 退额时，Chart 为 `serviceClientTLS.existingSecret`
+申请唯一 DNS SAN 为 `ani-inference-service` 的 clientAuth 证书，复用上述服务端证书的
+Issuer。镜像目录和 ACC 默认使用该受管身份；如显式指定各自 Secret，必须由同一受信
+Issuer 的 Certificate 管理。复用已有 `inference-accelerator-mtls` 时设置
+`serviceClientTLS.existingSecret=inference-accelerator-mtls`、
+`serviceClientTLS.certificate.create=false`，保留原 Certificate 的管理入口。
+
+退额配置为 `governanceQuota.enabled=true`、
+`governanceQuota.grpcAddress=ani-governance-quota.ani-system.svc:9002`，
+服务器精确身份 `governanceQuota.serverName=ani-governance`。
+Gov 必须运行包含 `ANI_QUOTA_INFERENCE_ENABLED=true` 注册逻辑的镜像，固定将
+客户端 `ani-inference-service` 映射到原账本 owner `ani-inference`；同一 CA 不自动授权。
+
+叶证书默认 90 天有效、提前 15 天续期、每次轮换私钥。进程在启动时加载证书，须将实际
+Deployment 与所有使用的证书 Secret 登记到平台续期重启任务；平台配置和分阶段迁移见
+[Governance 内部服务证书入口](https://github.com/zhangzhe-ctrl/ani-governance/tree/main/scripts/deploy/service-mtls)。
+验收同时确认新证书签发、消费者自动重启、真实 mTLS 业务调用恢复，以及原释放事件只退额一次。
+
+Higress 的 `/v1/completions` 生成请求与 Governance 的 `/api/v1/...` 管理请求须独立验证。
+
 正式安装只使用 Helm、`kubectl apply` 和本地子 Chart。Helm 默认使用当前
 `~/.kube/config` 的 context，不在命令中传 `--kube-context`。安装前先显式核对当前
 context，避免误操作旧环境。`scripts/install.sh` 和

@@ -54,6 +54,20 @@ imageRegistry:
   existingSecret: ""
   mountPath: /var/run/secrets/image-runtime
 
+# One service identity for Accelerator, Resource image runtime and Gov quota.
+# The Model client keeps its separately registered identity below.
+serviceClientTLS:
+  existingSecret: inference-service-client-tls
+  certificate:
+    create: true
+    duration: 2160h
+    renewBefore: 360h
+
+governanceQuota:
+  enabled: false
+  grpcAddress: ""
+  serverName: ani-governance
+
 model:
   grpcAddress: ani-model-grpc.ani-system.svc.cluster.local:19090
   materializerImage: docker.changqingyun.cn/ani/model-import-worker:model-search-20261014-r1
@@ -72,9 +86,9 @@ model:
     certificate:
       create: true
       dnsName: ani-inference.ani.internal
-      # 10 years. The client reads this key pair once at startup.
-      duration: 87600h
-      renewBefore: 720h
+      # Use the service-mtls reload binding when certificates are renewed.
+      duration: 2160h
+      renewBefore: 360h
     issuer:
       name: ani-internal
       kind: ClusterIssuer
@@ -120,8 +134,8 @@ gatewayAuthz:
     certificate:
       create: true
       dnsName: ani-inference-gateway.ani.internal
-      duration: 87600h
-      renewBefore: 720h
+      duration: 2160h
+      renewBefore: 360h
     issuer:
       name: ani-internal
       kind: ClusterIssuer
@@ -156,9 +170,9 @@ serverTLS:
   certificate:
     create: true
     dnsName: ani-inference.ani.internal
-    # 10 years. The server reads this key pair once at startup.
-    duration: 87600h
-    renewBefore: 720h
+    # The process must restart on renewal; see the service-mtls reload binding.
+    duration: 2160h
+    renewBefore: 360h
     issuer:
       name: ani-internal
       kind: ClusterIssuer
