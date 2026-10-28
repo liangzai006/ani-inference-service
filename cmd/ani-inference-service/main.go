@@ -120,7 +120,11 @@ func run(logger *slog.Logger) error {
 		}
 		defer pool.Close()
 		repo := postgres.NewRepository(pool)
-		accessKeyService = accesskeybiz.NewService(repo)
+		accessKeyCipher, err := configuredAccessKeyCipher()
+		if err != nil {
+			return err
+		}
+		accessKeyService = accesskeybiz.NewService(repo, accessKeyCipher)
 		accessKeyService.Policy = repo
 		policyService = &policybiz.Service{Repository: repo}
 		var closeRefund func()

@@ -23,7 +23,7 @@ const (
 )
 
 // InferenceAccessKey is a data-plane credential. It is intentionally separate
-// from Governance's control-plane API key and never contains the secret.
+// from Governance's control-plane API key. Authorized List/Get include secret.
 type InferenceAccessKey struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
 	Id                string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -40,8 +40,10 @@ type InferenceAccessKey struct {
 	CreatedAt         *timestamppb.Timestamp `protobuf:"bytes,12,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	LastUsedAt        *timestamppb.Timestamp `protobuf:"bytes,13,opt,name=last_used_at,json=lastUsedAt,proto3" json:"last_used_at,omitempty"`
 	Version           int64                  `protobuf:"varint,14,opt,name=version,proto3" json:"version,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// Absent on legacy hashes until the key is successfully used or rotated.
+	Secret        *string `protobuf:"bytes,15,opt,name=secret,proto3,oneof" json:"secret,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *InferenceAccessKey) Reset() {
@@ -170,6 +172,13 @@ func (x *InferenceAccessKey) GetVersion() int64 {
 		return x.Version
 	}
 	return 0
+}
+
+func (x *InferenceAccessKey) GetSecret() string {
+	if x != nil && x.Secret != nil {
+		return *x.Secret
+	}
+	return ""
 }
 
 type CreateInferenceAccessKeyRequest struct {
@@ -872,7 +881,7 @@ var File_inference_v1_access_key_proto protoreflect.FileDescriptor
 
 const file_inference_v1_access_key_proto_rawDesc = "" +
 	"\n" +
-	"\x1dinference/v1/access_key.proto\x12\finference.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xeb\x04\n" +
+	"\x1dinference/v1/access_key.proto\x12\finference.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x93\x05\n" +
 	"\x12InferenceAccessKey\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1d\n" +
@@ -894,7 +903,9 @@ const file_inference_v1_access_key_proto_rawDesc = "" +
 	"created_at\x18\f \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12<\n" +
 	"\flast_used_at\x18\r \x01(\v2\x1a.google.protobuf.TimestampR\n" +
 	"lastUsedAt\x12\x18\n" +
-	"\aversion\x18\x0e \x01(\x03R\aversion\"\xa4\x03\n" +
+	"\aversion\x18\x0e \x01(\x03R\aversion\x12\x1b\n" +
+	"\x06secret\x18\x0f \x01(\tH\x00R\x06secret\x88\x01\x01B\t\n" +
+	"\a_secret\"\xa4\x03\n" +
 	"\x1fCreateInferenceAccessKeyRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x12\n" +
@@ -1020,6 +1031,7 @@ func file_inference_v1_access_key_proto_init() {
 	if File_inference_v1_access_key_proto != nil {
 		return
 	}
+	file_inference_v1_access_key_proto_msgTypes[0].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

@@ -188,6 +188,9 @@ func accessKeyProto(item accesskey.Record) *inferencev1.InferenceAccessKey {
 		RequestsPerSecond: item.RequestsPerSecond, RequestsPerMinute: item.RequestsPerMinute,
 		RequestsPerHour: item.RequestsPerHour, CreatedBy: item.CreatedBy, Version: item.Version,
 	}
+	if item.Secret != "" {
+		result.Secret = &item.Secret
+	}
 	if !item.CreatedAt.IsZero() {
 		result.CreatedAt = timestamppb.New(item.CreatedAt)
 	}
@@ -224,6 +227,8 @@ func accessKeyStatusError(err error) error {
 		return status.Error(codes.InvalidArgument, err.Error())
 	case errors.Is(err, accesskey.ErrScopeDenied):
 		return status.Error(codes.PermissionDenied, "inference access key scope denied")
+	case errors.Is(err, accesskey.ErrSecretUnavailable):
+		return status.Error(codes.Unavailable, "inference access key secret unavailable")
 	default:
 		return status.Error(codes.Internal, "inference access key persistence failed")
 	}

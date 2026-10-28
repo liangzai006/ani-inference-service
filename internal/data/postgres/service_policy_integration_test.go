@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	accesskey "github.com/liangzai006/ani-inference-service/internal/biz/accesskey"
 	policybiz "github.com/liangzai006/ani-inference-service/internal/biz/servicepolicy"
 )
@@ -26,7 +28,7 @@ func TestServicePolicyIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	policies := &policybiz.Service{Repository: repo}
-	keys := accesskey.NewService(repo)
+	keys := accessKeyTestService(t, repo)
 	keys.Policy = repo
 	// Fixed time keeps limits deterministic even across a wall-clock boundary.
 	now := time.Date(2026, 10, 22, 8, 12, 10, 0, time.UTC)
@@ -150,13 +152,28 @@ func TestServicePolicyIntegration(t *testing.T) {
 	// allowlist replacement rather than silently losing attribution.
 	functionName := "fail_policy_audit_" + uuid.NewString()[:8]
 	triggerName := functionName + "_trigger"
-	_, err = pool.Exec(ctx, fmt.Sprintf(`CREATE FUNCTION %s() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic policy audit failure'; END $$;
+	ddlPool := pool
+	if dsn := os.Getenv("INFERENCE_PG_ADMIN_DSN"); dsn != "" {
+		ddlPool, err = pgxpool.New(ctx, dsn)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(ddlPool.Close)
+		var runtimeDB, adminDB string
+		if err := pool.QueryRow(ctx, "SELECT current_database()").Scan(&runtimeDB); err != nil {
+			t.Fatal(err)
+		}
+		if err := ddlPool.QueryRow(ctx, "SELECT current_database()").Scan(&adminDB); err != nil || adminDB != runtimeDB {
+			t.Fatalf("DDL fixture must target the same exclusive database: %v", err)
+		}
+	}
+	_, err = ddlPool.Exec(ctx, fmt.Sprintf(`CREATE FUNCTION %s() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic policy audit failure'; END $$;
  CREATE TRIGGER %s BEFORE INSERT ON inference_service_policy_audit_events FOR EACH ROW WHEN (NEW.tenant_id='%s'::uuid) EXECUTE FUNCTION %s()`, functionName, triggerName, tenant.String(), functionName))
 	if err != nil {
 		t.Fatal(err)
 	}
 	cleanupTrigger := func() {
-		_, err := pool.Exec(context.Background(), fmt.Sprintf("DROP TRIGGER IF EXISTS %s ON inference_service_policy_audit_events; DROP FUNCTION IF EXISTS %s()", triggerName, functionName))
+		_, err := ddlPool.Exec(context.Background(), fmt.Sprintf("DROP TRIGGER IF EXISTS %s ON inference_service_policy_audit_events; DROP FUNCTION IF EXISTS %s()", triggerName, functionName))
 		if err != nil {
 			t.Error(err)
 		}

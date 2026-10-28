@@ -7,7 +7,7 @@ option go_package = "github.com/liangzai006/ani-inference-service/api/inference/
 import "google/protobuf/timestamp.proto";
 
 // InferenceAccessKey is a data-plane credential. It is intentionally separate
-// from Governance's control-plane API key and never contains the secret.
+// from Governance's control-plane API key. Authorized List/Get include secret.
 message InferenceAccessKey {
   string id = 1;
   string name = 2;
@@ -23,6 +23,8 @@ message InferenceAccessKey {
   google.protobuf.Timestamp created_at = 12;
   google.protobuf.Timestamp last_used_at = 13;
   int64 version = 14;
+  // Absent on legacy hashes until the key is successfully used or rotated.
+  optional string secret = 15;
 }
 
 message CreateInferenceAccessKeyRequest {

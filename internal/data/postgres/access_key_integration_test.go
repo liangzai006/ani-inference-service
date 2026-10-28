@@ -20,6 +20,15 @@ type accessKeyPageTrace struct {
 
 type accessKeyPageQuery struct{}
 
+func accessKeyTestService(t *testing.T, repository *Repository) *accesskey.Service {
+	t.Helper()
+	cipher, err := accesskey.NewSecretCipher(make([]byte, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return accesskey.NewService(repository, cipher)
+}
+
 func (t *accessKeyPageTrace) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
 	return context.WithValue(ctx, accessKeyPageQuery{}, strings.Contains(data.SQL, "-- name: ListInferenceAccessKeys"))
 }
@@ -50,7 +59,7 @@ func TestInferenceAccessKeyListSnapshotIntegration(t *testing.T) {
 			t.Errorf("cleanup snapshot keys: %v", err)
 		}
 	})
-	service := accesskey.NewService(NewRepository(writer))
+	service := accessKeyTestService(t, NewRepository(writer))
 	create := func(name string) error {
 		_, err := service.Create(ctx, accesskey.CreateInput{
 			TenantID: tenant, Name: name, CreatedBy: "snapshot-test", AllowedModelNames: []string{"snapshot-model"},
@@ -110,7 +119,7 @@ func TestInferenceAccessKeyRepositoryIntegration(t *testing.T) {
 	})
 
 	repository := NewRepository(pool)
-	service := accesskey.NewService(repository)
+	service := accessKeyTestService(t, repository)
 	created, err := service.Create(ctx, accesskey.CreateInput{
 		TenantID: tenant, RequestID: "req-create-1", Name: "integration-key",
 		AllowedServiceIDs: []string{serviceID}, AllowedModelNames: []string{"model-a"},
@@ -228,5 +237,99 @@ func TestInferenceAccessKeyRepositoryIntegration(t *testing.T) {
 	}
 	if auditCount != 3 || bucketCount != 1 {
 		t.Fatalf("durable audit/rate state mismatch: audits=%d buckets=%d", auditCount, bucketCount)
+	}
+}
+
+func TestInferenceAccessKeySecretPersistenceIntegration(t *testing.T) {
+	dsn := os.Getenv("INFERENCE_PG_DSN")
+	if dsn == "" {
+		t.Skip("set INFERENCE_PG_DSN to run PostgreSQL integration test")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	tenant := uuid.NewString()
+	t.Cleanup(func() {
+		if _, err := pool.Exec(context.Background(), "DELETE FROM inference_access_keys WHERE tenant_id=$1", tenant); err != nil {
+			t.Error(err)
+		}
+	})
+	repository := NewRepository(pool)
+	svc := accessKeyTestService(t, repository)
+	created, err := svc.Create(ctx, accesskey.CreateInput{TenantID: tenant, Name: "recoverable", AllowedModelNames: []string{"model"}, CreatedBy: "test", IdempotencyKey: "create"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ciphertext, hash string
+	if err := pool.QueryRow(ctx, "SELECT secret_ciphertext,secret_hash FROM inference_access_keys WHERE tenant_id=$1 AND id=$2", tenant, created.Record.ID).Scan(&ciphertext, &hash); err != nil {
+		t.Fatal(err)
+	}
+	if ciphertext == "" || strings.Contains(ciphertext, created.Secret) || hash == created.Secret {
+		t.Fatal("plaintext must not be persisted")
+	}
+	// A separately constructed service and cipher must recover durable values.
+	svc = accessKeyTestService(t, NewRepository(pool))
+	checkReads := func(secret string) {
+		t.Helper()
+		got, err := svc.Get(ctx, tenant, created.Record.ID)
+		if err != nil || got.Secret != secret {
+			t.Fatalf("get persisted credential: %v", err)
+		}
+		items, total, err := svc.List(ctx, tenant, accesskey.ListOptions{Limit: 10})
+		if err != nil || total != 1 || len(items) != 1 || items[0].Secret != secret {
+			t.Fatalf("list persisted credential: %v", err)
+		}
+	}
+	checkReads(created.Secret)
+	if _, err := svc.Get(ctx, uuid.NewString(), created.Record.ID); !errors.Is(err, accesskey.ErrNotFound) {
+		t.Fatalf("cross-tenant get must fail: %v", err)
+	}
+	// Simulate an existing pre-migration row. Invalid and unauthorized
+	// requests must not archive a supplied value, even with the right prefix.
+	if _, err := pool.Exec(ctx, "UPDATE inference_access_keys SET secret_ciphertext=NULL WHERE tenant_id=$1 AND id=$2", tenant, created.Record.ID); err != nil {
+		t.Fatal(err)
+	}
+	checkReads("")
+	if result, err := svc.Check(ctx, created.Record.KeyPrefix+strings.Repeat("0", 31), "", "model", 1); err != nil || result.Allowed {
+		t.Fatalf("invalid legacy credential: %v", err)
+	}
+	checkReads("")
+	if result, err := svc.Check(ctx, created.Secret, "", "model", 1); err != nil || !result.Allowed {
+		t.Fatalf("valid legacy credential: %v", err)
+	}
+	checkReads(created.Secret)
+	legacy, err := repository.Get(ctx, tenant, created.Record.ID)
+	if err != nil || legacy.Version != created.Record.Version || legacy.SecretHash != hash {
+		t.Fatalf("archive changed credential identity: %v", err)
+	}
+	rotated, err := svc.Rotate(ctx, tenant, created.Record.ID, "rotate", "test", "request")
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkReads(rotated.Secret)
+	// A delayed archive of the previous version cannot replace the new key.
+	if err := repository.ArchiveSecret(ctx, legacy, legacy.SecretCiphertext); err != nil {
+		t.Fatal(err)
+	}
+	checkReads(rotated.Secret)
+	if _, err := pool.Exec(ctx, "UPDATE inference_access_keys SET secret_ciphertext='v1:corrupt' WHERE tenant_id=$1 AND id=$2", tenant, created.Record.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Get(ctx, tenant, created.Record.ID); !errors.Is(err, accesskey.ErrSecretUnavailable) {
+		t.Fatalf("corrupt detail must fail closed: %v", err)
+	}
+	if items, _, err := svc.List(ctx, tenant, accesskey.ListOptions{Limit: 10}); !errors.Is(err, accesskey.ErrSecretUnavailable) || items != nil {
+		t.Fatal("corrupt page must fail without returning partial secrets")
+	}
+	var auditPayloads string
+	if err := pool.QueryRow(ctx, "SELECT coalesce(string_agg(payload::text,','),'') FROM inference_access_key_audit_events WHERE tenant_id=$1", tenant).Scan(&auditPayloads); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(auditPayloads, created.Secret) || strings.Contains(auditPayloads, rotated.Secret) || strings.Contains(auditPayloads, ciphertext) {
+		t.Fatal("audit must not contain plaintext or ciphertext")
 	}
 }

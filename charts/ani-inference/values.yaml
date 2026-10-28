@@ -43,6 +43,12 @@ database:
   existingSecret: inference-database
   secretKey: dsn
 
+# Must be provisioned separately; contains exactly 32 random raw bytes.
+accessKeyEncryption:
+  existingSecret: inference-access-key-encryption
+  secretKey: key
+  mountPath: /var/run/secrets/inference-access-key
+
 imageRegistry:
   enabled: false
   grpcAddress: ""

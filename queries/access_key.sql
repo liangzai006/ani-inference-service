@@ -3,23 +3,23 @@ INSERT INTO inference_access_keys (
   tenant_id, id, name, key_prefix, secret_hash, hash_version,
   allowed_service_ids, allowed_model_names,
   requests_per_second, requests_per_minute, requests_per_hour,
-  expires_at, created_by, create_idempotency_key
+  expires_at, created_by, create_idempotency_key, secret_ciphertext
 ) VALUES (
-  $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+  $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
 )
 ON CONFLICT (tenant_id, create_idempotency_key) DO NOTHING
 RETURNING tenant_id, id, name, key_prefix, secret_hash, hash_version,
   allowed_service_ids, allowed_model_names,
   requests_per_second, requests_per_minute, requests_per_hour,
   expires_at, revoked_at, created_by, created_at, last_used_at, version,
-  create_idempotency_key, rotation_idempotency_key;
+  create_idempotency_key, rotation_idempotency_key, secret_ciphertext;
 
 -- name: GetInferenceAccessKey :one
 SELECT tenant_id, id, name, key_prefix, secret_hash, hash_version,
   allowed_service_ids, allowed_model_names,
   requests_per_second, requests_per_minute, requests_per_hour,
   expires_at, revoked_at, created_by, created_at, last_used_at, version,
-  create_idempotency_key, rotation_idempotency_key
+  create_idempotency_key, rotation_idempotency_key, secret_ciphertext
 FROM inference_access_keys
 WHERE tenant_id = $1 AND id = $2;
 
@@ -28,7 +28,7 @@ SELECT tenant_id, id, name, key_prefix, secret_hash, hash_version,
   allowed_service_ids, allowed_model_names,
   requests_per_second, requests_per_minute, requests_per_hour,
   expires_at, revoked_at, created_by, created_at, last_used_at, version,
-  create_idempotency_key, rotation_idempotency_key
+  create_idempotency_key, rotation_idempotency_key, secret_ciphertext
 FROM inference_access_keys
 WHERE key_prefix = $1;
 
@@ -37,7 +37,7 @@ SELECT tenant_id, id, name, key_prefix, secret_hash, hash_version,
   allowed_service_ids, allowed_model_names,
   requests_per_second, requests_per_minute, requests_per_hour,
   expires_at, revoked_at, created_by, created_at, last_used_at, version,
-  create_idempotency_key, rotation_idempotency_key
+  create_idempotency_key, rotation_idempotency_key, secret_ciphertext
 FROM inference_access_keys
 WHERE tenant_id = $1 AND create_idempotency_key = $2;
 
@@ -46,7 +46,7 @@ SELECT tenant_id, id, name, key_prefix, secret_hash, hash_version,
   allowed_service_ids, allowed_model_names,
   requests_per_second, requests_per_minute, requests_per_hour,
   expires_at, revoked_at, created_by, created_at, last_used_at, version,
-  create_idempotency_key, rotation_idempotency_key
+  create_idempotency_key, rotation_idempotency_key, secret_ciphertext
 FROM inference_access_keys
 WHERE tenant_id = $1
 ORDER BY created_at DESC, id DESC
@@ -65,26 +65,26 @@ RETURNING tenant_id, id, name, key_prefix, secret_hash, hash_version,
   allowed_service_ids, allowed_model_names,
   requests_per_second, requests_per_minute, requests_per_hour,
   expires_at, revoked_at, created_by, created_at, last_used_at, version,
-  create_idempotency_key, rotation_idempotency_key;
+  create_idempotency_key, rotation_idempotency_key, secret_ciphertext;
 
 -- name: RotateInferenceAccessKey :one
 UPDATE inference_access_keys
 SET key_prefix = $3, secret_hash = $4, hash_version = $5,
-    revoked_at = NULL, rotation_idempotency_key = $6,
+    revoked_at = NULL, rotation_idempotency_key = $6, secret_ciphertext = $7,
     version = version + 1
 WHERE tenant_id = $1 AND id = $2 AND revoked_at IS NULL
 RETURNING tenant_id, id, name, key_prefix, secret_hash, hash_version,
   allowed_service_ids, allowed_model_names,
   requests_per_second, requests_per_minute, requests_per_hour,
   expires_at, revoked_at, created_by, created_at, last_used_at, version,
-  create_idempotency_key, rotation_idempotency_key;
+  create_idempotency_key, rotation_idempotency_key, secret_ciphertext;
 
 -- name: GetInferenceAccessKeyByRotationIdempotency :one
 SELECT tenant_id, id, name, key_prefix, secret_hash, hash_version,
   allowed_service_ids, allowed_model_names,
   requests_per_second, requests_per_minute, requests_per_hour,
   expires_at, revoked_at, created_by, created_at, last_used_at, version,
-  create_idempotency_key, rotation_idempotency_key
+  create_idempotency_key, rotation_idempotency_key, secret_ciphertext
 FROM inference_access_keys
 WHERE tenant_id = $1 AND id = $2 AND rotation_idempotency_key = $3;
 
@@ -93,7 +93,7 @@ SELECT tenant_id, id, name, key_prefix, secret_hash, hash_version,
   allowed_service_ids, allowed_model_names,
   requests_per_second, requests_per_minute, requests_per_hour,
   expires_at, revoked_at, created_by, created_at, last_used_at, version,
-  create_idempotency_key, rotation_idempotency_key
+  create_idempotency_key, rotation_idempotency_key, secret_ciphertext
 FROM inference_access_keys
 WHERE tenant_id = $1 AND id = $2
 FOR UPDATE;
@@ -116,3 +116,9 @@ ON CONFLICT (tenant_id, key_id, window_name, window_start)
 DO UPDATE SET request_count = inference_access_key_rate_buckets.request_count + EXCLUDED.request_count
 WHERE inference_access_key_rate_buckets.request_count <= sqlc.arg(max_count)::bigint - EXCLUDED.request_count
 RETURNING request_count;
+
+-- name: ArchiveInferenceAccessKeySecret :execrows
+UPDATE inference_access_keys
+SET secret_ciphertext = $5
+WHERE tenant_id = $1 AND id = $2 AND version = $3 AND secret_hash = $4
+  AND secret_ciphertext IS NULL AND revoked_at IS NULL;
