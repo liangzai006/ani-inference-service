@@ -190,7 +190,7 @@ func (r *RuntimeRouter) Ensure(ctx context.Context, desired bizreconcile.Desired
 	}
 	if spec.DesiredState == "running" {
 		if err := r.ensurePullSecrets(ctx, spec.RuntimeSpec); err != nil {
-			var unavailable *pullMaterialUnavailableError
+			var unavailable *pullSecretUnavailableError
 			if errors.As(err, &unavailable) && ctx.Err() == nil {
 				if spec.TenantID != desired.TenantID || spec.ServiceID != desired.ServiceID || spec.Generation != desired.Generation {
 					return bizreconcile.Observation{}, bizreconcile.ErrStaleGeneration

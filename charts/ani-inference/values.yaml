@@ -60,6 +60,15 @@ imageRegistry:
   existingSecret: ""
   mountPath: /var/run/secrets/image-runtime
 
+# Deployment facts of the single shared runtime namespace. They form the pull
+# Secret scope together with the tenant and the registry authority, so they are
+# never derived from a request or from the accelerator cluster ID.
+inferenceRuntime:
+  # Kubernetes cluster that hosts the runtime namespace (not ANI_ACCELERATOR_CLUSTER_ID).
+  clusterID: ""
+  # metadata.uid of the runtime namespace; the downward API cannot supply it.
+  namespaceUID: ""
+
 # One service identity for Accelerator, Resource image runtime and Gov quota.
 # The Model client keeps its separately registered identity below.
 serviceClientTLS:

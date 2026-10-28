@@ -32,11 +32,15 @@ func TestResolveFencesScopePlatformDigestAndMetadata(t *testing.T) {
 	const tenant = "11111111-1111-4111-8111-111111111111"
 	const id = "22222222-2222-4222-8222-222222222222"
 	const digest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	runtime := &runtimeBoundary{response: &imagev1.ResolveImageForWorkloadResponse{TenantId: tenant, ImageId: id, Scope: imagev1.ImageScope_IMAGE_SCOPE_PLATFORM, ResolvedReference: "private.registry/platform/engine@" + digest, Digest: digest, SelectedPlatform: &imagev1.ImagePlatform{Os: "linux", Architecture: "amd64"}}}
-	client := &Client{Runtime: runtime, Platform: &imagev1.ImagePlatform{Os: "linux", Architecture: "amd64"}, Namespace: "runtime"}
+	runtime := &runtimeBoundary{response: &imagev1.ResolveImageForWorkloadResponse{TenantId: tenant, ImageId: id, Scope: imagev1.ImageScope_IMAGE_SCOPE_PLATFORM, ResolvedReference: "private.registry/platform/engine@" + digest, Digest: digest, RegistryAuthority: "private.registry", SelectedPlatform: &imagev1.ImagePlatform{Os: "linux", Architecture: "amd64"}}}
+	client := &Client{Runtime: runtime, Platform: &imagev1.ImagePlatform{Os: "linux", Architecture: "amd64"}, Namespace: "runtime", ClusterID: "cluster-a"}
+	want, err := biz.PullSecretName(tenant, "cluster-a", "runtime", "private.registry")
+	if err != nil {
+		t.Fatal(err)
+	}
 	ctx := metadata.NewOutgoingContext(context.Background(), metadata.Pairs("authorization", "must-not-forward", "x-ani-actor-id", "spoofed"))
 	ref, selection, err := client.Resolve(ctx, tenant, id, "platform")
-	if err != nil || ref != runtime.response.ResolvedReference || selection.PullSecretRef != biz.PullSecretName(tenant, "runtime", "private.registry") {
+	if err != nil || ref != runtime.response.ResolvedReference || selection.PullSecretRef != want {
 		t.Fatalf("resolution=%+v err=%v", selection, err)
 	}
 	if len(runtime.metadata.Get("authorization")) != 0 || len(runtime.metadata.Get("x-ani-actor-id")) != 0 || runtime.metadata.Get("x-ani-tenant-id")[0] != tenant {
@@ -50,6 +54,23 @@ func TestResolveFencesScopePlatformDigestAndMetadata(t *testing.T) {
 	runtime.response.SelectedPlatform.Architecture = "arm64"
 	if _, _, err := client.Resolve(ctx, tenant, id, "platform"); status.Code(err) != codes.Internal {
 		t.Fatalf("platform substitution accepted: %v", err)
+	}
+	runtime.response.SelectedPlatform.Architecture = "amd64"
+	// registry_authority is authoritative: a reference whose host disagrees
+	// with it must never be accepted by re-parsing the reference.
+	runtime.response.RegistryAuthority = "mirror.registry"
+	if _, _, err := client.Resolve(ctx, tenant, id, "platform"); status.Code(err) != codes.Internal {
+		t.Fatalf("registry authority mismatch accepted: %v", err)
+	}
+	runtime.response.RegistryAuthority = ""
+	if _, _, err := client.Resolve(ctx, tenant, id, "platform"); status.Code(err) != codes.Internal {
+		t.Fatalf("missing registry authority accepted: %v", err)
+	}
+	runtime.response.RegistryAuthority = "private.registry"
+	// The pull Secret scope includes the runtime cluster ID.
+	client.ClusterID = ""
+	if _, _, err := client.Resolve(ctx, tenant, id, "platform"); status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("missing cluster accepted: %v", err)
 	}
 }
 
@@ -91,7 +112,7 @@ func TestCreateUsesConcurrentAcceptanceBeforeReportingImageRejection(t *testing.
 	st, _ := status.New(codes.NotFound, "IMAGE_NOT_FOUND").WithDetails(&errdetails.ErrorInfo{Domain: "image.ani.io", Reason: "IMAGE_NOT_FOUND"})
 	runtime := &runtimeBoundary{err: st.Err()}
 	durable := &replayBoundary{after: 1}
-	uc := &CreateUseCase{Client: &Client{Runtime: runtime, Platform: &imagev1.ImagePlatform{Os: "linux", Architecture: "amd64"}, Namespace: "runtime"}, Next: durable, Preflight: durable}
+	uc := &CreateUseCase{Client: &Client{Runtime: runtime, Platform: &imagev1.ImagePlatform{Os: "linux", Architecture: "amd64"}, Namespace: "runtime", ClusterID: "cluster-a"}, Next: durable, Preflight: durable}
 	out, err := uc.Create(context.Background(), biz.CreateInput{TenantID: "11111111-1111-4111-8111-111111111111", ImageID: "22222222-2222-4222-8222-222222222222", ImageScope: "platform"})
 	if err != nil || out == nil || durable.checks != 2 || runtime.calls != 1 || durable.calls != 0 {
 		t.Fatalf("concurrent receipt lost: out=%v err=%v", out, err)

@@ -62,18 +62,15 @@ func (r *credentialObservationRepository) SaveObservationForWork(ctx context.Con
 	return r.SaveObservation(ctx, item.TenantID, item.ServiceID, item.Generation, o)
 }
 
-func credentialObservationFixture(t *testing.T) (*RuntimeRouter, *credentialObservationProvider, *pullMaterialFake, client.Client, RuntimeSpec) {
+func credentialObservationFixture(t *testing.T) (*RuntimeRouter, *credentialObservationProvider, *pullEnsureFake, client.Client, RuntimeSpec) {
 	t.Helper()
 	spec := imagePullTestSpec()
-	kube := fake.NewClientBuilder().WithScheme(executorScheme(t)).Build()
-	material := &pullMaterialFake{response: pullMaterialFixture()}
-	sync := &SharedPullSecrets{Client: kube, Material: material}
-	if err := sync.Ensure(context.Background(), spec); err != nil {
-		t.Fatal(err)
-	}
+	reader := fake.NewClientBuilder().WithScheme(executorScheme(t)).WithObjects(ensuredSecret(spec)).Build()
+	ensurer := &pullEnsureFake{response: pullSecretFixture(spec)}
+	sync := &ResourcePullSecrets{Ensurer: ensurer, Reader: reader}
 	provider := &credentialObservationProvider{observation: bizreconcile.Observation{Generation: spec.Generation, RuntimePhase: "ready", ReadyReplicas: 1, ModelReady: true, ModelReadyKnown: true, InvocationHealth: "healthy"}}
 	router := &RuntimeRouter{Source: routerSourceFake{desired: DesiredRuntime{RuntimeSpec: spec, DesiredState: "running"}}, DeploymentReconcile: provider, PullSecrets: sync}
-	return router, provider, material, kube, spec
+	return router, provider, ensurer, reader, spec
 }
 
 func TestRuntimeCredentialFailureStillPersistsCurrentObservation(t *testing.T) {
@@ -84,7 +81,7 @@ func TestRuntimeCredentialFailureStillPersistsCurrentObservation(t *testing.T) {
 	for _, rpcError := range []error{status.Error(codes.Unavailable, "pull-secret-sentinel"), status.Error(codes.DeadlineExceeded, "pull-secret-sentinel"), context.DeadlineExceeded} {
 		for _, phase := range []string{"ready", "degraded"} {
 			t.Run(rpcError.Error()+"/"+phase, func(t *testing.T) {
-				router, provider, material, kube, spec := credentialObservationFixture(t)
+				router, provider, ensurer, kube, spec := credentialObservationFixture(t)
 				provider.observation.RuntimePhase = phase
 				if phase == "degraded" {
 					provider.observation.ReadyReplicas, provider.observation.InvocationHealth, provider.observation.Reason = 0, "unhealthy", "runtime readiness regressed"
@@ -94,7 +91,7 @@ func TestRuntimeCredentialFailureStillPersistsCurrentObservation(t *testing.T) {
 				if err := kube.Get(context.Background(), key, &before); err != nil {
 					t.Fatal(err)
 				}
-				material.err = rpcError
+				ensurer.err = rpcError
 				desired := bizreconcile.Desired{TenantID: spec.TenantID, ServiceID: spec.ServiceID, Generation: spec.Generation}
 				repo := &credentialObservationRepository{desired: desired}
 				r := bizreconcile.Reconciler{Repository: repo, Runtime: router}
@@ -126,18 +123,18 @@ func TestRuntimeCredentialFailureStillPersistsCurrentObservation(t *testing.T) {
 func TestRuntimeCredentialFailureKeepsHardErrorsAndCanceledContext(t *testing.T) {
 	for _, rpcError := range []error{status.Error(codes.PermissionDenied, "denied"), status.Error(codes.NotFound, "missing"), status.Error(codes.Canceled, "canceled"), errors.New("unclassified dependency failure")} {
 		t.Run(rpcError.Error(), func(t *testing.T) {
-			router, provider, material, _, spec := credentialObservationFixture(t)
-			material.err = rpcError
+			router, provider, ensurer, _, spec := credentialObservationFixture(t)
+			ensurer.err = rpcError
 			_, err := router.Ensure(context.Background(), bizreconcile.Desired{TenantID: spec.TenantID, ServiceID: spec.ServiceID, Generation: spec.Generation})
 			if err == nil || provider.ensureCalls != 0 || provider.observeCalls != 0 {
 				t.Fatal("hard failure was downgraded")
 			}
 		})
 	}
-	router, provider, material, _, spec := credentialObservationFixture(t)
+	router, provider, ensurer, _, spec := credentialObservationFixture(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	material.err = status.Error(codes.Unavailable, "unavailable")
+	ensurer.err = status.Error(codes.Unavailable, "unavailable")
 	if _, err := router.Ensure(ctx, bizreconcile.Desired{TenantID: spec.TenantID, ServiceID: spec.ServiceID, Generation: spec.Generation}); err == nil || provider.observeCalls != 0 || provider.ensureCalls != 0 {
 		t.Fatal("canceled work continued observing")
 	}
@@ -145,10 +142,10 @@ func TestRuntimeCredentialFailureKeepsHardErrorsAndCanceledContext(t *testing.T)
 
 func TestRuntimeCredentialFailureStillBlocksInitialApply(t *testing.T) {
 	spec := imagePullTestSpec()
-	kube := fake.NewClientBuilder().WithScheme(executorScheme(t)).Build()
-	material := &pullMaterialFake{err: status.Error(codes.Unavailable, "unavailable")}
+	reader := fake.NewClientBuilder().WithScheme(executorScheme(t)).WithObjects(ensuredSecret(spec)).Build()
+	ensurer := &pullEnsureFake{err: status.Error(codes.Unavailable, "unavailable")}
 	provider := &routerRuntimeFake{name: "deployment"}
-	router := &RuntimeRouter{Source: routerSourceFake{desired: DesiredRuntime{RuntimeSpec: spec, DesiredState: "running"}}, Deployment: provider, PullSecrets: &SharedPullSecrets{Client: kube, Material: material}}
+	router := &RuntimeRouter{Source: routerSourceFake{desired: DesiredRuntime{RuntimeSpec: spec, DesiredState: "running"}}, Deployment: provider, PullSecrets: &ResourcePullSecrets{Ensurer: ensurer, Reader: reader}}
 	op := inferencebiz.OperationContext{TenantID: spec.TenantID, ServiceID: spec.ServiceID, TargetGeneration: spec.Generation}
 	if err := router.ApplyCR(context.Background(), op); err == nil {
 		t.Fatal("control apply ignored credential failure")
@@ -160,31 +157,34 @@ func TestRuntimeCredentialFailureStillBlocksInitialApply(t *testing.T) {
 		t.Fatal("initial apply called provider without credentials")
 	}
 	var secrets corev1.SecretList
-	if err := kube.List(context.Background(), &secrets); err != nil || len(secrets.Items) != 0 {
-		t.Fatal("failed credential fetch wrote a Secret")
+	if err := reader.List(context.Background(), &secrets); err != nil || len(secrets.Items) != 1 {
+		t.Fatal("failed ensure changed the shared Secret set")
 	}
 }
 
 func TestRuntimeCredentialRecoveryResumesSynchronization(t *testing.T) {
-	router, provider, material, kube, spec := credentialObservationFixture(t)
+	router, provider, ensurer, kube, spec := credentialObservationFixture(t)
 	desired := bizreconcile.Desired{TenantID: spec.TenantID, ServiceID: spec.ServiceID, Generation: spec.Generation}
-	material.err = status.Error(codes.Unavailable, "unavailable")
+	ensurer.err = status.Error(codes.Unavailable, "unavailable")
 	if _, err := router.Ensure(context.Background(), desired); err != nil {
 		t.Fatal(err)
 	}
-	material.err = nil
-	material.response.Generation, material.response.Secret = 2, "updated-pull-secret-sentinel"
+	ensurer.err = nil
 	if _, err := router.Ensure(context.Background(), desired); err != nil {
 		t.Fatal(err)
 	}
 	if provider.observeCalls != 1 || provider.ensureCalls != 1 {
 		t.Fatal("provider did not resume ordinary reconciliation")
 	}
+	if ensurer.calls != 2 {
+		t.Fatalf("ensure calls = %d", ensurer.calls)
+	}
+	// Inference remains read-only on the shared Secret in both phases.
 	var secret corev1.Secret
 	if err := kube.Get(context.Background(), client.ObjectKey{Namespace: spec.Namespace, Name: spec.ImageSelection.PullSecretRef}, &secret); err != nil {
 		t.Fatal(err)
 	}
-	if secret.Annotations[imageCredentialGenerationAnnotation] != "2" || !strings.Contains(string(secret.Data[corev1.DockerConfigJsonKey]), "updated-pull-secret-sentinel") {
-		t.Fatal("recovery did not update the credential generation")
+	if strings.Contains(spec.ImageSelection.PullSecretRef, "inference") {
+		t.Fatal("shared Secret name must not embed the service kind")
 	}
 }
