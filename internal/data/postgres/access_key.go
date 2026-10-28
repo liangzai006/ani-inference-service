@@ -54,6 +54,7 @@ func (r *Repository) Create(ctx context.Context, input accesskey.CreatePersistIn
 		RequestsPerSecond: in.RequestsPerSecond, RequestsPerMinute: in.RequestsPerMinute,
 		RequestsPerHour: in.RequestsPerHour, ExpiresAt: timeParam(in.ExpiresAt),
 		CreatedBy: in.CreatedBy, CreateIdempotencyKey: textParam(in.CreateIdempotencyKey),
+		SecretCiphertext: textParam(in.SecretCiphertext),
 	})
 	if err != nil {
 		// The INSERT only ignores this tenant's idempotency conflict. Unlike a
@@ -256,6 +257,7 @@ func (r *Repository) Rotate(ctx context.Context, tenantID, id string, input acce
 	rotated, err := q.RotateInferenceAccessKey(ctx, RotateInferenceAccessKeyParams{
 		TenantID: tenant, ID: keyID, KeyPrefix: input.KeyPrefix, SecretHash: input.SecretHash,
 		HashVersion: input.HashVersion, RotationIdempotencyKey: textParam(input.Idempotency),
+		SecretCiphertext: textParam(input.SecretCiphertext),
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		if _, lookupErr := q.GetInferenceAccessKey(ctx, GetInferenceAccessKeyParams{TenantID: tenant, ID: keyID}); errors.Is(lookupErr, pgx.ErrNoRows) {
@@ -351,10 +353,32 @@ func consumeKeyBuckets(ctx context.Context, q *Queries, tenant, keyID pgtype.UUI
 	return true, 0, nil
 }
 
+func (r *Repository) ArchiveSecret(ctx context.Context, record accesskey.Record, ciphertext string) error {
+	if r == nil || r.pool == nil || ciphertext == "" {
+		return errors.New("access-key archive is not configured")
+	}
+	tenant, err := parseUUID("tenant_id", record.TenantID, false)
+	if err != nil {
+		return err
+	}
+	id, err := parseUUID("id", record.ID, false)
+	if err != nil {
+		return err
+	}
+	// Another verifier may have archived first. Rotation/revocation must fence
+	// this write out, preserving the current credential and its ciphertext.
+	_, err = New(r.pool).ArchiveInferenceAccessKeySecret(ctx, ArchiveInferenceAccessKeySecretParams{
+		TenantID: tenant, ID: id, Version: record.Version, SecretHash: record.SecretHash,
+		SecretCiphertext: textParam(ciphertext),
+	})
+	return err
+}
+
 func accessKeyRecord(row InferenceAccessKey) accesskey.Record {
 	return accesskey.Record{
 		TenantID: row.TenantID.String(), ID: row.ID.String(), Name: row.Name,
 		KeyPrefix: row.KeyPrefix, SecretHash: row.SecretHash, HashVersion: row.HashVersion,
+		SecretCiphertext:  textValue(row.SecretCiphertext),
 		AllowedServiceIDs: append([]string(nil), row.AllowedServiceIds...),
 		AllowedModelNames: append([]string(nil), row.AllowedModelNames...),
 		RequestsPerSecond: row.RequestsPerSecond, RequestsPerMinute: row.RequestsPerMinute,

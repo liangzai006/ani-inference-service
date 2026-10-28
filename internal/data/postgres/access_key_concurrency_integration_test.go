@@ -78,7 +78,7 @@ func testInferenceAccessKeyConcurrentCreate(t *testing.T, isolation string) {
 		}
 	})
 	repository := NewRepository(pool)
-	service := accesskey.NewService(repository)
+	service := accessKeyTestService(t, repository)
 	input := accesskey.CreateInput{
 		TenantID: tenant, Name: "concurrent-key", AllowedModelNames: []string{"model-a"},
 		CreatedBy: "concurrent-test", IdempotencyKey: "same-key",

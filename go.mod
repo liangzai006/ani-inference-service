@@ -6,7 +6,7 @@ require (
 	github.com/go-kratos/kratos/contrib/otel/v3 v3.0.0-20260515082355-1ddb58e407c5
 	github.com/go-kratos/kratos/v3 v3.0.0
 	github.com/jackc/pgx/v5 v5.11.0
-	github.com/liangzai006/ani-inference-service/api v0.1.2-image-registry.2
+	github.com/liangzai006/ani-inference-service/api v0.1.2-image-registry.2.0.20261028083400-ca48688ad918
 	github.com/prometheus/client_golang v1.24.1
 	github.com/zhangzhe-ctrl/ani-accelerator-service v0.0.0-20261022092841-c8d761d4ff1a
 	github.com/zhangzhe-ctrl/ani-resource-service v0.0.0-20261022081320-13fa2b465960

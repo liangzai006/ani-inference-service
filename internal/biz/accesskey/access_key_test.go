@@ -79,6 +79,7 @@ func (f *fakeRepository) Rotate(_ context.Context, tenantID, id string, input Ro
 	}
 	delete(f.byPrefix, item.KeyPrefix)
 	item.KeyPrefix, item.SecretHash, item.HashVersion = input.KeyPrefix, input.SecretHash, input.HashVersion
+	item.SecretCiphertext = input.SecretCiphertext
 	item.RotationIdempotency, item.Version = input.Idempotency, item.Version+1
 	f.byID[id], f.byPrefix[item.KeyPrefix] = item, item
 	return PersistResult{Record: item}, nil
@@ -95,9 +96,27 @@ func (f *fakeRepository) Consume(_ context.Context, record Record, _ time.Time, 
 	return true, 0, nil
 }
 
+func (f *fakeRepository) ArchiveSecret(_ context.Context, record Record, ciphertext string) error {
+	item, ok := f.byID[record.ID]
+	if ok && item.TenantID == record.TenantID && item.Version == record.Version && item.SecretHash == record.SecretHash && item.SecretCiphertext == "" && item.RevokedAt == nil {
+		item.SecretCiphertext = ciphertext
+		f.byID[item.ID], f.byPrefix[item.KeyPrefix] = item, item
+	}
+	return nil
+}
+
+func testCipher(t *testing.T) *SecretCipher {
+	t.Helper()
+	cipher, err := NewSecretCipher(make([]byte, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cipher
+}
+
 func TestServiceCreateCheckAndRevoke(t *testing.T) {
 	repo := newFakeRepository()
-	svc := NewService(repo)
+	svc := NewService(repo, testCipher(t))
 	svc.Now = func() time.Time { return time.Date(2026, 10, 22, 1, 0, 0, 0, time.UTC) }
 	created, err := svc.Create(context.Background(), CreateInput{
 		TenantID: "tenant-1", Name: "client", AllowedModelNames: []string{"model-a"},
@@ -132,7 +151,7 @@ func TestServiceCreateCheckAndRevoke(t *testing.T) {
 
 func TestServiceCreateIdempotencyDoesNotReturnSecretAgain(t *testing.T) {
 	repo := newFakeRepository()
-	svc := NewService(repo)
+	svc := NewService(repo, testCipher(t))
 	input := CreateInput{TenantID: "tenant-1", Name: "client", AllowedModelNames: []string{"model-a"}, CreatedBy: "actor", IdempotencyKey: "same"}
 	first, err := svc.Create(context.Background(), input)
 	if err != nil {
@@ -149,7 +168,7 @@ func TestServiceCreateIdempotencyDoesNotReturnSecretAgain(t *testing.T) {
 
 func TestServiceCheckRateLimit(t *testing.T) {
 	repo := newFakeRepository()
-	svc := NewService(repo)
+	svc := NewService(repo, testCipher(t))
 	created, err := svc.Create(context.Background(), CreateInput{TenantID: "tenant-1", Name: "client", AllowedModelNames: []string{"model-a"}, CreatedBy: "actor", RequestsPerSecond: 1})
 	if err != nil {
 		t.Fatal(err)
@@ -162,7 +181,7 @@ func TestServiceCheckRateLimit(t *testing.T) {
 }
 
 func TestServiceRejectsUnscopedKey(t *testing.T) {
-	_, err := NewService(newFakeRepository()).Create(context.Background(), CreateInput{TenantID: "tenant", Name: "client", CreatedBy: "actor"})
+	_, err := NewService(newFakeRepository(), testCipher(t)).Create(context.Background(), CreateInput{TenantID: "tenant", Name: "client", CreatedBy: "actor"})
 	if err == nil || !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("Create(unscoped) error = %v", err)
 	}

@@ -57,6 +57,8 @@ spec:
                 secretKeyRef:
                   name: {{ required "database.existingSecret is required" .Values.database.existingSecret }}
                   key: {{ required "database.secretKey is required" .Values.database.secretKey }}
+            - name: ANI_INFERENCE_ACCESS_KEY_ENCRYPTION_KEY_FILE
+              value: {{ printf "%s/%s" (trim .Values.accessKeyEncryption.mountPath) (trim .Values.accessKeyEncryption.secretKey) | quote }}
             - name: ANI_INFERENCE_NAMESPACE
               valueFrom:
                 fieldRef:
@@ -165,6 +167,9 @@ spec:
             {{- toYaml . | nindent 12 }}
           {{- end }}
           volumeMounts:
+            - name: access-key-encryption
+              mountPath: {{ required "accessKeyEncryption.mountPath is required" (trim .Values.accessKeyEncryption.mountPath) | quote }}
+              readOnly: true
             - name: server-tls
               mountPath: {{ .Values.serverTLS.mountPath | quote }}
               readOnly: true
@@ -248,6 +253,12 @@ spec:
               readOnly: true
         {{- end }}
       volumes:
+        - name: access-key-encryption
+          secret:
+            secretName: {{ required "accessKeyEncryption.existingSecret is required" (trim .Values.accessKeyEncryption.existingSecret) }}
+            items:
+              - key: {{ required "accessKeyEncryption.secretKey is required" (trim .Values.accessKeyEncryption.secretKey) }}
+                path: {{ .Values.accessKeyEncryption.secretKey | quote }}
         - name: server-tls
           secret:
             secretName: {{ required "serverTLS.existingSecret is required" (trim .Values.serverTLS.existingSecret) }}

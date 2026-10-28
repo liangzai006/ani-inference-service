@@ -102,6 +102,8 @@ github.com/liangzai006/ani-inference-service/api v0.1.2-0.20261026094455-34a1640
 github.com/liangzai006/ani-inference-service/api v0.1.2-0.20261026094455-34a16406df79/go.mod h1:LL8ApWoysh2oFryZhi+2A07DfyVoIVd8m0Lpu1vCcbk=
 github.com/liangzai006/ani-inference-service/api v0.1.2-image-registry.2 h1:L0hv+FvE5ROvWcFwAJ/P0cLvnIjAeTeEDGLzWUPni3c=
 github.com/liangzai006/ani-inference-service/api v0.1.2-image-registry.2/go.mod h1:LL8ApWoysh2oFryZhi+2A07DfyVoIVd8m0Lpu1vCcbk=
+github.com/liangzai006/ani-inference-service/api v0.1.2-image-registry.2.0.20261028083400-ca48688ad918 h1:WA7evm1q9/GjOEuxTzJ1atQvzlH/vr0CMW8rUsB/hwA=
+github.com/liangzai006/ani-inference-service/api v0.1.2-image-registry.2.0.20261028083400-ca48688ad918/go.mod h1:LL8ApWoysh2oFryZhi+2A07DfyVoIVd8m0Lpu1vCcbk=
 github.com/liangzai006/ani-model-service/api v0.0.0-20261021113912-a21befaaa5e5 h1:0VFzXXMs7dy9AmDMMqoD6UJZhjD7QNDrPAMKUY/Ytg0=
 github.com/liangzai006/ani-model-service/api v0.0.0-20261021113912-a21befaaa5e5/go.mod h1:JsFcJK23M4jXHkXdX9U28lEArWVkp9SS6h2hGroLjIM=
 github.com/mailru/easyjson v0.7.7 h1:UGYAvKxe3sBsEDzO8ZeWOSlIQfWFlxbzLZe7hwFURr0=

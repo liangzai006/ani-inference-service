@@ -35,6 +35,7 @@ var (
 	ErrScopeDenied       = errors.New("inference access key scope denied")
 	ErrRateLimited       = errors.New("inference access key rate limit exceeded")
 	ErrIdempotencyReplay = errors.New("inference access key idempotency replay")
+	ErrSecretUnavailable = errors.New("inference access key secret is unavailable")
 )
 
 type Record struct {
@@ -44,6 +45,8 @@ type Record struct {
 	KeyPrefix            string
 	SecretHash           string
 	HashVersion          string
+	SecretCiphertext     string `json:"-"`
+	Secret               string `json:"-"`
 	AllowedServiceIDs    []string
 	AllowedModelNames    []string
 	RequestsPerSecond    int32
@@ -83,6 +86,7 @@ type Repository interface {
 	List(ctx context.Context, tenantID string, options ListOptions) ([]Record, int64, error)
 	Get(ctx context.Context, tenantID, id string) (Record, error)
 	GetByPrefix(ctx context.Context, prefix string) (Record, error)
+	ArchiveSecret(ctx context.Context, record Record, ciphertext string) error
 	Revoke(ctx context.Context, tenantID, id, actor, requestID string) (Record, error)
 	Rotate(ctx context.Context, tenantID, id string, input RotatePersistInput) (PersistResult, error)
 	Consume(ctx context.Context, record Record, now time.Time, cost int64) (bool, time.Duration, error)
@@ -99,12 +103,13 @@ type PersistResult struct {
 }
 
 type RotatePersistInput struct {
-	KeyPrefix   string
-	SecretHash  string
-	HashVersion string
-	Idempotency string
-	Actor       string
-	RequestID   string
+	KeyPrefix        string
+	SecretHash       string
+	HashVersion      string
+	SecretCiphertext string
+	Idempotency      string
+	Actor            string
+	RequestID        string
 }
 
 type CreateResult struct {
@@ -138,10 +143,11 @@ type Service struct {
 	Policy     AccessPolicy
 	Repository Repository
 	Now        func() time.Time
+	Cipher     *SecretCipher
 }
 
-func NewService(repository Repository) *Service {
-	return &Service{Repository: repository, Now: time.Now}
+func NewService(repository Repository, cipher *SecretCipher) *Service {
+	return &Service{Repository: repository, Cipher: cipher, Now: time.Now}
 }
 
 func (s *Service) now() time.Time {
@@ -182,6 +188,10 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (CreateResult, 
 		RequestsPerHour: input.RequestsPerHour, ExpiresAt: input.ExpiresAt,
 		CreatedBy: input.CreatedBy, CreateIdempotencyKey: input.IdempotencyKey, Version: 1,
 	}
+	record.SecretCiphertext, err = s.Cipher.seal(record, secret)
+	if err != nil {
+		return CreateResult{}, err
+	}
 	created, err := s.Repository.Create(ctx, CreatePersistInput{Record: record, RequestID: strings.TrimSpace(input.RequestID)})
 	if err != nil {
 		return CreateResult{}, err
@@ -202,14 +212,35 @@ func (s *Service) List(ctx context.Context, tenantID string, options ListOptions
 	if options.Limit < 1 || options.Limit > 100 || options.Offset < 0 {
 		return nil, 0, fmt.Errorf("%w: invalid access-key page", ErrInvalidInput)
 	}
-	return s.Repository.List(ctx, strings.TrimSpace(tenantID), options)
+	items, total, err := s.Repository.List(ctx, strings.TrimSpace(tenantID), options)
+	if err != nil {
+		return nil, 0, err
+	}
+	for i := range items {
+		if items[i].SecretCiphertext == "" {
+			continue // A legacy hash has no recoverable value until used or rotated.
+		}
+		items[i].Secret, err = s.Cipher.open(items[i])
+		if err != nil {
+			return nil, 0, err
+		}
+	}
+	return items, total, nil
 }
 
 func (s *Service) Get(ctx context.Context, tenantID, id string) (Record, error) {
 	if s == nil || s.Repository == nil {
 		return Record{}, errors.New("inference access-key repository is not configured")
 	}
-	return s.Repository.Get(ctx, strings.TrimSpace(tenantID), strings.TrimSpace(id))
+	record, err := s.Repository.Get(ctx, strings.TrimSpace(tenantID), strings.TrimSpace(id))
+	if err != nil || record.SecretCiphertext == "" {
+		return record, err
+	}
+	record.Secret, err = s.Cipher.open(record)
+	if err != nil {
+		return Record{}, err
+	}
+	return record, nil
 }
 
 func (s *Service) Revoke(ctx context.Context, tenantID, id, actor, requestID string) (Record, error) {
@@ -231,7 +262,11 @@ func (s *Service) Rotate(ctx context.Context, tenantID, id, idempotencyKey, acto
 	if err != nil {
 		return RotateResult{}, err
 	}
-	result, err := s.Repository.Rotate(ctx, strings.TrimSpace(tenantID), strings.TrimSpace(id), RotatePersistInput{KeyPrefix: prefix, SecretHash: hash, HashVersion: hashVersion, Idempotency: strings.TrimSpace(idempotencyKey), Actor: strings.TrimSpace(actor), RequestID: strings.TrimSpace(requestID)})
+	ciphertext, err := s.Cipher.seal(Record{TenantID: strings.TrimSpace(tenantID), ID: strings.TrimSpace(id), KeyPrefix: prefix, SecretHash: hash}, secret)
+	if err != nil {
+		return RotateResult{}, err
+	}
+	result, err := s.Repository.Rotate(ctx, strings.TrimSpace(tenantID), strings.TrimSpace(id), RotatePersistInput{KeyPrefix: prefix, SecretHash: hash, HashVersion: hashVersion, SecretCiphertext: ciphertext, Idempotency: strings.TrimSpace(idempotencyKey), Actor: strings.TrimSpace(actor), RequestID: strings.TrimSpace(requestID)})
 	if err != nil {
 		return RotateResult{}, err
 	}
@@ -283,17 +318,33 @@ func (s *Service) Check(ctx context.Context, apiKey, serviceID, model string, co
 	if cost < 1 {
 		cost = 1
 	}
+	var result CheckResult
 	if s.Policy != nil {
-		return s.Policy.ConsumeAccess(ctx, record, serviceID, strings.TrimSpace(model), now, cost)
+		result, err = s.Policy.ConsumeAccess(ctx, record, serviceID, strings.TrimSpace(model), now, cost)
+	} else {
+		var allowed bool
+		var retryAfter time.Duration
+		allowed, retryAfter, err = s.Repository.Consume(ctx, record, now, cost)
+		result = CheckResult{Record: record, Allowed: allowed, RetryAfter: retryAfter, PolicyVersion: record.Version}
+		if !allowed {
+			result.DenialCode = "rate_limited"
+		}
 	}
-	allowed, retryAfter, err := s.Repository.Consume(ctx, record, now, cost)
-	if err != nil {
-		return CheckResult{}, err
+	if err != nil || !result.Allowed {
+		return result, err
 	}
-	if !allowed {
-		return CheckResult{Record: record, Allowed: false, DenialCode: "rate_limited", RetryAfter: retryAfter, PolicyVersion: record.Version}, nil
+	// Only an authenticated and authorized legacy credential is archived.
+	// The repository fences this write against a concurrent rotate/revoke.
+	if record.SecretCiphertext == "" {
+		ciphertext, err := s.Cipher.seal(record, apiKey)
+		if err != nil {
+			return CheckResult{}, err
+		}
+		if err := s.Repository.ArchiveSecret(ctx, record, ciphertext); err != nil {
+			return CheckResult{}, err
+		}
 	}
-	return CheckResult{Record: record, Allowed: true, PolicyVersion: record.Version}, nil
+	return result, nil
 }
 
 func (r Record) Allows(serviceID, model string) bool {

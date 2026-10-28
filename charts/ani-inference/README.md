@@ -51,3 +51,28 @@ ServiceAccount 绑定到仅能 `get`/`patch` 指定 `higress.rateLimitPlugin` �
 
 不要单独安装这个 Chart。先按 `docs/deploy/helm/ani-inference.md` 中的 Helm 命令装好
 Gateway API、Higress、LWS 和 KServe，再用 Helm 安装本 Chart。仓库安装脚本只用于测试和 CI。
+
+### Retrievable inference access keys
+
+Apply migration `000025_inference_access_key_secrets.sql` before updating the
+service. Authorized Governance key list/detail requests return the full current
+credential in `secret`; the Inference database retains Argon2id hashes and an
+AES-256-GCM encrypted copy, never plaintext. The encryption is bound to the
+credential's tenant, ID, prefix and hash.
+
+Provision `accessKeyEncryption.existingSecret` separately with a `key` containing
+exactly 32 cryptographically random **raw bytes**. The chart mounts that key
+read-only and sets `ANI_INFERENCE_ACCESS_KEY_ENCRYPTION_KEY_FILE`. The process
+refuses startup if the file is missing or malformed. Keep the same key across
+restarts, replicas and rollouts; back it up separately from the database. Do not
+commit it, put it in an image, derive it from public IDs, or regenerate it during
+a rollout. Changing/losing this key makes stored credentials unreadable; master
+key rotation is not implemented by this change.
+
+Legacy rows have no encrypted copy and omit `secret` until their next successful
+inference authorization. That request archives the verified original credential
+without changing its value, version, scope or limits. A concurrent rotation or
+revocation fences the archive write out. Inactive legacy credentials cannot be
+reconstructed from their hashes. New creation/rotation persists hash and
+ciphertext atomically; write replays and revoke responses remain metadata-only.
+Decryption failures fail list/detail requests instead of returning partial data.

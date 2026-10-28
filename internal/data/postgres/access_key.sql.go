@@ -40,6 +40,35 @@ func (q *Queries) AppendInferenceAccessKeyAudit(ctx context.Context, arg AppendI
 	return err
 }
 
+const archiveInferenceAccessKeySecret = `-- name: ArchiveInferenceAccessKeySecret :execrows
+UPDATE inference_access_keys
+SET secret_ciphertext = $5
+WHERE tenant_id = $1 AND id = $2 AND version = $3 AND secret_hash = $4
+  AND secret_ciphertext IS NULL AND revoked_at IS NULL
+`
+
+type ArchiveInferenceAccessKeySecretParams struct {
+	TenantID         pgtype.UUID
+	ID               pgtype.UUID
+	Version          int64
+	SecretHash       string
+	SecretCiphertext pgtype.Text
+}
+
+func (q *Queries) ArchiveInferenceAccessKeySecret(ctx context.Context, arg ArchiveInferenceAccessKeySecretParams) (int64, error) {
+	result, err := q.db.Exec(ctx, archiveInferenceAccessKeySecret,
+		arg.TenantID,
+		arg.ID,
+		arg.Version,
+		arg.SecretHash,
+		arg.SecretCiphertext,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const consumeInferenceAccessKeyRateBucket = `-- name: ConsumeInferenceAccessKeyRateBucket :one
 INSERT INTO inference_access_key_rate_buckets (
   tenant_id, key_id, window_name, window_start, request_count
@@ -91,7 +120,7 @@ SELECT tenant_id, id, name, key_prefix, secret_hash, hash_version,
   allowed_service_ids, allowed_model_names,
   requests_per_second, requests_per_minute, requests_per_hour,
   expires_at, revoked_at, created_by, created_at, last_used_at, version,
-  create_idempotency_key, rotation_idempotency_key
+  create_idempotency_key, rotation_idempotency_key, secret_ciphertext
 FROM inference_access_keys
 WHERE tenant_id = $1 AND id = $2
 `
@@ -124,6 +153,7 @@ func (q *Queries) GetInferenceAccessKey(ctx context.Context, arg GetInferenceAcc
 		&i.Version,
 		&i.CreateIdempotencyKey,
 		&i.RotationIdempotencyKey,
+		&i.SecretCiphertext,
 	)
 	return i, err
 }
@@ -133,7 +163,7 @@ SELECT tenant_id, id, name, key_prefix, secret_hash, hash_version,
   allowed_service_ids, allowed_model_names,
   requests_per_second, requests_per_minute, requests_per_hour,
   expires_at, revoked_at, created_by, created_at, last_used_at, version,
-  create_idempotency_key, rotation_idempotency_key
+  create_idempotency_key, rotation_idempotency_key, secret_ciphertext
 FROM inference_access_keys
 WHERE tenant_id = $1 AND create_idempotency_key = $2
 `
@@ -166,6 +196,7 @@ func (q *Queries) GetInferenceAccessKeyByCreateIdempotency(ctx context.Context, 
 		&i.Version,
 		&i.CreateIdempotencyKey,
 		&i.RotationIdempotencyKey,
+		&i.SecretCiphertext,
 	)
 	return i, err
 }
@@ -175,7 +206,7 @@ SELECT tenant_id, id, name, key_prefix, secret_hash, hash_version,
   allowed_service_ids, allowed_model_names,
   requests_per_second, requests_per_minute, requests_per_hour,
   expires_at, revoked_at, created_by, created_at, last_used_at, version,
-  create_idempotency_key, rotation_idempotency_key
+  create_idempotency_key, rotation_idempotency_key, secret_ciphertext
 FROM inference_access_keys
 WHERE key_prefix = $1
 `
@@ -203,6 +234,7 @@ func (q *Queries) GetInferenceAccessKeyByPrefix(ctx context.Context, keyPrefix s
 		&i.Version,
 		&i.CreateIdempotencyKey,
 		&i.RotationIdempotencyKey,
+		&i.SecretCiphertext,
 	)
 	return i, err
 }
@@ -212,7 +244,7 @@ SELECT tenant_id, id, name, key_prefix, secret_hash, hash_version,
   allowed_service_ids, allowed_model_names,
   requests_per_second, requests_per_minute, requests_per_hour,
   expires_at, revoked_at, created_by, created_at, last_used_at, version,
-  create_idempotency_key, rotation_idempotency_key
+  create_idempotency_key, rotation_idempotency_key, secret_ciphertext
 FROM inference_access_keys
 WHERE tenant_id = $1 AND id = $2 AND rotation_idempotency_key = $3
 `
@@ -246,6 +278,7 @@ func (q *Queries) GetInferenceAccessKeyByRotationIdempotency(ctx context.Context
 		&i.Version,
 		&i.CreateIdempotencyKey,
 		&i.RotationIdempotencyKey,
+		&i.SecretCiphertext,
 	)
 	return i, err
 }
@@ -255,16 +288,16 @@ INSERT INTO inference_access_keys (
   tenant_id, id, name, key_prefix, secret_hash, hash_version,
   allowed_service_ids, allowed_model_names,
   requests_per_second, requests_per_minute, requests_per_hour,
-  expires_at, created_by, create_idempotency_key
+  expires_at, created_by, create_idempotency_key, secret_ciphertext
 ) VALUES (
-  $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+  $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
 )
 ON CONFLICT (tenant_id, create_idempotency_key) DO NOTHING
 RETURNING tenant_id, id, name, key_prefix, secret_hash, hash_version,
   allowed_service_ids, allowed_model_names,
   requests_per_second, requests_per_minute, requests_per_hour,
   expires_at, revoked_at, created_by, created_at, last_used_at, version,
-  create_idempotency_key, rotation_idempotency_key
+  create_idempotency_key, rotation_idempotency_key, secret_ciphertext
 `
 
 type InsertInferenceAccessKeyParams struct {
@@ -282,6 +315,7 @@ type InsertInferenceAccessKeyParams struct {
 	ExpiresAt            pgtype.Timestamptz
 	CreatedBy            string
 	CreateIdempotencyKey pgtype.Text
+	SecretCiphertext     pgtype.Text
 }
 
 func (q *Queries) InsertInferenceAccessKey(ctx context.Context, arg InsertInferenceAccessKeyParams) (InferenceAccessKey, error) {
@@ -300,6 +334,7 @@ func (q *Queries) InsertInferenceAccessKey(ctx context.Context, arg InsertInfere
 		arg.ExpiresAt,
 		arg.CreatedBy,
 		arg.CreateIdempotencyKey,
+		arg.SecretCiphertext,
 	)
 	var i InferenceAccessKey
 	err := row.Scan(
@@ -322,6 +357,7 @@ func (q *Queries) InsertInferenceAccessKey(ctx context.Context, arg InsertInfere
 		&i.Version,
 		&i.CreateIdempotencyKey,
 		&i.RotationIdempotencyKey,
+		&i.SecretCiphertext,
 	)
 	return i, err
 }
@@ -331,7 +367,7 @@ SELECT tenant_id, id, name, key_prefix, secret_hash, hash_version,
   allowed_service_ids, allowed_model_names,
   requests_per_second, requests_per_minute, requests_per_hour,
   expires_at, revoked_at, created_by, created_at, last_used_at, version,
-  create_idempotency_key, rotation_idempotency_key
+  create_idempotency_key, rotation_idempotency_key, secret_ciphertext
 FROM inference_access_keys
 WHERE tenant_id = $1
 ORDER BY created_at DESC, id DESC
@@ -373,6 +409,7 @@ func (q *Queries) ListInferenceAccessKeys(ctx context.Context, arg ListInference
 			&i.Version,
 			&i.CreateIdempotencyKey,
 			&i.RotationIdempotencyKey,
+			&i.SecretCiphertext,
 		); err != nil {
 			return nil, err
 		}
@@ -389,7 +426,7 @@ SELECT tenant_id, id, name, key_prefix, secret_hash, hash_version,
   allowed_service_ids, allowed_model_names,
   requests_per_second, requests_per_minute, requests_per_hour,
   expires_at, revoked_at, created_by, created_at, last_used_at, version,
-  create_idempotency_key, rotation_idempotency_key
+  create_idempotency_key, rotation_idempotency_key, secret_ciphertext
 FROM inference_access_keys
 WHERE tenant_id = $1 AND id = $2
 FOR UPDATE
@@ -423,6 +460,7 @@ func (q *Queries) LockInferenceAccessKey(ctx context.Context, arg LockInferenceA
 		&i.Version,
 		&i.CreateIdempotencyKey,
 		&i.RotationIdempotencyKey,
+		&i.SecretCiphertext,
 	)
 	return i, err
 }
@@ -451,7 +489,7 @@ RETURNING tenant_id, id, name, key_prefix, secret_hash, hash_version,
   allowed_service_ids, allowed_model_names,
   requests_per_second, requests_per_minute, requests_per_hour,
   expires_at, revoked_at, created_by, created_at, last_used_at, version,
-  create_idempotency_key, rotation_idempotency_key
+  create_idempotency_key, rotation_idempotency_key, secret_ciphertext
 `
 
 type RevokeInferenceAccessKeyParams struct {
@@ -482,6 +520,7 @@ func (q *Queries) RevokeInferenceAccessKey(ctx context.Context, arg RevokeInfere
 		&i.Version,
 		&i.CreateIdempotencyKey,
 		&i.RotationIdempotencyKey,
+		&i.SecretCiphertext,
 	)
 	return i, err
 }
@@ -489,14 +528,14 @@ func (q *Queries) RevokeInferenceAccessKey(ctx context.Context, arg RevokeInfere
 const rotateInferenceAccessKey = `-- name: RotateInferenceAccessKey :one
 UPDATE inference_access_keys
 SET key_prefix = $3, secret_hash = $4, hash_version = $5,
-    revoked_at = NULL, rotation_idempotency_key = $6,
+    revoked_at = NULL, rotation_idempotency_key = $6, secret_ciphertext = $7,
     version = version + 1
 WHERE tenant_id = $1 AND id = $2 AND revoked_at IS NULL
 RETURNING tenant_id, id, name, key_prefix, secret_hash, hash_version,
   allowed_service_ids, allowed_model_names,
   requests_per_second, requests_per_minute, requests_per_hour,
   expires_at, revoked_at, created_by, created_at, last_used_at, version,
-  create_idempotency_key, rotation_idempotency_key
+  create_idempotency_key, rotation_idempotency_key, secret_ciphertext
 `
 
 type RotateInferenceAccessKeyParams struct {
@@ -506,6 +545,7 @@ type RotateInferenceAccessKeyParams struct {
 	SecretHash             string
 	HashVersion            string
 	RotationIdempotencyKey pgtype.Text
+	SecretCiphertext       pgtype.Text
 }
 
 func (q *Queries) RotateInferenceAccessKey(ctx context.Context, arg RotateInferenceAccessKeyParams) (InferenceAccessKey, error) {
@@ -516,6 +556,7 @@ func (q *Queries) RotateInferenceAccessKey(ctx context.Context, arg RotateInfere
 		arg.SecretHash,
 		arg.HashVersion,
 		arg.RotationIdempotencyKey,
+		arg.SecretCiphertext,
 	)
 	var i InferenceAccessKey
 	err := row.Scan(
@@ -538,6 +579,7 @@ func (q *Queries) RotateInferenceAccessKey(ctx context.Context, arg RotateInfere
 		&i.Version,
 		&i.CreateIdempotencyKey,
 		&i.RotationIdempotencyKey,
+		&i.SecretCiphertext,
 	)
 	return i, err
 }

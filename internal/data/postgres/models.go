@@ -28,6 +28,7 @@ type InferenceAccessKey struct {
 	Version                int64
 	CreateIdempotencyKey   pgtype.Text
 	RotationIdempotencyKey pgtype.Text
+	SecretCiphertext       pgtype.Text
 }
 
 type InferenceAccessKeyAuditEvent struct {
