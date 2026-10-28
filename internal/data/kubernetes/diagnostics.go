@@ -35,6 +35,10 @@ const maxDiagnosticPods = 500
 const maxDiagnosticEvents = 5000
 const maxLogBytes = 2 * 1024 * 1024
 
+type diagnosticOwnerKey struct {
+	namespace, apiVersion, kind, name string
+}
+
 func (d *RuntimeDiagnostics) ownedPods(ctx context.Context, scope biz.Scope) (DesiredRuntime, []corev1.Pod, error) {
 	if d == nil || d.Source == nil || d.Reader == nil || d.Core == nil {
 		return DesiredRuntime{}, nil, biz.ErrUnavailable
@@ -56,6 +60,10 @@ func (d *RuntimeDiagnostics) ownedPods(ctx context.Context, scope biz.Scope) (De
 		return runtime, nil, biz.ErrLimit
 	}
 	pods := make([]corev1.Pod, 0, len(list.Items))
+	// Pods often share a ReplicaSet, Deployment or KServe parent. Read each
+	// ancestor once for this invocation, while checking every edge's UID below.
+	// Do not retain these objects across requests or cache ownership verdicts.
+	ancestors := make(map[diagnosticOwnerKey]*unstructured.Unstructured)
 	for _, pod := range list.Items {
 		if tenant := pod.Labels[tenantIDLabel]; tenant != "" && tenant != scope.TenantID {
 			continue
@@ -63,7 +71,7 @@ func (d *RuntimeDiagnostics) ownedPods(ctx context.Context, scope biz.Scope) (De
 		if service := pod.Labels[serviceIDLabel]; service != "" && service != scope.ServiceID {
 			continue
 		}
-		owned, err := d.boundObject(ctx, runtime, pod.Namespace, "Pod", pod.Name, string(pod.UID), pod.OwnerReferences, 0)
+		owned, err := d.boundObject(ctx, runtime, pod.Namespace, "Pod", pod.Name, string(pod.UID), pod.OwnerReferences, 0, ancestors)
 		if err != nil {
 			return runtime, nil, err
 		}
@@ -74,7 +82,10 @@ func (d *RuntimeDiagnostics) ownedPods(ctx context.Context, scope biz.Scope) (De
 	sort.Slice(pods, func(i, j int) bool { return pods[i].Name < pods[j].Name })
 	return runtime, pods, nil
 }
-func (d *RuntimeDiagnostics) boundObject(ctx context.Context, runtime DesiredRuntime, namespace, kind, name, uid string, owners []metav1.OwnerReference, depth int) (bool, error) {
+func (d *RuntimeDiagnostics) boundObject(ctx context.Context, runtime DesiredRuntime, namespace, kind, name, uid string, owners []metav1.OwnerReference, depth int, ancestors map[diagnosticOwnerKey]*unstructured.Unstructured) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
 	if uid == "" || depth > 8 {
 		return false, nil
 	}
@@ -90,20 +101,26 @@ func (d *RuntimeDiagnostics) boundObject(ctx context.Context, runtime DesiredRun
 		if owner.Controller == nil || !*owner.Controller {
 			continue
 		}
-		object := &unstructured.Unstructured{}
-		object.SetAPIVersion(owner.APIVersion)
-		object.SetKind(owner.Kind)
-		err := d.Reader.Get(ctx, types.NamespacedName{Namespace: namespace, Name: owner.Name}, object)
-		if apierrors.IsNotFound(err) {
+		key := diagnosticOwnerKey{namespace: namespace, apiVersion: owner.APIVersion, kind: owner.Kind, name: owner.Name}
+		object, loaded := ancestors[key]
+		if !loaded {
+			object = &unstructured.Unstructured{}
+			object.SetAPIVersion(owner.APIVersion)
+			object.SetKind(owner.Kind)
+			err := d.Reader.Get(ctx, types.NamespacedName{Namespace: namespace, Name: owner.Name}, object)
+			if apierrors.IsNotFound(err) {
+				ancestors[key] = nil
+				continue
+			}
+			if err != nil {
+				return false, err
+			}
+			ancestors[key] = object
+		}
+		if object == nil || object.GetUID() != owner.UID {
 			continue
 		}
-		if err != nil {
-			return false, err
-		}
-		if object.GetUID() != owner.UID {
-			continue
-		}
-		matched, err := d.boundObject(ctx, runtime, namespace, owner.Kind, owner.Name, string(owner.UID), object.GetOwnerReferences(), depth+1)
+		matched, err := d.boundObject(ctx, runtime, namespace, owner.Kind, owner.Name, string(owner.UID), object.GetOwnerReferences(), depth+1, ancestors)
 		if err != nil || matched {
 			return matched, err
 		}
