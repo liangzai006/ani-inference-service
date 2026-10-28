@@ -243,7 +243,7 @@ SELECT s.tenant_id, $1, s.service_id, $2, s.model_id,
        $11, $12,
        $13, $14,
        CASE WHEN $15::text <> '' THEN $15 ELSE s.runtime_provider END,
-       CASE WHEN $3::uuid IS NOT NULL THEN s.spec_json || $16::jsonb ELSE s.spec_json END,
+       CASE WHEN $16::jsonb IS NOT NULL THEN s.spec_json || $16::jsonb ELSE s.spec_json END,
        $17, $18, $19, $20,
        $21, $22, $23
 FROM inference_specs s
@@ -1653,6 +1653,7 @@ SELECT s.tenant_id, s.id, s.name, s.desired_state, s.desired_generation, s.appli
        COALESCE(sp.served_model_name, '') AS served_model_name,
        COALESCE(sp.engine_runtime, '') AS engine_runtime,
        COALESCE(sp.command_argv, '[]'::jsonb) AS command_argv,
+       COALESCE(sp.spec_json, '{}'::jsonb) AS spec_json,
        COALESCE(sp.resources, '{}'::jsonb) AS resources,
        COALESCE(sp.replicas, 0)::int4 AS replicas,
        COALESCE(sp.runtime_mode, 'deployment') AS runtime_mode,
@@ -1716,6 +1717,7 @@ type ListServicesRow struct {
 	ServedModelName       string
 	EngineRuntime         string
 	CommandArgv           []byte
+	SpecJson              []byte
 	Resources             []byte
 	Replicas              int32
 	RuntimeMode           string
@@ -1766,6 +1768,7 @@ func (q *Queries) ListServices(ctx context.Context, arg ListServicesParams) ([]L
 			&i.ServedModelName,
 			&i.EngineRuntime,
 			&i.CommandArgv,
+			&i.SpecJson,
 			&i.Resources,
 			&i.Replicas,
 			&i.RuntimeMode,
@@ -1804,6 +1807,7 @@ SELECT s.tenant_id, s.id, s.name, s.desired_state, s.desired_generation, s.appli
        COALESCE(sp.served_model_name, '') AS served_model_name,
        COALESCE(sp.engine_runtime, '') AS engine_runtime,
        COALESCE(sp.command_argv, '[]'::jsonb) AS command_argv,
+       COALESCE(sp.spec_json, '{}'::jsonb) AS spec_json,
        COALESCE(sp.resources, '{}'::jsonb) AS resources,
        COALESCE(sp.replicas, 0)::int4 AS replicas,
        COALESCE(sp.runtime_mode, 'deployment') AS runtime_mode,
@@ -1867,6 +1871,7 @@ type ListServicesPageRow struct {
 	ServedModelName       string
 	EngineRuntime         string
 	CommandArgv           []byte
+	SpecJson              []byte
 	Resources             []byte
 	Replicas              int32
 	RuntimeMode           string
@@ -1916,6 +1921,7 @@ func (q *Queries) ListServicesPage(ctx context.Context, arg ListServicesPagePara
 			&i.ServedModelName,
 			&i.EngineRuntime,
 			&i.CommandArgv,
+			&i.SpecJson,
 			&i.Resources,
 			&i.Replicas,
 			&i.RuntimeMode,

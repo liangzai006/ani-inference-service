@@ -9,6 +9,8 @@ import (
 )
 
 type UpdateInput struct {
+	ImageID, ImageScope                                string
+	ImageSelection                                     *ImageSelection
 	TenantID, RequestID, Actor, ServiceID, RequestHash string
 	ExpectedGeneration                                 int64
 	UpdateMask                                         []string

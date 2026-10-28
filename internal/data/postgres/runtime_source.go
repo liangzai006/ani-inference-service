@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
+	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
 	"github.com/liangzai006/ani-inference-service/internal/biz/resources"
 	kube "github.com/liangzai006/ani-inference-service/internal/data/kubernetes"
 	corev1 "k8s.io/api/core/v1"
@@ -78,6 +79,14 @@ func (s *RuntimeSource) CurrentRuntime(ctx context.Context, tenantID, serviceID 
 	}
 	if err != nil {
 		return kube.DesiredRuntime{}, err
+	}
+	var acceptedImage struct {
+		ImageSelection *inferencebiz.ImageSelection `json:"image_selection"`
+	}
+	if len(row.SpecJson) > 0 {
+		if err := json.Unmarshal(row.SpecJson, &acceptedImage); err != nil {
+			return kube.DesiredRuntime{}, fmt.Errorf("decode accepted image selection: %w", err)
+		}
 	}
 	command, err := unmarshalEngineSpec(row.CommandArgv)
 	if err != nil {
@@ -192,7 +201,8 @@ func (s *RuntimeSource) CurrentRuntime(ctx context.Context, tenantID, serviceID 
 			EngineCommand: command, Resources: normalized, Replicas: row.Replicas,
 			WorkerReplicas: workers, RuntimeMode: mode,
 			GPUSnapshot: gpuPlan, Managed: managed.Managed, ManagedGPU: managed.Managed && resourceSpec.GPU != nil,
-			Endpoint: endpoint,
+			Endpoint:       endpoint,
+			ImageSelection: acceptedImage.ImageSelection,
 		},
 		Bindings:        owned,
 		DesiredState:    aggregate.DesiredState,

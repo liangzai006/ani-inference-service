@@ -491,6 +491,8 @@ type EngineSpec struct {
 	// command is the complete shell command, preserved byte-for-byte until
 	// the Kubernetes adapter wraps it as ["/bin/sh", "-c"] plus one arg.
 	Command       string `protobuf:"bytes,5,opt,name=command,proto3" json:"command,omitempty"`
+	ImageId       string `protobuf:"bytes,6,opt,name=image_id,json=imageId,proto3" json:"image_id,omitempty"`
+	ImageScope    string `protobuf:"bytes,7,opt,name=image_scope,json=imageScope,proto3" json:"image_scope,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -542,6 +544,20 @@ func (x *EngineSpec) GetImage() string {
 func (x *EngineSpec) GetCommand() string {
 	if x != nil {
 		return x.Command
+	}
+	return ""
+}
+
+func (x *EngineSpec) GetImageId() string {
+	if x != nil {
+		return x.ImageId
+	}
+	return ""
+}
+
+func (x *EngineSpec) GetImageScope() string {
+	if x != nil {
+		return x.ImageScope
 	}
 	return ""
 }
@@ -974,12 +990,14 @@ type CreateInferenceServiceRequest struct {
 	Engine          *EngineSpec            `protobuf:"bytes,8,opt,name=engine,proto3" json:"engine,omitempty"`
 	ServedModelName string                 `protobuf:"bytes,9,opt,name=served_model_name,json=servedModelName,proto3" json:"served_model_name,omitempty"`
 	// Governance-only frozen command context and resolved GPU execution.
-	Context       *CommandContext  `protobuf:"bytes,12,opt,name=context,proto3" json:"context,omitempty"`
-	ClusterId     string           `protobuf:"bytes,13,opt,name=cluster_id,json=clusterId,proto3" json:"cluster_id,omitempty"`
-	GpuExecution  *v1.GpuExecution `protobuf:"bytes,14,opt,name=gpu_execution,json=gpuExecution,proto3" json:"gpu_execution,omitempty"`
-	GpuDisplay    *v1.GpuDisplay   `protobuf:"bytes,15,opt,name=gpu_display,json=gpuDisplay,proto3" json:"gpu_display,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Context      *CommandContext  `protobuf:"bytes,12,opt,name=context,proto3" json:"context,omitempty"`
+	ClusterId    string           `protobuf:"bytes,13,opt,name=cluster_id,json=clusterId,proto3" json:"cluster_id,omitempty"`
+	GpuExecution *v1.GpuExecution `protobuf:"bytes,14,opt,name=gpu_execution,json=gpuExecution,proto3" json:"gpu_execution,omitempty"`
+	GpuDisplay   *v1.GpuDisplay   `protobuf:"bytes,15,opt,name=gpu_display,json=gpuDisplay,proto3" json:"gpu_display,omitempty"`
+	// Zero preserves the original canonical command; 2 selects a catalog image.
+	ContractVersion uint32 `protobuf:"varint,16,opt,name=contract_version,json=contractVersion,proto3" json:"contract_version,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *CreateInferenceServiceRequest) Reset() {
@@ -1103,6 +1121,13 @@ func (x *CreateInferenceServiceRequest) GetGpuDisplay() *v1.GpuDisplay {
 	return nil
 }
 
+func (x *CreateInferenceServiceRequest) GetContractVersion() uint32 {
+	if x != nil {
+		return x.ContractVersion
+	}
+	return 0
+}
+
 type UpdateInferenceServiceRequest struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
 	RequestId          string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
@@ -1120,6 +1145,7 @@ type UpdateInferenceServiceRequest struct {
 	ClusterId          string                 `protobuf:"bytes,13,opt,name=cluster_id,json=clusterId,proto3" json:"cluster_id,omitempty"`
 	GpuExecution       *v1.GpuExecution       `protobuf:"bytes,14,opt,name=gpu_execution,json=gpuExecution,proto3" json:"gpu_execution,omitempty"`
 	GpuDisplay         *v1.GpuDisplay         `protobuf:"bytes,15,opt,name=gpu_display,json=gpuDisplay,proto3" json:"gpu_display,omitempty"`
+	ContractVersion    uint32                 `protobuf:"varint,16,opt,name=contract_version,json=contractVersion,proto3" json:"contract_version,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
@@ -1257,6 +1283,13 @@ func (x *UpdateInferenceServiceRequest) GetGpuDisplay() *v1.GpuDisplay {
 		return x.GpuDisplay
 	}
 	return nil
+}
+
+func (x *UpdateInferenceServiceRequest) GetContractVersion() uint32 {
+	if x != nil {
+		return x.ContractVersion
+	}
+	return 0
 }
 
 type ServiceCommandRequest struct {
@@ -3348,12 +3381,15 @@ const file_inference_v1_inference_proto_rawDesc = "" +
 	"\rModelArtifact\x12\x1a\n" +
 	"\bprovider\x18\x01 \x01(\tR\bprovider\x12\x1c\n" +
 	"\treference\x18\x02 \x01(\tR\treference\x12\x16\n" +
-	"\x06sha256\x18\x03 \x01(\tR\x06sha256\"b\n" +
+	"\x06sha256\x18\x03 \x01(\tR\x06sha256\"\x9e\x01\n" +
 	"\n" +
 	"EngineSpec\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12\x14\n" +
 	"\x05image\x18\x02 \x01(\tR\x05image\x12\x18\n" +
-	"\acommand\x18\x05 \x01(\tR\acommandJ\x04\b\x03\x10\x04J\x04\b\x04\x10\x05R\x04args\"\x98\x01\n" +
+	"\acommand\x18\x05 \x01(\tR\acommand\x12\x19\n" +
+	"\bimage_id\x18\x06 \x01(\tR\aimageId\x12\x1f\n" +
+	"\vimage_scope\x18\a \x01(\tR\n" +
+	"imageScopeJ\x04\b\x03\x10\x04J\x04\b\x04\x10\x05R\x04args\"\x98\x01\n" +
 	"\x0eCommandContext\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x1f\n" +
 	"\vresource_id\x18\x02 \x01(\tR\n" +
@@ -3400,7 +3436,7 @@ const file_inference_v1_inference_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12=\n" +
 	"\fcompleted_at\x18\n" +
-	" \x01(\v2\x1a.google.protobuf.TimestampR\vcompletedAt\"\xb2\x05\n" +
+	" \x01(\v2\x1a.google.protobuf.TimestampR\vcompletedAt\"\xdd\x05\n" +
 	"\x1dCreateInferenceServiceRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x12\n" +
@@ -3417,8 +3453,9 @@ const file_inference_v1_inference_proto_rawDesc = "" +
 	"cluster_id\x18\r \x01(\tR\tclusterId\x12A\n" +
 	"\rgpu_execution\x18\x0e \x01(\v2\x1c.accelerator.v1.GpuExecutionR\fgpuExecution\x12;\n" +
 	"\vgpu_display\x18\x0f \x01(\v2\x1a.accelerator.v1.GpuDisplayR\n" +
-	"gpuDisplayJ\x04\b\n" +
-	"\x10\vJ\x04\b\v\x10\fR\x14gpu_owner_attachmentR\x10original_charges\"\xf9\x05\n" +
+	"gpuDisplay\x12)\n" +
+	"\x10contract_version\x18\x10 \x01(\rR\x0fcontractVersionJ\x04\b\n" +
+	"\x10\vJ\x04\b\v\x10\fR\x14gpu_owner_attachmentR\x10original_charges\"\xa4\x06\n" +
 	"\x1dUpdateInferenceServiceRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x1f\n" +
@@ -3440,7 +3477,8 @@ const file_inference_v1_inference_proto_rawDesc = "" +
 	"cluster_id\x18\r \x01(\tR\tclusterId\x12A\n" +
 	"\rgpu_execution\x18\x0e \x01(\v2\x1c.accelerator.v1.GpuExecutionR\fgpuExecution\x12;\n" +
 	"\vgpu_display\x18\x0f \x01(\v2\x1a.accelerator.v1.GpuDisplayR\n" +
-	"gpuDisplay\"\x88\x01\n" +
+	"gpuDisplay\x12)\n" +
+	"\x10contract_version\x18\x10 \x01(\rR\x0fcontractVersion\"\x88\x01\n" +
 	"\x15ServiceCommandRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x1f\n" +

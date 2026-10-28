@@ -247,8 +247,8 @@ func ValidateUpdatePatch(req *inferencev1.UpdateInferenceServiceRequest) error {
 			}
 		case "engine":
 			engine := req.GetEngine()
-			if strings.TrimSpace(engine.GetType()) == "" || strings.TrimSpace(engine.GetImage()) == "" || strings.TrimSpace(engine.GetCommand()) == "" {
-				return fmt.Errorf("selected engine requires type, image and complete command")
+			if err := ValidateEngineSelection(engine, req.GetContractVersion()); err != nil {
+				return err
 			}
 		default:
 			return fmt.Errorf("unsupported update_mask path %q", path)
@@ -326,14 +326,20 @@ func ManagedUpdateCommandHash(req *inferencev1.UpdateInferenceServiceRequest, te
 		case "served_model_name":
 			patch[path] = req.GetServedModelName()
 		case "engine":
-			engine, err := canonicalMessage(req.GetEngine().ProtoReflect(), false)
+			engine, err := canonicalMessageVersion(req.GetEngine().ProtoReflect(), false, req.GetContractVersion() == 2)
 			if err != nil {
 				return "", err
 			}
 			patch[path] = engine
 		}
 	}
-	return governanceHash(map[string]any{"schema": ManagedUpdateSchema, "tenant_id": tenantID, "actor_type": actorType, "actor_id": actorID, "owner": "ani-inference", "action": "/inference.v1.InferenceServiceManager/UpdateInferenceService", "resource_id": req.GetResourceId(), "expected_generation": strconv.FormatInt(req.GetExpectedGeneration(), 10), "update_mask": paths, "patch": patch})
+	object := map[string]any{"schema": ManagedUpdateSchema, "tenant_id": tenantID, "actor_type": actorType, "actor_id": actorID, "owner": "ani-inference", "action": "/inference.v1.InferenceServiceManager/UpdateInferenceService", "resource_id": req.GetResourceId(), "expected_generation": strconv.FormatInt(req.GetExpectedGeneration(), 10), "update_mask": paths, "patch": patch}
+	if req.GetContractVersion() == 2 {
+		object["contract_version"] = "2"
+	} else if req.GetContractVersion() != 0 {
+		return "", fmt.Errorf("unsupported command contract version")
+	}
+	return governanceHash(object)
 }
 
 func managedCommandIdentity(context *inferencev1.CommandContext, tenantID, actorType, actorID string) (map[string]any, error) {

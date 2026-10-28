@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
+	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
 	"github.com/liangzai006/ani-inference-service/internal/biz/resources"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -49,8 +50,9 @@ type RuntimeSpec struct {
 	GPUSnapshot *gpu.Snapshot
 	// Managed is the accepted Governance identity. ManagedGPU separately marks
 	// an accepted GPU attachment; managed CPU never enters GPU rendering.
-	Managed    bool
-	ManagedGPU bool
+	Managed        bool
+	ManagedGPU     bool
+	ImageSelection *inferencebiz.ImageSelection
 }
 
 type EndpointSpec struct {
@@ -109,6 +111,9 @@ func Deployment(spec RuntimeSpec) (*appsv1.Deployment, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := applyImageProjection(spec, &pod); err != nil {
+		return nil, err
+	}
 	obj := &appsv1.Deployment{
 		TypeMeta: metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"},
 		ObjectMeta: metav1.ObjectMeta{
@@ -157,6 +162,9 @@ func LeaderWorkerSet(spec RuntimeSpec) (*lwsv1.LeaderWorkerSet, error) {
 	ApplyNonRootSecurity(&template.Spec)
 	template.Annotations, err = applyInferenceScheduling(spec, &template.Spec, "inference")
 	if err != nil {
+		return nil, err
+	}
+	if err := applyImageProjection(spec, &template.Spec); err != nil {
 		return nil, err
 	}
 	if err := mountModel(&template.Spec, spec); err != nil {

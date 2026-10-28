@@ -316,6 +316,7 @@ func (s *InferenceServer) UpdateInferenceService(ctx context.Context, req *infer
 	}
 	image, engineRuntime, engineCommand := engineInput(canonical.GetEngine())
 	updateInput := inferencebiz.UpdateInput{TenantID: tenantID, RequestID: req.GetRequestId(), Actor: Actor(ctx), ServiceID: req.GetResourceId(), ExpectedGeneration: req.GetExpectedGeneration(), ModelVersionID: canonical.GetModelVersionId(), ImageRef: image, ServedModelName: canonical.GetServedModelName(), EngineRuntime: engineRuntime, EngineCommand: engineCommand, ManagedOperationID: managedOperationID(req), RequestHash: requestHash, UpdateMask: append([]string(nil), req.GetUpdateMask().GetPaths()...)}
+	updateInput.ImageID, updateInput.ImageScope = canonical.GetEngine().GetImageId(), canonical.GetEngine().GetImageScope()
 	out, err := s.update.Update(ctx, updateInput)
 	if err != nil {
 		return nil, commandStatusError(err)
@@ -523,7 +524,7 @@ func (s *InferenceServer) CreateInferenceService(ctx context.Context, req *infer
 	if err := contractv1.ValidateKubernetesName(req.GetName()); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	if err := validateEngineInput(req.GetEngine()); err != nil {
+	if err := contractv1.ValidateEngineSelection(req.GetEngine(), req.GetContractVersion()); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 	if err := validateGPUResourceMap(req.GetResource()); err != nil {
@@ -588,6 +589,7 @@ func (s *InferenceServer) CreateInferenceService(ctx context.Context, req *infer
 		return nil, status.Error(codes.FailedPrecondition, "inference create use case is not configured")
 	}
 	in := CreateInput{TenantID: tenantID, RequestID: req.GetRequestId(), Actor: Actor(ctx), Name: req.GetName(), ModelVersionID: req.GetModelVersionId(), ArtifactProvider: artifactProvider, ArtifactRef: artifactRef, ArtifactSHA256: artifactSHA, ImageRef: image, ServedModelName: req.GetServedModelName(), EngineRuntime: engineRuntime, RuntimeProvider: provider, EngineCommand: engineCommand, Resources: normalized, Replicas: req.GetReplicas(), WorkerReplicas: workers, RuntimeMode: mode, Endpoint: endpointInput(req.GetRuntime().GetEndpoint()), RequestHash: hashBytes(encoded), Managed: managed}
+	in.ImageID, in.ImageScope = req.GetEngine().GetImageId(), req.GetEngine().GetImageScope()
 	if managed != nil {
 		in.GPUSnapshot = managed.Context.Snapshot
 		if managed.Context.Snapshot != nil {
