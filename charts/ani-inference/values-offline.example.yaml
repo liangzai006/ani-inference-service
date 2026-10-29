@@ -1,0 +1,69 @@
+# First install after the ANI base and batch 1 business services are ready.
+# Documentation address only: replace 192.0.2.11 with the actual Harbor node.
+# The offline installer replaces tags with verified manifest digests.
+image:
+  repository: 192.0.2.11:30003/ani-inference-batch2/service
+  tag: batch2-20261028
+imagePullSecrets:
+  - name: ani-inference-registry
+migration:
+  image:
+    repository: 192.0.2.11:30003/ani-inference-batch2/postgres
+    tag: batch2-20261028
+  imagePullSecrets:
+    - name: ani-inference-registry
+database:
+  existingSecret: ani-inference-database
+  secretKey: dsn
+  migrationSecret: ani-inference-migration
+  migrationSecretKey: dsn
+accessKeyEncryption:
+  # This Secret contains exactly 32 RAW bytes, not 64 ASCII hexadecimal bytes.
+  existingSecret: ani-inference-access-key-encryption
+  secretKey: key
+model:
+  grpcAddress: ani-model-grpc.ani-system.svc.cluster.local:19090
+  # Repackaged batch 1 Model import image: Python 3 is the materializer
+  # protocol and the worker ENTRYPOINT is overridden. Keeping it in this
+  # project lets the batch 2 pull-only robot fetch every runtime image.
+  materializerImage: 192.0.2.11:30003/ani-inference-batch2/model-materializer:batch2-20261028
+  storageClass: ani-cephfs
+  downloadCA:
+    configMap: ani-model-public-ca
+    key: ca-certificates.crt
+  tls:
+    existingSecret: inference-model-mtls
+    issuer:
+      name: ani-ca
+    certificate:
+      create: false
+      dnsName: ani-inference.ani.internal
+serverTLS:
+  existingSecret: ani-inference-server-tls
+  certificate:
+    create: false
+    dnsName: ani-inference.ani.internal
+    issuer:
+      name: ani-ca
+gatewayAuthz:
+  enabled: true
+  image:
+    repository: 192.0.2.11:30003/ani-inference-batch2/gateway-authz
+    tag: batch2-20261028
+  tls:
+    existingSecret: ani-inference-gateway-authz-mtls
+    issuer:
+      name: ani-ca
+    certificate:
+      create: false
+      dnsName: ani-inference-gateway.ani.internal
+higress:
+  publicBaseURL: http://192.0.2.11:30090
+  gatewayNamespace: higress-system
+  gatewayName: ani-higress
+imageRegistry:
+  enabled: false
+governanceQuota:
+  enabled: false
+accelerator:
+  enabled: false

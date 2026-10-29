@@ -113,6 +113,12 @@ spec:
               value: {{ include "ani-inference.runtimeServiceAccountName" . | quote }}
             - name: ANI_MODEL_STORAGE_CLASS
               value: {{ .Values.model.storageClass | quote }}
+            {{- if .Values.model.downloadCA.configMap }}
+            - name: ANI_MODEL_DOWNLOAD_CA_CONFIGMAP
+              value: {{ .Values.model.downloadCA.configMap | quote }}
+            - name: ANI_MODEL_DOWNLOAD_CA_KEY
+              value: {{ required "model.downloadCA.key is required when configMap is set" (trim .Values.model.downloadCA.key) | quote }}
+            {{- end }}
             {{- if .Values.accelerator.enabled }}
             - name: ANI_ACCELERATOR_GRPC_ADDR
               value: {{ required "accelerator.grpcAddress is required when accelerator.enabled is true" .Values.accelerator.grpcAddress | quote }}

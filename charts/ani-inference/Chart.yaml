@@ -2,5 +2,5 @@ apiVersion: v2
 name: ani-inference
 description: ANI inference control-plane service
 type: application
-version: 0.1.1
+version: 0.1.2
 appVersion: "main-ff24af7-20261016"

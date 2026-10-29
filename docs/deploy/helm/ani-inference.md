@@ -1,5 +1,54 @@
 # 新环境 Inference Helm 部署
 
+## ANI 离线包第二批配置
+
+Chart 0.1.2 的 `charts/ani-inference/values-offline.example.yaml` 用于已完成
+ANI 底座和第一批 Governance、Model、Console 的新集群。示例中的 `192.0.2.11`
+是文档地址，不能直接安装；实际离线包会写入目标 Harbor 地址和已校验镜像摘要。
+该配置不使用已废弃的 `ani-iam`，也不启用 Accelerator、镜像目录或 GPU 退额。
+
+先安装 Gateway API、LWS、Higress、KServe 和 LLMI，再安装 Inference。
+`ani-inference` release 的 Deployment 为 `ani-inference-service`，gRPC Service
+为 `ani-inference-grpc:19090`，管理 Service 为 `ani-inference-admin:19091`。
+数据库和密钥须在 Helm hook 执行前预先创建：
+
+- `database.existingSecret` / `secretKey` 只供常驻服务使用；
+- `database.migrationSecret` / `migrationSecretKey` 供迁移使用，分别留空时独立回退
+  到原字段，保留已有部署的行为。新环境应使用独立的 schema owner 和 runtime 账号；
+- `accessKeyEncryption` 的 Secret 必须包含 **32 个原始随机字节**，不能把 Governance
+  使用的 64 字符十六进制文本直接复制过来。该值用于加密推理访问密钥，安装后须备份；
+- `image.digest`、`migration.image.digest`、`gatewayAuthz.image.digest` 优先于 tag，
+  格式为 `sha256:` 加 64 个小写十六进制字符。
+
+迁移 Hook 不再从部分旧表结构推断迁移基线。已有 Inference 表但没有
+`inference_schema_migrations` 记录时，Hook 会停止；先备份数据库，核对实际已执行的
+迁移历史，并由数据库管理员仅为确认已执行的文件建立账本记录，再重试。不要将当前目录
+中的所有文件直接标记为已执行。历史迁移自带的外层事务由 Hook 处理，新的 Chart 迁移
+文件不得自行提交或回滚事务，以保证结构变更和账本记录一起提交。
+
+该 profile 使用已有 `ClusterIssuer/ani-ca`，先签发并等待证书 Ready，再执行 Helm，
+因此示例将三个 `certificate.create` 关闭。Inference 服务端和调用 Model 的客户端身份
+均为 `ani-inference.ani.internal`；authz 客户端身份为
+`ani-inference-gateway.ani.internal`。Governance 调用 Inference 时的客户端证书
+只能有一个 DNS SAN `ani-governance`。更换签发者不能改变这些精确身份。
+
+模型物化使用 `model.storageClass=ani-cephfs`，申请 RWX 卷；不要使用 RBD
+块存储类 `ani-block` 代替该共享卷。`model.downloadCA.configMap=ani-model-public-ca`
+和 `model.downloadCA.key=ca-certificates.crt` 复用首批 Model 的受信 CA 包。
+Chart 只传入 `ANI_MODEL_DOWNLOAD_CA_CONFIGMAP` / `ANI_MODEL_DOWNLOAD_CA_KEY`；
+由控制面创建的下载 Job 将 ConfigMap 挂载为只读并设置 `SSL_CERT_FILE`，保留 HTTPS
+证书和主机名校验。ConfigMap 必须位于同一 `ani-system` 命名空间。
+
+物化 Job 的协议是 `python3 -c <Inference 内置下载脚本>`，会覆盖工作镜像原有
+ENTRYPOINT；首批 Model import 镜像包含 Python 3，可复用其锁定摘要，不要求另一个
+`model-materialize` 二进制。下载脚本会校验 tar 摘要、大小和安全路径，再写入 PVC。
+顶层 `imagePullSecrets` 同时配置控制面和独立的 runtime ServiceAccount，后者由物化
+Job 与 KServe runtime Pod 使用；runtime 账号无 RoleBinding 且不自动挂载 API token。
+
+依赖就绪、数据库迁移成功和 Pod Ready 分别验证；这些检查不能替代真实模型物化、引擎
+启动及 Higress `/v1/...` 推理请求验收。以下历史通用示例中的签发者和镜像地址需要按
+实际 profile 覆盖。
+
 ## 内部证书与退额配置
 
 所有服务身份使用平台现有 cert-manager Issuer，不另建临时 CA。本文默认值中的
