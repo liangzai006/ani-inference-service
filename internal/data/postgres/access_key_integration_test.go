@@ -135,7 +135,7 @@ func TestInferenceAccessKeyListSnapshotIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(reader.Close)
-	items, total, err := NewRepository(reader).List(ctx, tenant, accesskey.ListOptions{Limit: 10})
+	items, total, err := NewRepository(reader).List(ctx, tenant, accesskey.ListOptions{Limit: 10, ServedModelName: "snapshot-model"})
 	if err != nil || writeErr != nil {
 		t.Fatalf("list=%v concurrent insert=%v", err, writeErr)
 	}
@@ -145,6 +145,80 @@ func TestInferenceAccessKeyListSnapshotIntegration(t *testing.T) {
 	}
 	if committed != 2 || len(items) != 1 || total != 1 || items[0].Name != "before-page" {
 		t.Fatalf("list/count must share a snapshot: committed=%d items=%d total=%d", committed, len(items), total)
+	}
+}
+
+func TestInferenceAccessKeyListModelFilterIntegration(t *testing.T) {
+	dsn := os.Getenv("INFERENCE_PG_DSN")
+	if dsn == "" {
+		t.Skip("set INFERENCE_PG_DSN to run PostgreSQL integration test")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	repo := NewRepository(pool)
+	service := accessKeyTestService(t, repo)
+	tenant, other := uuid.NewString(), uuid.NewString()
+	match := createKeyTestPolicy(t, ctx, repo, tenant, []string{"model-a", "model-b"}, 0)
+	unmatched := createKeyTestPolicy(t, ctx, repo, tenant, []string{"model-ab"}, 0)
+	otherPolicy := createKeyTestPolicy(t, ctx, repo, other, []string{"model-a"}, 0)
+	create := func(tenant, name, policyID string) accesskey.Record {
+		t.Helper()
+		result, err := service.Create(ctx, accesskey.CreateInput{TenantID: tenant, Name: name, PolicyID: policyID, CreatedBy: "filter-test"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return result.Record
+	}
+	first := create(tenant, "first", match)
+	create(tenant, "second", match)
+	third := create(tenant, "third", unmatched)
+	create(other, "foreign", otherPolicy)
+	list := func(model string, offset int) ([]accesskey.Record, int64) {
+		t.Helper()
+		items, total, err := service.List(ctx, tenant, accesskey.ListOptions{Limit: 1, Offset: offset, ServedModelName: model})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return items, total
+	}
+	page1, total := list("model-a", 0)
+	page2, total2 := list("model-a", 1)
+	if total != 2 || total2 != 2 || len(page1) != 1 || len(page2) != 1 || page1[0].ID == page2[0].ID {
+		t.Fatalf("filter before pagination: first=%+v second=%+v totals=%d/%d", page1, page2, total, total2)
+	}
+	if items, count := list("model", 0); count != 0 || len(items) != 0 {
+		t.Fatalf("filter must match entire model name: %d %+v", count, items)
+	}
+	if _, count := list("", 0); count != 3 {
+		t.Fatalf("unfiltered count = %d", count)
+	}
+	if _, err := repo.BindAccessPolicy(ctx, tenant, third.ID, match, "actor", "bind"); err != nil {
+		t.Fatal(err)
+	}
+	if _, count := list("model-a", 0); count != 3 {
+		t.Fatalf("binding change not reflected: %d", count)
+	}
+	if _, err := repo.BindAccessPolicy(ctx, tenant, first.ID, unmatched, "actor", "bind"); err != nil {
+		t.Fatal(err)
+	}
+	if _, count := list("model-a", 0); count != 2 {
+		t.Fatalf("rebinding change not reflected: %d", count)
+	}
+	p, err := repo.GetAccessPolicy(ctx, tenant, match)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.AllowedModelNames = []string{"model-b"}
+	if _, err = repo.UpdateAccessPolicy(ctx, p, "actor", "update"); err != nil {
+		t.Fatal(err)
+	}
+	if _, count := list("model-a", 0); count != 0 {
+		t.Fatalf("policy update not reflected: %d", count)
 	}
 }
 

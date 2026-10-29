@@ -79,8 +79,9 @@ type CreateInput struct {
 }
 
 type ListOptions struct {
-	Limit  int
-	Offset int
+	Limit           int
+	Offset          int
+	ServedModelName string
 }
 
 type Repository interface {
@@ -218,6 +219,10 @@ func (s *Service) List(ctx context.Context, tenantID string, options ListOptions
 	}
 	if options.Limit < 1 || options.Limit > 100 || options.Offset < 0 {
 		return nil, 0, fmt.Errorf("%w: invalid access-key page", ErrInvalidInput)
+	}
+	options.ServedModelName = strings.TrimSpace(options.ServedModelName)
+	if strings.ContainsRune(options.ServedModelName, '\x00') {
+		return nil, 0, fmt.Errorf("%w: invalid model name", ErrInvalidInput)
 	}
 	items, total, err := s.Repository.List(ctx, strings.TrimSpace(tenantID), options)
 	if err != nil {

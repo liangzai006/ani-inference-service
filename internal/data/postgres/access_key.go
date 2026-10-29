@@ -116,11 +116,11 @@ func (r *Repository) List(ctx context.Context, tenantID string, options accesske
 	}
 	defer tx.Rollback(ctx)
 	q := New(tx)
-	items, err := q.ListInferenceAccessKeys(ctx, ListInferenceAccessKeysParams{TenantID: tenant, Limit: int32(options.Limit), Offset: int32(options.Offset)})
+	items, err := q.ListInferenceAccessKeys(ctx, ListInferenceAccessKeysParams{TenantID: tenant, ServedModelName: options.ServedModelName, PageLimit: int32(options.Limit), PageOffset: int32(options.Offset)})
 	if err != nil {
 		return nil, 0, err
 	}
-	total, err := q.CountInferenceAccessKeys(ctx, tenant)
+	total, err := q.CountInferenceAccessKeys(ctx, CountInferenceAccessKeysParams{TenantID: tenant, ServedModelName: options.ServedModelName})
 	if err != nil {
 		return nil, 0, err
 	}
