@@ -243,7 +243,7 @@ func TestTrustedTenantMiddlewareAcceptsOnlyVerifiedTLS13(t *testing.T) {
 
 func TestServicePolicyRPCIdentityBoundary(t *testing.T) {
 	policy := InferenceServicePolicy()
-	for _, method := range []string{"/inference.v1.InferenceServiceManager/GetServicePolicy", "/inference.v1.InferenceServiceManager/UpdateServicePolicy"} {
+	for _, method := range []string{"/inference.v1.InferenceAccessKeyService/CreateInferenceAccessPolicy", "/inference.v1.InferenceAccessKeyService/GetInferenceAccessPolicy", "/inference.v1.InferenceAccessKeyService/ListInferenceAccessPolicies", "/inference.v1.InferenceAccessKeyService/UpdateInferenceAccessPolicy", "/inference.v1.InferenceAccessKeyService/DeleteInferenceAccessPolicy", "/inference.v1.InferenceAccessKeyService/BindInferenceAccessKeyPolicy"} {
 		if !policy.IsAllowed(governanceCallerDNS, method) {
 			t.Fatalf("governance cannot call %s", method)
 		}
@@ -251,6 +251,11 @@ func TestServicePolicyRPCIdentityBoundary(t *testing.T) {
 			if policy.IsAllowed(identity, method) {
 				t.Fatalf("%s can call %s", identity, method)
 			}
+		}
+	}
+	for _, method := range []string{"/inference.v1.InferenceServiceManager/GetServicePolicy", "/inference.v1.InferenceServiceManager/UpdateServicePolicy"} {
+		if policy.IsAllowed(governanceCallerDNS, method) {
+			t.Fatalf("legacy service-bound policy remains enabled: %s", method)
 		}
 	}
 }

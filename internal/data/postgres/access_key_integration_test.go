@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	accesskey "github.com/liangzai006/ani-inference-service/internal/biz/accesskey"
+	policy "github.com/liangzai006/ani-inference-service/internal/biz/accesspolicy"
 )
 
 type accessKeyPageTrace struct {
@@ -26,7 +27,60 @@ func accessKeyTestService(t *testing.T, repository *Repository) *accesskey.Servi
 	if err != nil {
 		t.Fatal(err)
 	}
-	return accesskey.NewService(repository, cipher)
+	svc := accesskey.NewService(repository, cipher)
+	svc.Policy = keyTestPolicy{repository: repository, serviceID: "test-service"}
+	return svc
+}
+
+// Key lifecycle tests exercise the real key repository without requiring a
+// publication. The full publication and policy path has its own integration test.
+type keyTestPolicy struct {
+	repository *Repository
+	serviceID  string
+}
+
+func (p keyTestPolicy) Resolve(context.Context, string) (string, error) { return p.serviceID, nil }
+func (p keyTestPolicy) ConsumeAccess(ctx context.Context, key accesskey.Record, _ string, model string, now time.Time, cost int64) (accesskey.CheckResult, error) {
+	r := accesskey.CheckResult{Record: key, DenialCode: "scope_denied"}
+	policy, err := p.repository.GetAccessPolicy(ctx, key.TenantID, key.PolicyID)
+	if err != nil {
+		return r, err
+	}
+	if !policy.AllowsModel(model) {
+		return r, nil
+	}
+	key.RequestsPerSecond, key.RequestsPerMinute, key.RequestsPerHour = policy.RequestsPerSecond, policy.RequestsPerMinute, policy.RequestsPerHour
+	ok, retry, err := p.repository.Consume(ctx, key, now, cost)
+	r.Allowed = ok
+	r.RetryAfter = retry
+	if !ok {
+		r.DenialCode = "rate_limited"
+	} else {
+		r.DenialCode = ""
+	}
+	return r, err
+}
+func createKeyTestPolicy(t *testing.T, ctx context.Context, repo *Repository, tenant string, models []string, rpm int32) string {
+	t.Helper()
+	p, err := repo.CreateAccessPolicy(ctx, policy.Policy{TenantID: tenant, Name: "test-policy", AllowedModelNames: models, RequestsPerMinute: rpm}, "test", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, e := repo.pool.Exec(context.Background(), `DELETE FROM inference_access_keys WHERE tenant_id=$1`, tenant)
+		if e != nil {
+			t.Error(e)
+		}
+		_, e = repo.pool.Exec(context.Background(), `DELETE FROM inference_access_policies WHERE tenant_id=$1`, tenant)
+		if e != nil {
+			t.Error(e)
+		}
+		_, e = repo.pool.Exec(context.Background(), `DELETE FROM inference_access_policy_audit_events WHERE tenant_id=$1`, tenant)
+		if e != nil {
+			t.Error(e)
+		}
+	})
+	return p.ID
 }
 
 func (t *accessKeyPageTrace) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
@@ -60,9 +114,10 @@ func TestInferenceAccessKeyListSnapshotIntegration(t *testing.T) {
 		}
 	})
 	service := accessKeyTestService(t, NewRepository(writer))
+	policyID := createKeyTestPolicy(t, ctx, NewRepository(writer), tenant, []string{"snapshot-model"}, 0)
 	create := func(name string) error {
 		_, err := service.Create(ctx, accesskey.CreateInput{
-			TenantID: tenant, Name: name, CreatedBy: "snapshot-test", AllowedModelNames: []string{"snapshot-model"},
+			TenantID: tenant, Name: name, CreatedBy: "snapshot-test", PolicyID: policyID,
 		})
 		return err
 	}
@@ -120,10 +175,12 @@ func TestInferenceAccessKeyRepositoryIntegration(t *testing.T) {
 
 	repository := NewRepository(pool)
 	service := accessKeyTestService(t, repository)
+	service.Policy = keyTestPolicy{repository: repository, serviceID: serviceID}
+	policyID := createKeyTestPolicy(t, ctx, repository, tenant, []string{"model-a"}, 2)
+	otherPolicyID := createKeyTestPolicy(t, ctx, repository, otherTenant, []string{"model-a"}, 1)
 	created, err := service.Create(ctx, accesskey.CreateInput{
 		TenantID: tenant, RequestID: "req-create-1", Name: "integration-key",
-		AllowedServiceIDs: []string{serviceID}, AllowedModelNames: []string{"model-a"},
-		RequestsPerMinute: 2, CreatedBy: "integration-admin", IdempotencyKey: "create-1",
+		PolicyID: policyID, CreatedBy: "integration-admin", IdempotencyKey: "create-1",
 	})
 	if err != nil {
 		t.Fatalf("create key: %v", err)
@@ -141,8 +198,7 @@ func TestInferenceAccessKeyRepositoryIntegration(t *testing.T) {
 
 	replayed, err := service.Create(ctx, accesskey.CreateInput{
 		TenantID: tenant, RequestID: "req-create-replay", Name: "integration-key",
-		AllowedServiceIDs: []string{serviceID}, AllowedModelNames: []string{"model-a"},
-		RequestsPerMinute: 2, CreatedBy: "integration-admin", IdempotencyKey: "create-1",
+		PolicyID: policyID, CreatedBy: "integration-admin", IdempotencyKey: "create-1",
 	})
 	if err != nil {
 		t.Fatalf("replay create: %v", err)
@@ -214,16 +270,16 @@ func TestInferenceAccessKeyRepositoryIntegration(t *testing.T) {
 
 	rateLimitedKey, err := service.Create(ctx, accesskey.CreateInput{
 		TenantID: otherTenant, RequestID: "req-rate-create", Name: "rate-key",
-		AllowedServiceIDs: []string{serviceID}, RequestsPerMinute: 1, CreatedBy: "integration-admin",
+		PolicyID: otherPolicyID, CreatedBy: "integration-admin",
 	})
 	if err != nil {
 		t.Fatalf("create rate key: %v", err)
 	}
-	first, err := service.Check(ctx, rateLimitedKey.Secret, serviceID, "", 1)
+	first, err := service.Check(ctx, rateLimitedKey.Secret, serviceID, "model-a", 1)
 	if err != nil || !first.Allowed {
 		t.Fatalf("first rate check denied: %+v err=%v", first, err)
 	}
-	second, err := service.Check(ctx, rateLimitedKey.Secret, serviceID, "", 1)
+	second, err := service.Check(ctx, rateLimitedKey.Secret, serviceID, "model-a", 1)
 	if err != nil || second.Allowed || second.DenialCode != "rate_limited" || second.RetryAfter <= 0 {
 		t.Fatalf("second rate check was not limited: %+v err=%v", second, err)
 	}
@@ -260,7 +316,8 @@ func TestInferenceAccessKeySecretPersistenceIntegration(t *testing.T) {
 	})
 	repository := NewRepository(pool)
 	svc := accessKeyTestService(t, repository)
-	created, err := svc.Create(ctx, accesskey.CreateInput{TenantID: tenant, Name: "recoverable", AllowedModelNames: []string{"model"}, CreatedBy: "test", IdempotencyKey: "create"})
+	policyID := createKeyTestPolicy(t, ctx, repository, tenant, []string{"model"}, 0)
+	created, err := svc.Create(ctx, accesskey.CreateInput{TenantID: tenant, Name: "recoverable", PolicyID: policyID, CreatedBy: "test", IdempotencyKey: "create"})
 	if err != nil {
 		t.Fatal(err)
 	}

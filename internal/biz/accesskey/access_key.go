@@ -45,6 +45,7 @@ type Record struct {
 	KeyPrefix            string
 	SecretHash           string
 	HashVersion          string
+	PolicyID             string
 	SecretCiphertext     string `json:"-"`
 	Secret               string `json:"-"`
 	AllowedServiceIDs    []string
@@ -66,6 +67,7 @@ type CreateInput struct {
 	TenantID          string
 	RequestID         string
 	Name              string
+	PolicyID          string
 	AllowedServiceIDs []string
 	AllowedModelNames []string
 	RequestsPerSecond int32
@@ -132,8 +134,8 @@ type CheckResult struct {
 	PolicyVersion int64
 }
 
-// AccessPolicy resolves trusted publication facts and atomically consumes both
-// key and service limits. Production composition must supply it.
+// AccessPolicy resolves trusted publication facts and atomically enforces the
+// policy bound to a key. Production composition must supply it.
 type AccessPolicy interface {
 	Resolve(context.Context, string) (string, error)
 	ConsumeAccess(context.Context, Record, string, string, time.Time, int64) (CheckResult, error)
@@ -168,8 +170,9 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (CreateResult, 
 	if input.TenantID == "" || input.Name == "" || input.CreatedBy == "" {
 		return CreateResult{}, fmt.Errorf("%w: tenant, name and actor are required", ErrInvalidInput)
 	}
-	if err := validateScopeAndLimits(input.AllowedServiceIDs, input.AllowedModelNames, input.RequestsPerSecond, input.RequestsPerMinute, input.RequestsPerHour, input.ExpiresAt, s.now()); err != nil {
-		return CreateResult{}, err
+	policyID, err := uuid.Parse(strings.TrimSpace(input.PolicyID))
+	if err != nil || policyID == uuid.Nil || policyID.String() != input.PolicyID || len(input.AllowedServiceIDs) != 0 || len(input.AllowedModelNames) != 0 || input.RequestsPerSecond != 0 || input.RequestsPerMinute != 0 || input.RequestsPerHour != 0 || (input.ExpiresAt != nil && !input.ExpiresAt.After(s.now())) {
+		return CreateResult{}, fmt.Errorf("%w: a policy ID is required; scope and limits belong to the policy", ErrInvalidInput)
 	}
 	secret, prefix, err := newSecret()
 	if err != nil {
@@ -181,11 +184,8 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (CreateResult, 
 	}
 	record := Record{
 		TenantID: input.TenantID, ID: uuid.NewString(), Name: input.Name,
-		KeyPrefix: prefix, SecretHash: hash, HashVersion: hashVersion,
-		AllowedServiceIDs: normalizeStrings(input.AllowedServiceIDs),
-		AllowedModelNames: normalizeStrings(input.AllowedModelNames),
-		RequestsPerSecond: input.RequestsPerSecond, RequestsPerMinute: input.RequestsPerMinute,
-		RequestsPerHour: input.RequestsPerHour, ExpiresAt: input.ExpiresAt,
+		KeyPrefix: prefix, SecretHash: hash, HashVersion: hashVersion, PolicyID: policyID.String(),
+		ExpiresAt: input.ExpiresAt,
 		CreatedBy: input.CreatedBy, CreateIdempotencyKey: input.IdempotencyKey, Version: 1,
 	}
 	record.SecretCiphertext, err = s.Cipher.seal(record, secret)
@@ -197,9 +197,16 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (CreateResult, 
 		return CreateResult{}, err
 	}
 	if created.Replayed {
+		if created.Record.Name != input.Name || created.Record.PolicyID != policyID.String() || !sameExpiry(created.Record.ExpiresAt, input.ExpiresAt) {
+			return CreateResult{}, ErrIdempotencyReplay
+		}
 		return CreateResult{Record: created.Record, Replayed: true}, nil
 	}
 	return CreateResult{Record: created.Record, Secret: secret}, nil
+}
+
+func sameExpiry(a, b *time.Time) bool {
+	return a == nil && b == nil || a != nil && b != nil && a.Equal(*b)
 }
 
 func (s *Service) List(ctx context.Context, tenantID string, options ListOptions) ([]Record, int64, error) {
@@ -302,34 +309,21 @@ func (s *Service) Check(ctx context.Context, apiKey, serviceID, model string, co
 	if record.ExpiresAt != nil && !record.ExpiresAt.After(now) {
 		return CheckResult{Record: record, Allowed: false, DenialCode: "expired", PolicyVersion: record.Version}, nil
 	}
-	if s.Policy != nil {
-		resolved, err := s.Policy.Resolve(ctx, strings.TrimSpace(model))
-		if err != nil {
-			return CheckResult{}, err
-		}
-		if resolved == "" || (strings.TrimSpace(serviceID) != "" && strings.TrimSpace(serviceID) != resolved) {
-			return CheckResult{Record: record, DenialCode: "scope_denied", PolicyVersion: record.Version}, nil
-		}
-		serviceID = resolved
+	if s.Policy == nil {
+		return CheckResult{}, errors.New("inference access policy is not configured")
 	}
-	if !record.Allows(strings.TrimSpace(serviceID), strings.TrimSpace(model)) {
-		return CheckResult{Record: record, Allowed: false, DenialCode: "scope_denied", PolicyVersion: record.Version}, nil
+	resolved, err := s.Policy.Resolve(ctx, strings.TrimSpace(model))
+	if err != nil {
+		return CheckResult{}, err
 	}
+	if resolved == "" || (strings.TrimSpace(serviceID) != "" && strings.TrimSpace(serviceID) != resolved) {
+		return CheckResult{Record: record, DenialCode: "scope_denied", PolicyVersion: record.Version}, nil
+	}
+	serviceID = resolved
 	if cost < 1 {
 		cost = 1
 	}
-	var result CheckResult
-	if s.Policy != nil {
-		result, err = s.Policy.ConsumeAccess(ctx, record, serviceID, strings.TrimSpace(model), now, cost)
-	} else {
-		var allowed bool
-		var retryAfter time.Duration
-		allowed, retryAfter, err = s.Repository.Consume(ctx, record, now, cost)
-		result = CheckResult{Record: record, Allowed: allowed, RetryAfter: retryAfter, PolicyVersion: record.Version}
-		if !allowed {
-			result.DenialCode = "rate_limited"
-		}
-	}
+	result, err := s.Policy.ConsumeAccess(ctx, record, serviceID, strings.TrimSpace(model), now, cost)
 	if err != nil || !result.Allowed {
 		return result, err
 	}
@@ -345,62 +339,6 @@ func (s *Service) Check(ctx context.Context, apiKey, serviceID, model string, co
 		}
 	}
 	return result, nil
-}
-
-func (r Record) Allows(serviceID, model string) bool {
-	if len(r.AllowedServiceIDs) > 0 && !contains(r.AllowedServiceIDs, serviceID) {
-		return false
-	}
-	if len(r.AllowedModelNames) > 0 && !contains(r.AllowedModelNames, model) {
-		return false
-	}
-	return len(r.AllowedServiceIDs) > 0 || len(r.AllowedModelNames) > 0
-}
-
-func validateScopeAndLimits(services, models []string, qps, rpm, rph int32, expires *time.Time, now time.Time) error {
-	services = normalizeStrings(services)
-	models = normalizeStrings(models)
-	if len(services) == 0 && len(models) == 0 {
-		return fmt.Errorf("%w: at least one service or model scope is required", ErrInvalidInput)
-	}
-	for _, serviceID := range services {
-		if _, err := uuid.Parse(serviceID); err != nil {
-			return fmt.Errorf("%w: allowed_service_ids must contain UUIDs", ErrInvalidInput)
-		}
-	}
-	if qps < 0 || rpm < 0 || rph < 0 {
-		return fmt.Errorf("%w: rate limits cannot be negative", ErrInvalidInput)
-	}
-	if expires != nil && !expires.After(now) {
-		return fmt.Errorf("%w: expires_at must be in the future", ErrInvalidInput)
-	}
-	return nil
-}
-
-func normalizeStrings(values []string) []string {
-	seen := make(map[string]struct{}, len(values))
-	out := make([]string, 0, len(values))
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value == "" {
-			continue
-		}
-		if _, ok := seen[value]; ok {
-			continue
-		}
-		seen[value] = struct{}{}
-		out = append(out, value)
-	}
-	return out
-}
-
-func contains(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
 }
 
 func newSecret() (string, string, error) {

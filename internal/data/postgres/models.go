@@ -29,6 +29,7 @@ type InferenceAccessKey struct {
 	CreateIdempotencyKey   pgtype.Text
 	RotationIdempotencyKey pgtype.Text
 	SecretCiphertext       pgtype.Text
+	PolicyID               pgtype.UUID
 }
 
 type InferenceAccessKeyAuditEvent struct {
@@ -48,6 +49,30 @@ type InferenceAccessKeyRateBucket struct {
 	WindowName   string
 	WindowStart  pgtype.Timestamptz
 	RequestCount int64
+}
+
+type InferenceAccessPolicy struct {
+	TenantID          pgtype.UUID
+	ID                pgtype.UUID
+	Name              string
+	AllowedModelNames []string
+	RequestsPerSecond int32
+	RequestsPerMinute int32
+	RequestsPerHour   int32
+	Version           int64
+	CreatedAt         pgtype.Timestamptz
+	UpdatedAt         pgtype.Timestamptz
+}
+
+type InferenceAccessPolicyAuditEvent struct {
+	TenantID  pgtype.UUID
+	EventID   pgtype.UUID
+	PolicyID  pgtype.UUID
+	EventType string
+	Actor     string
+	RequestID string
+	Payload   []byte
+	CreatedAt pgtype.Timestamptz
 }
 
 type InferenceAuditEvent struct {
