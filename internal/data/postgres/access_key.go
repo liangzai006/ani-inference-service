@@ -27,6 +27,10 @@ func (r *Repository) Create(ctx context.Context, input accesskey.CreatePersistIn
 	if err != nil {
 		return accesskey.PersistResult{}, err
 	}
+	policyID, err := parseUUID("policy_id", in.PolicyID, false)
+	if err != nil {
+		return accesskey.PersistResult{}, err
+	}
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return accesskey.PersistResult{}, err
@@ -47,14 +51,20 @@ func (r *Repository) Create(ctx context.Context, input accesskey.CreatePersistIn
 			return accesskey.PersistResult{}, lookupErr
 		}
 	}
+	var existingPolicy pgtype.UUID
+	if err := tx.QueryRow(ctx, `SELECT id FROM inference_access_policies WHERE tenant_id=$1 AND id=$2 FOR SHARE`, tenant, policyID).Scan(&existingPolicy); errors.Is(err, pgx.ErrNoRows) {
+		return accesskey.PersistResult{}, accesskey.ErrNotFound
+	} else if err != nil {
+		return accesskey.PersistResult{}, err
+	}
 	created, err := q.InsertInferenceAccessKey(ctx, InsertInferenceAccessKeyParams{
 		TenantID: tenant, ID: id, Name: in.Name, KeyPrefix: in.KeyPrefix,
 		SecretHash: in.SecretHash, HashVersion: in.HashVersion,
-		AllowedServiceIds: in.AllowedServiceIDs, AllowedModelNames: in.AllowedModelNames,
+		AllowedServiceIds: []string{}, AllowedModelNames: []string{},
 		RequestsPerSecond: in.RequestsPerSecond, RequestsPerMinute: in.RequestsPerMinute,
 		RequestsPerHour: in.RequestsPerHour, ExpiresAt: timeParam(in.ExpiresAt),
 		CreatedBy: in.CreatedBy, CreateIdempotencyKey: textParam(in.CreateIdempotencyKey),
-		SecretCiphertext: textParam(in.SecretCiphertext),
+		SecretCiphertext: textParam(in.SecretCiphertext), PolicyID: policyID,
 	})
 	if err != nil {
 		// The INSERT only ignores this tenant's idempotency conflict. Unlike a
@@ -378,6 +388,7 @@ func accessKeyRecord(row InferenceAccessKey) accesskey.Record {
 	return accesskey.Record{
 		TenantID: row.TenantID.String(), ID: row.ID.String(), Name: row.Name,
 		KeyPrefix: row.KeyPrefix, SecretHash: row.SecretHash, HashVersion: row.HashVersion,
+		PolicyID:          uuidValue(row.PolicyID),
 		SecretCiphertext:  textValue(row.SecretCiphertext),
 		AllowedServiceIDs: append([]string(nil), row.AllowedServiceIds...),
 		AllowedModelNames: append([]string(nil), row.AllowedModelNames...),
@@ -422,4 +433,11 @@ func textValue(value pgtype.Text) string {
 		return ""
 	}
 	return value.String
+}
+
+func uuidValue(value pgtype.UUID) string {
+	if !value.Valid {
+		return ""
+	}
+	return value.String()
 }

@@ -5,3 +5,5 @@
 It deliberately does not copy `repo/deploy/migrations` from ANI. It has no shared Model/IAM/Quota/Core PlatformWorkload tables and no RLS/current-setting assumptions. Cross-domain IDs are validated through versioned service protocols. `inference_quota_reservations` stores an external reservation reference; it is not a quota ledger.
 
 Migration credentials and runtime credentials are separate. Every generated query must include the applicable `tenant_id` predicate; absent tenant scope is an error. The migration has been replayed in the user-provided local `recycling-postgres` container into the isolated `ani_inference` database; controller/Kubernetes and cross-service quota protocol verification remain pending.
+
+`000026_inference_access_policies.sql` introduces tenant-owned policies bound to AKs. Existing AKs have no policy and are denied until explicitly rebound; old service-bound policies no longer govern requests.

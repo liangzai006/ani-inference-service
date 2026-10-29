@@ -20,7 +20,7 @@ model-router 插件配置为 `enableOnPathSuffix: ["*"]`，会从 OpenAI 兼容 
 `ext-auth` WasmPlugin 把 `x-api-key`、model-router 生成的模型头和请求 ID 转发给
 `ani-inference-authz`，adapter 再用 `ani-inference-gateway.ani.internal` 的 mTLS
 身份调用 Inference `CheckInferenceAccess`。当前网关按 key 和 model-router 从请求体提取的 served model 做校验。Inference
-在持久发布记录中解析实际服务和租户，再同时检查 Key 的服务、模型范围及服务访问策略；
+在持久发布记录中解析实际服务和租户，再检查 AK 绑定策略中的模型范围及限流；
 不信任调用方提供的服务 ID 或租户头。授权失败按 401/403/429 返回，Inference
 或 adapter 不可用时按 503 fail-close。先把 Chart 的 `gatewayAuthz.enabled` 打开并
 发布含 `/ani-inference-gateway-authz` 的镜像，再应用独立的 `ext-auth.yaml`

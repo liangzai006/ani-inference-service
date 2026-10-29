@@ -44,7 +44,7 @@ func (s *InferenceAccessKeyServer) CreateInferenceAccessKey(ctx context.Context,
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 	result, err := s.service.Create(ctx, accesskey.CreateInput{
-		TenantID: tenant, RequestID: req.GetRequestId(), Name: req.GetName(), AllowedServiceIDs: req.GetAllowedServiceIds(),
+		TenantID: tenant, RequestID: req.GetRequestId(), Name: req.GetName(), PolicyID: req.GetPolicyId(), AllowedServiceIDs: req.GetAllowedServiceIds(),
 		AllowedModelNames: req.GetAllowedModelNames(), RequestsPerSecond: req.GetRequestsPerSecond(),
 		RequestsPerMinute: req.GetRequestsPerMinute(), RequestsPerHour: req.GetRequestsPerHour(),
 		ExpiresAt: expiresAt, CreatedBy: Actor(ctx), IdempotencyKey: req.GetIdempotencyKey(),
@@ -183,10 +183,8 @@ func requireAccessKeyTenant(ctx context.Context) (string, error) {
 func accessKeyProto(item accesskey.Record) *inferencev1.InferenceAccessKey {
 	result := &inferencev1.InferenceAccessKey{
 		Id: item.ID, Name: item.Name, KeyPrefix: item.KeyPrefix,
-		AllowedServiceIds: append([]string(nil), item.AllowedServiceIDs...),
-		AllowedModelNames: append([]string(nil), item.AllowedModelNames...),
-		RequestsPerSecond: item.RequestsPerSecond, RequestsPerMinute: item.RequestsPerMinute,
-		RequestsPerHour: item.RequestsPerHour, CreatedBy: item.CreatedBy, Version: item.Version,
+		PolicyId:  item.PolicyID,
+		CreatedBy: item.CreatedBy, Version: item.Version,
 	}
 	if item.Secret != "" {
 		result.Secret = &item.Secret
@@ -225,6 +223,8 @@ func accessKeyStatusError(err error) error {
 		return status.Error(codes.FailedPrecondition, "inference access key is revoked")
 	case errors.Is(err, accesskey.ErrInvalidInput):
 		return status.Error(codes.InvalidArgument, err.Error())
+	case errors.Is(err, accesskey.ErrIdempotencyReplay):
+		return status.Error(codes.AlreadyExists, "idempotency key has a different request")
 	case errors.Is(err, accesskey.ErrScopeDenied):
 		return status.Error(codes.PermissionDenied, "inference access key scope denied")
 	case errors.Is(err, accesskey.ErrSecretUnavailable):

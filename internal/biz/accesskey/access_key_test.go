@@ -13,6 +13,33 @@ type fakeRepository struct {
 	limited  bool
 }
 
+const testPolicyID = "11111111-1111-4111-8111-111111111111"
+
+type fakeAccessPolicy struct{ repo *fakeRepository }
+
+func (f fakeAccessPolicy) Resolve(_ context.Context, model string) (string, error) {
+	if model == "" {
+		return "", nil
+	}
+	return "service-a", nil
+}
+func (f fakeAccessPolicy) ConsumeAccess(ctx context.Context, record Record, _ string, model string, now time.Time, cost int64) (CheckResult, error) {
+	if model != "model-a" && model != "model" {
+		return CheckResult{Record: record, DenialCode: "scope_denied"}, nil
+	}
+	allowed, retry, err := f.repo.Consume(ctx, record, now, cost)
+	result := CheckResult{Record: record, Allowed: allowed, RetryAfter: retry}
+	if !allowed {
+		result.DenialCode = "rate_limited"
+	}
+	return result, err
+}
+func fakeService(t *testing.T, repo *fakeRepository) *Service {
+	svc := NewService(repo, testCipher(t))
+	svc.Policy = fakeAccessPolicy{repo: repo}
+	return svc
+}
+
 func newFakeRepository() *fakeRepository {
 	return &fakeRepository{byID: map[string]Record{}, byPrefix: map[string]Record{}}
 }
@@ -116,11 +143,11 @@ func testCipher(t *testing.T) *SecretCipher {
 
 func TestServiceCreateCheckAndRevoke(t *testing.T) {
 	repo := newFakeRepository()
-	svc := NewService(repo, testCipher(t))
+	svc := fakeService(t, repo)
 	svc.Now = func() time.Time { return time.Date(2026, 10, 22, 1, 0, 0, 0, time.UTC) }
 	created, err := svc.Create(context.Background(), CreateInput{
-		TenantID: "tenant-1", Name: "client", AllowedModelNames: []string{"model-a"},
-		RequestsPerSecond: 2, IdempotencyKey: "create-1", CreatedBy: "governance:user:7",
+		TenantID: "tenant-1", Name: "client", PolicyID: testPolicyID,
+		IdempotencyKey: "create-1", CreatedBy: "governance:user:7",
 	})
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
@@ -151,8 +178,8 @@ func TestServiceCreateCheckAndRevoke(t *testing.T) {
 
 func TestServiceCreateIdempotencyDoesNotReturnSecretAgain(t *testing.T) {
 	repo := newFakeRepository()
-	svc := NewService(repo, testCipher(t))
-	input := CreateInput{TenantID: "tenant-1", Name: "client", AllowedModelNames: []string{"model-a"}, CreatedBy: "actor", IdempotencyKey: "same"}
+	svc := fakeService(t, repo)
+	input := CreateInput{TenantID: "tenant-1", Name: "client", PolicyID: testPolicyID, CreatedBy: "actor", IdempotencyKey: "same"}
 	first, err := svc.Create(context.Background(), input)
 	if err != nil {
 		t.Fatal(err)
@@ -164,12 +191,16 @@ func TestServiceCreateIdempotencyDoesNotReturnSecretAgain(t *testing.T) {
 	if !second.Replayed || second.Secret != "" || second.Record.ID != first.Record.ID {
 		t.Fatalf("replay = %+v; want metadata only", second)
 	}
+	input.PolicyID = "22222222-2222-4222-8222-222222222222"
+	if _, err := svc.Create(context.Background(), input); !errors.Is(err, ErrIdempotencyReplay) {
+		t.Fatalf("changing policy on replay must be rejected: %v", err)
+	}
 }
 
 func TestServiceCheckRateLimit(t *testing.T) {
 	repo := newFakeRepository()
-	svc := NewService(repo, testCipher(t))
-	created, err := svc.Create(context.Background(), CreateInput{TenantID: "tenant-1", Name: "client", AllowedModelNames: []string{"model-a"}, CreatedBy: "actor", RequestsPerSecond: 1})
+	svc := fakeService(t, repo)
+	created, err := svc.Create(context.Background(), CreateInput{TenantID: "tenant-1", Name: "client", PolicyID: testPolicyID, CreatedBy: "actor"})
 	if err != nil {
 		t.Fatal(err)
 	}
