@@ -12,11 +12,12 @@ message InferenceAccessKey {
   string id = 1;
   string name = 2;
   string key_prefix = 3;
-  repeated string allowed_service_ids = 4;
-  repeated string allowed_model_names = 5;
-  int32 requests_per_second = 6;
-  int32 requests_per_minute = 7;
-  int32 requests_per_hour = 8;
+  // Historical fields, no longer populated or used for authorization.
+  repeated string allowed_service_ids = 4 [deprecated = true];
+  repeated string allowed_model_names = 5 [deprecated = true];
+  int32 requests_per_second = 6 [deprecated = true];
+  int32 requests_per_minute = 7 [deprecated = true];
+  int32 requests_per_hour = 8 [deprecated = true];
   google.protobuf.Timestamp expires_at = 9;
   google.protobuf.Timestamp revoked_at = 10;
   string created_by = 11;
@@ -25,19 +26,42 @@ message InferenceAccessKey {
   int64 version = 14;
   // Absent on legacy hashes until the key is successfully used or rotated.
   optional string secret = 15;
+  string policy_id = 16;
 }
 
 message CreateInferenceAccessKeyRequest {
   string request_id = 1;
   string name = 2;
-  repeated string allowed_service_ids = 3;
-  repeated string allowed_model_names = 4;
-  int32 requests_per_second = 5;
-  int32 requests_per_minute = 6;
-  int32 requests_per_hour = 7;
+  // Historical fields are rejected when set; configure the policy instead.
+  repeated string allowed_service_ids = 3 [deprecated = true];
+  repeated string allowed_model_names = 4 [deprecated = true];
+  int32 requests_per_second = 5 [deprecated = true];
+  int32 requests_per_minute = 6 [deprecated = true];
+  int32 requests_per_hour = 7 [deprecated = true];
   google.protobuf.Timestamp expires_at = 8;
   string idempotency_key = 9;
+  string policy_id = 10;
 }
+
+// Policies are tenant-owned and reusable by multiple keys. Limits are counted
+// independently for each key.
+message InferenceAccessPolicy {
+  string id = 1;
+  string name = 2;
+  repeated string allowed_model_names = 3;
+  int32 requests_per_second = 4;
+  int32 requests_per_minute = 5;
+  int32 requests_per_hour = 6;
+  int64 version = 7;
+}
+message CreateInferenceAccessPolicyRequest { InferenceAccessPolicy policy = 1; string request_id = 2; }
+message GetInferenceAccessPolicyRequest { string id = 1; }
+message ListInferenceAccessPoliciesRequest { int32 page = 1; int32 page_size = 2; }
+message ListInferenceAccessPoliciesResponse { repeated InferenceAccessPolicy items = 1; int64 total = 2; }
+message UpdateInferenceAccessPolicyRequest { InferenceAccessPolicy policy = 1; string request_id = 2; }
+message DeleteInferenceAccessPolicyRequest { string id = 1; string request_id = 2; }
+message DeleteInferenceAccessPolicyResponse {}
+message BindInferenceAccessKeyPolicyRequest { string key_id = 1; string policy_id = 2; string request_id = 3; }
 
 message CreateInferenceAccessKeyResponse {
   InferenceAccessKey key = 1;
@@ -102,6 +126,12 @@ message CheckInferenceAccessResponse {
 }
 
 service InferenceAccessKeyService {
+  rpc CreateInferenceAccessPolicy(CreateInferenceAccessPolicyRequest) returns (InferenceAccessPolicy);
+  rpc GetInferenceAccessPolicy(GetInferenceAccessPolicyRequest) returns (InferenceAccessPolicy);
+  rpc ListInferenceAccessPolicies(ListInferenceAccessPoliciesRequest) returns (ListInferenceAccessPoliciesResponse);
+  rpc UpdateInferenceAccessPolicy(UpdateInferenceAccessPolicyRequest) returns (InferenceAccessPolicy);
+  rpc DeleteInferenceAccessPolicy(DeleteInferenceAccessPolicyRequest) returns (DeleteInferenceAccessPolicyResponse);
+  rpc BindInferenceAccessKeyPolicy(BindInferenceAccessKeyPolicyRequest) returns (InferenceAccessKey);
   rpc CreateInferenceAccessKey(CreateInferenceAccessKeyRequest) returns (CreateInferenceAccessKeyResponse);
   rpc ListInferenceAccessKeys(ListInferenceAccessKeysRequest) returns (ListInferenceAccessKeysResponse);
   rpc GetInferenceAccessKey(GetInferenceAccessKeyRequest) returns (InferenceAccessKey);
