@@ -27,14 +27,14 @@ spec:
       {{- end }}
       containers:
         - name: migrate
-          image: {{ include "ani-inference.migrationImage" . }}
+          image: {{ include "ani-inference.migrationImage" . | quote }}
           imagePullPolicy: {{ .Values.migration.imagePullPolicy }}
           env:
             - name: DATABASE_DSN
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.database.existingSecret }}
-                  key: {{ .Values.database.secretKey }}
+                  name: {{ default .Values.database.existingSecret .Values.database.migrationSecret | quote }}
+                  key: {{ default .Values.database.secretKey .Values.database.migrationSecretKey | quote }}
           command: [sh, -ec]
           args:
             - |
@@ -65,46 +65,16 @@ spec:
                   applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
                 )'
 
-              # Releases before the ledger existed executed the complete
-              # migration directory directly. If that legacy schema is fully
-              # present, baseline it once; a partial legacy schema fails
-              # explicitly instead of replaying 000001 over existing tables.
+              # An existing schema does not prove which migrations ran. Never
+              # infer a baseline from a subset of tables or current files.
               ledger_count=$(psql -v ON_ERROR_STOP=1 "$DATABASE_DSN" -Atqc \
                 "SELECT COUNT(*) FROM public.inference_schema_migrations")
               legacy_service=$(psql -v ON_ERROR_STOP=1 "$DATABASE_DSN" -Atqc \
                 "SELECT CASE WHEN to_regclass('public.inference_services') IS NULL THEN 0 ELSE 1 END")
               if [ "$ledger_count" -eq 0 ] && [ "$legacy_service" -eq 1 ]; then
-                legacy_complete=$(psql -v ON_ERROR_STOP=1 "$DATABASE_DSN" -Atqc \
-                  "SELECT CASE WHEN
-                    (SELECT COUNT(*) FROM information_schema.tables
-                     WHERE table_schema='public' AND table_name IN
-                     ('inference_services','inference_specs','inference_operations',
-                      'inference_idempotency_requests','inference_runtime',
-                      'inference_resource_work','inference_quota_reservations',
-                      'inference_audit_events','inference_runtime_bindings',
-                      'inference_publications','inference_observation_events',
-                      'inference_managed_gpu_resources','inference_managed_gpu_commands')) = 13
-                    AND (SELECT COUNT(*) FROM information_schema.columns
-                     WHERE table_schema='public' AND
-                       ((table_name='inference_specs' AND column_name IN
-                         ('runtime_mode','worker_replicas','endpoint_container_port',
-                          'endpoint_service_port','endpoint_target_port','endpoint_protocol',
-                          'runtime_provider','gpu_request','gpu_plan','gpu_plan_digest'))
-                        OR (table_name='inference_runtime' AND column_name IN
-                          ('runtime_mode','ready_groups','ready_workers','lws_uid','model_ready_known'))
-                        OR (table_name='inference_services' AND column_name='applied_generation'))) = 16
-                    THEN 1 ELSE 0 END")
-                if [ "$legacy_complete" -eq 1 ]; then
-                  echo "Fully migrated legacy schema detected; creating migration baseline"
-                  for filename in $migration_files; do
-                    psql -v ON_ERROR_STOP=1 "$DATABASE_DSN" \
-                      -c "INSERT INTO public.inference_schema_migrations(filename) VALUES ('$filename') ON CONFLICT DO NOTHING"
-                  done
-                else
-                  echo "ERROR: partial legacy inference schema found without migration ledger"
-                  echo "Refusing to replay migrations; complete the legacy schema and create an explicit baseline"
-                  exit 1
-                fi
+                echo "ERROR: existing inference schema has no migration ledger entries"
+                echo "Verify the actual migration history and create an explicit baseline before retrying"
+                exit 1
               fi
 
               for filename in $migration_files; do
@@ -119,7 +89,26 @@ spec:
                   *) echo "ERROR: invalid migration filename: $filename"; exit 1 ;;
                 esac
                 script=$(mktemp)
-                trap 'rm -f "$script"' EXIT
+                normalized=$(mktemp)
+                trap 'rm -f "$script" "$normalized"' EXIT
+                # These historical SQL files have an outer BEGIN/COMMIT for
+                # manual execution. Strip only those known wrappers so psql's
+                # transaction also covers the ledger insert and advisory lock.
+                case "$filename" in
+                  000021_managed_compute_close.sql|000022_inference_access_keys.sql|000023_inference_service_policies.sql|000025_inference_access_key_secrets.sql|000026_inference_access_policies.sql)
+                    awk '
+                      /^[[:space:]]*BEGIN;[[:space:]]*$/ { if (++begins != 1 || commits) exit 1; next }
+                      /^[[:space:]]*COMMIT;[[:space:]]*$/ { if (++commits != 1 || begins != 1) exit 1; next }
+                      { print }
+                      END { if (begins != 1 || commits != 1) exit 1 }
+                    ' "/migrations/$filename" >"$normalized" || { echo "ERROR: unexpected transaction wrapper in $filename"; exit 1; }
+                    ;;
+                  *) cp "/migrations/$filename" "$normalized" ;;
+                esac
+                if grep -Eiq '^[[:space:]]*(BEGIN|START[[:space:]]+TRANSACTION|COMMIT|END|ROLLBACK)([[:space:]]|;)' "$normalized"; then
+                  echo "ERROR: unsupported transaction control in $filename"
+                  exit 1
+                fi
                 cat >"$script" <<'PSQL'
               SELECT pg_advisory_xact_lock(hashtextextended('ani-inference-migrations', 0));
               SELECT EXISTS (
@@ -129,7 +118,7 @@ spec:
                 \echo 'migration already applied; skipping'
               \else
               PSQL
-                cat "/migrations/$filename" >>"$script"
+                cat "$normalized" >>"$script"
                 cat >>"$script" <<'PSQL'
 
               INSERT INTO public.inference_schema_migrations(filename) VALUES (:'filename');
@@ -142,7 +131,7 @@ spec:
                   echo "✗ $filename failed"
                   exit 1
                 fi
-                rm -f "$script"
+                rm -f "$script" "$normalized"
                 trap - EXIT
               done
 

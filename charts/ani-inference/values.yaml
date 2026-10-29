@@ -9,6 +9,8 @@ migration:
   image:
     repository: docker.changqingyun.cn/library/postgres
     tag: 16-alpine
+    # Optional sha256 manifest digest; takes precedence over tag.
+    digest: ""
   imagePullPolicy: IfNotPresent
   imagePullSecrets: []
   backoffLimit: 1
@@ -25,6 +27,7 @@ migration:
 image:
   repository: docker.changqingyun.cn/ani/inference-service
   tag: main-ff24af7-20261016
+  digest: ""
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []
@@ -42,6 +45,10 @@ runtimeServiceAccount:
 database:
   existingSecret: inference-database
   secretKey: dsn
+  # Empty values independently fall back to existingSecret / secretKey.
+  # Use a separate schema-owner DSN for the migration hook in new deployments.
+  migrationSecret: ""
+  migrationSecretKey: ""
 
 # Must be provisioned separately; contains exactly 32 random raw bytes.
 accessKeyEncryption:
@@ -79,6 +86,12 @@ model:
   materializerImage: docker.changqingyun.cn/ani/model-import-worker:model-search-20261014-r1
   # Empty uses the cluster's default StorageClass.
   storageClass: ""
+  # Existing CA bundle for HTTPS artifact downloads by materializer Jobs.
+  # The ConfigMap must exist in the runtime namespace. Empty preserves the
+  # worker image's default public trust store and does not disable TLS checks.
+  downloadCA:
+    configMap: ""
+    key: ca-certificates.crt
   # Zero-trust client identity for the Model call. cert-manager and the issuer
   # must already exist; this chart only requests the Certificate.
   tls:
@@ -127,6 +140,7 @@ gatewayAuthz:
   image:
     repository: docker.changqingyun.cn/ani/inference-gateway-authz
     tag: main-ff24af7-20261016
+    digest: ""
     pullPolicy: IfNotPresent
   servicePort: 8080
   timeout: 900ms

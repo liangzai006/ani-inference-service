@@ -32,15 +32,28 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 
 {{- define "ani-inference.image" -}}
-{{- printf "%s:%s" .Values.image.repository .Values.image.tag -}}
+{{- include "ani-inference.imageReference" (dict "image" .Values.image "field" "image") -}}
 {{- end -}}
 
 {{- define "ani-inference.migrationImage" -}}
-{{- printf "%s:%s" .Values.migration.image.repository .Values.migration.image.tag -}}
+{{- include "ani-inference.imageReference" (dict "image" .Values.migration.image "field" "migration.image") -}}
 {{- end -}}
 
 {{- define "ani-inference.gatewayAuthzImage" -}}
-{{- printf "%s:%s" .Values.gatewayAuthz.image.repository .Values.gatewayAuthz.image.tag -}}
+{{- include "ani-inference.imageReference" (dict "image" .Values.gatewayAuthz.image "field" "gatewayAuthz.image") -}}
+{{- end -}}
+
+{{- define "ani-inference.imageReference" -}}
+{{- $repository := required (printf "%s.repository is required" .field) (trim (default "" .image.repository)) -}}
+{{- $digest := trim (default "" .image.digest) -}}
+{{- if $digest -}}
+{{- if not (regexMatch "^sha256:[a-f0-9]{64}$" $digest) -}}
+{{- fail (printf "%s.digest must be sha256 followed by 64 lowercase hexadecimal characters" .field) -}}
+{{- end -}}
+{{- printf "%s@%s" $repository $digest -}}
+{{- else -}}
+{{- printf "%s:%s" $repository (required (printf "%s.tag is required when digest is empty" .field) (trim (default "" .image.tag))) -}}
+{{- end -}}
 {{- end -}}
 
 {{- define "ani-inference.gatewayAuthzServiceName" -}}
