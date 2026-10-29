@@ -885,11 +885,12 @@ func (x *CreateInferenceAccessKeyResponse) GetReplayed() bool {
 }
 
 type ListInferenceAccessKeysRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Page          int32                  `protobuf:"varint,1,opt,name=page,proto3" json:"page,omitempty"`
-	PageSize      int32                  `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Page            int32                  `protobuf:"varint,1,opt,name=page,proto3" json:"page,omitempty"`
+	PageSize        int32                  `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	ServedModelName *string                `protobuf:"bytes,3,opt,name=served_model_name,proto3,oneof" json:"served_model_name,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *ListInferenceAccessKeysRequest) Reset() {
@@ -934,6 +935,13 @@ func (x *ListInferenceAccessKeysRequest) GetPageSize() int32 {
 		return x.PageSize
 	}
 	return 0
+}
+
+func (x *ListInferenceAccessKeysRequest) GetServedModelName() string {
+	if x != nil && x.ServedModelName != nil {
+		return *x.ServedModelName
+	}
+	return ""
 }
 
 type ListInferenceAccessKeysResponse struct {
@@ -1492,10 +1500,12 @@ const file_inference_v1_access_key_proto_rawDesc = "" +
 	" CreateInferenceAccessKeyResponse\x122\n" +
 	"\x03key\x18\x01 \x01(\v2 .inference.v1.InferenceAccessKeyR\x03key\x12\x16\n" +
 	"\x06secret\x18\x02 \x01(\tR\x06secret\x12\x1a\n" +
-	"\breplayed\x18\x03 \x01(\bR\breplayed\"Q\n" +
+	"\breplayed\x18\x03 \x01(\bR\breplayed\"\x9a\x01\n" +
 	"\x1eListInferenceAccessKeysRequest\x12\x12\n" +
 	"\x04page\x18\x01 \x01(\x05R\x04page\x12\x1b\n" +
-	"\tpage_size\x18\x02 \x01(\x05R\bpageSize\"o\n" +
+	"\tpage_size\x18\x02 \x01(\x05R\bpageSize\x121\n" +
+	"\x11served_model_name\x18\x03 \x01(\tH\x00R\x11served_model_name\x88\x01\x01B\x14\n" +
+	"\x12_served_model_name\"o\n" +
 	"\x1fListInferenceAccessKeysResponse\x126\n" +
 	"\x05items\x18\x01 \x03(\v2 .inference.v1.InferenceAccessKeyR\x05items\x12\x14\n" +
 	"\x05total\x18\x02 \x01(\x03R\x05total\".\n" +
@@ -1633,6 +1643,7 @@ func file_inference_v1_access_key_proto_init() {
 		return
 	}
 	file_inference_v1_access_key_proto_msgTypes[0].OneofWrappers = []any{}
+	file_inference_v1_access_key_proto_msgTypes[12].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

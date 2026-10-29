@@ -76,7 +76,11 @@ func (s *InferenceAccessKeyServer) ListInferenceAccessKeys(ctx context.Context, 
 	if page < 1 || page > 100 || size < 1 || size > 100 {
 		return nil, status.Error(codes.InvalidArgument, "page and page_size must be between 1 and 100")
 	}
-	items, total, err := s.service.List(ctx, tenant, accesskey.ListOptions{Limit: int(size), Offset: int((page - 1) * size)})
+	model := strings.TrimSpace(req.GetServedModelName())
+	if req.ServedModelName != nil && (model == "" || strings.ContainsRune(model, '\x00')) {
+		return nil, status.Error(codes.InvalidArgument, "served_model_name must be nonempty")
+	}
+	items, total, err := s.service.List(ctx, tenant, accesskey.ListOptions{Limit: int(size), Offset: int((page - 1) * size), ServedModelName: model})
 	if err != nil {
 		return nil, accessKeyStatusError(err)
 	}

@@ -104,12 +104,22 @@ func (q *Queries) ConsumeInferenceAccessKeyRateBucket(ctx context.Context, arg C
 
 const countInferenceAccessKeys = `-- name: CountInferenceAccessKeys :one
 SELECT count(*)::bigint
-FROM inference_access_keys
-WHERE tenant_id = $1
+FROM inference_access_keys AS key
+WHERE key.tenant_id = $1
+  AND ($2::text = '' OR EXISTS (
+    SELECT 1 FROM inference_access_policies AS policy
+    WHERE policy.tenant_id = key.tenant_id AND policy.id = key.policy_id
+      AND $2::text = ANY(policy.allowed_model_names)
+  ))
 `
 
-func (q *Queries) CountInferenceAccessKeys(ctx context.Context, tenantID pgtype.UUID) (int64, error) {
-	row := q.db.QueryRow(ctx, countInferenceAccessKeys, tenantID)
+type CountInferenceAccessKeysParams struct {
+	TenantID        pgtype.UUID
+	ServedModelName string
+}
+
+func (q *Queries) CountInferenceAccessKeys(ctx context.Context, arg CountInferenceAccessKeysParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countInferenceAccessKeys, arg.TenantID, arg.ServedModelName)
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
@@ -375,20 +385,31 @@ SELECT tenant_id, id, name, key_prefix, secret_hash, hash_version,
   requests_per_second, requests_per_minute, requests_per_hour,
   expires_at, revoked_at, created_by, created_at, last_used_at, version,
   create_idempotency_key, rotation_idempotency_key, secret_ciphertext, policy_id
-FROM inference_access_keys
-WHERE tenant_id = $1
+FROM inference_access_keys AS key
+WHERE key.tenant_id = $1
+  AND ($2::text = '' OR EXISTS (
+    SELECT 1 FROM inference_access_policies AS policy
+    WHERE policy.tenant_id = key.tenant_id AND policy.id = key.policy_id
+      AND $2::text = ANY(policy.allowed_model_names)
+  ))
 ORDER BY created_at DESC, id DESC
-LIMIT $2 OFFSET $3
+LIMIT $4 OFFSET $3
 `
 
 type ListInferenceAccessKeysParams struct {
-	TenantID pgtype.UUID
-	Limit    int32
-	Offset   int32
+	TenantID        pgtype.UUID
+	ServedModelName string
+	PageOffset      int32
+	PageLimit       int32
 }
 
 func (q *Queries) ListInferenceAccessKeys(ctx context.Context, arg ListInferenceAccessKeysParams) ([]InferenceAccessKey, error) {
-	rows, err := q.db.Query(ctx, listInferenceAccessKeys, arg.TenantID, arg.Limit, arg.Offset)
+	rows, err := q.db.Query(ctx, listInferenceAccessKeys,
+		arg.TenantID,
+		arg.ServedModelName,
+		arg.PageOffset,
+		arg.PageLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
