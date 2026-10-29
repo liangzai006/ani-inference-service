@@ -30,7 +30,6 @@ import (
 	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
 	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
 	bizreconcile "github.com/liangzai006/ani-inference-service/internal/biz/reconcile"
-	policybiz "github.com/liangzai006/ani-inference-service/internal/biz/servicepolicy"
 	"github.com/liangzai006/ani-inference-service/internal/biz/work"
 	"github.com/liangzai006/ani-inference-service/internal/data/accelerator"
 	imagedata "github.com/liangzai006/ani-inference-service/internal/data/image"
@@ -91,7 +90,6 @@ func run(logger *slog.Logger) error {
 	var update inferencebiz.UpdateUseCase
 	var refund gpu.RefundReporter
 	var accessKeyService *accesskeybiz.Service
-	var policyService *policybiz.Service
 	managedGPUReady := false
 	if strings.TrimSpace(os.Getenv("ANI_DATABASE_DSN")) == "" {
 		return errors.New("ANI_DATABASE_DSN is required")
@@ -126,7 +124,6 @@ func run(logger *slog.Logger) error {
 		}
 		accessKeyService = accesskeybiz.NewService(repo, accessKeyCipher)
 		accessKeyService.Policy = repo
-		policyService = &policybiz.Service{Repository: repo}
 		var closeRefund func()
 		refund, closeRefund, err = configuredGovernanceRefundReporter(bc.GetManagedGpu(), repo)
 		if err != nil {
@@ -164,7 +161,7 @@ func run(logger *slog.Logger) error {
 		managedGPUReady = ready
 	}
 	managedGPUClusterID := strings.TrimSpace(os.Getenv("ANI_ACCELERATOR_CLUSTER_ID"))
-	app, err := buildAppWithAllDependenciesAndManagedGPUAndAccessKey(&bc, logger, create, read, command, update, refund, managedGPUReady, managedGPUClusterID, accessKeyService, policyService, background...)
+	app, err := buildAppWithAllDependenciesAndManagedGPUAndAccessKey(&bc, logger, create, read, command, update, refund, managedGPUReady, managedGPUClusterID, accessKeyService, background...)
 	if err != nil {
 		return fmt.Errorf("build app: %w", err)
 	}

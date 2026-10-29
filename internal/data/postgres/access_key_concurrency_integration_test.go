@@ -79,8 +79,10 @@ func testInferenceAccessKeyConcurrentCreate(t *testing.T, isolation string) {
 	})
 	repository := NewRepository(pool)
 	service := accessKeyTestService(t, repository)
+	policyID := createKeyTestPolicy(t, ctx, repository, tenant, []string{"model-a"}, 0)
+	otherPolicyID := createKeyTestPolicy(t, ctx, repository, otherTenant, []string{"model-a"}, 0)
 	input := accesskey.CreateInput{
-		TenantID: tenant, Name: "concurrent-key", AllowedModelNames: []string{"model-a"},
+		TenantID: tenant, Name: "concurrent-key", PolicyID: policyID,
 		CreatedBy: "concurrent-test", IdempotencyKey: "same-key",
 	}
 	type outcome struct {
@@ -126,6 +128,7 @@ func testInferenceAccessKeyConcurrentCreate(t *testing.T, isolation string) {
 
 	// The conflict target must not consume another tenant's idempotency key.
 	input.TenantID = otherTenant
+	input.PolicyID = otherPolicyID
 	other, err := service.Create(ctx, input)
 	if err != nil || other.Replayed || other.Secret == "" || other.Record.ID == created.Record.ID {
 		t.Fatalf("tenant-scoped idempotency failed: err=%v", err)

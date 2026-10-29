@@ -10,8 +10,8 @@ import (
 func TestSecretCanBeReadAfterServiceRestartAndRotation(t *testing.T) {
 	ctx := context.Background()
 	repo := newFakeRepository()
-	svc := NewService(repo, testCipher(t))
-	created, err := svc.Create(ctx, CreateInput{TenantID: "tenant-a", Name: "app", AllowedModelNames: []string{"model"}, CreatedBy: "user", IdempotencyKey: "create"})
+	svc := fakeService(t, repo)
+	created, err := svc.Create(ctx, CreateInput{TenantID: "tenant-a", Name: "app", PolicyID: testPolicyID, CreatedBy: "user", IdempotencyKey: "create"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -19,7 +19,7 @@ func TestSecretCanBeReadAfterServiceRestartAndRotation(t *testing.T) {
 	if stored.Secret != "" || stored.SecretCiphertext == "" || strings.Contains(stored.SecretCiphertext, created.Secret) {
 		t.Fatal("repository must persist ciphertext, not plaintext")
 	}
-	svc = NewService(repo, testCipher(t))
+	svc = fakeService(t, repo)
 	for i := 0; i < 2; i++ {
 		detail, err := svc.Get(ctx, "tenant-a", created.Record.ID)
 		if err != nil || detail.Secret != created.Secret {
@@ -56,8 +56,8 @@ func TestSecretCanBeReadAfterServiceRestartAndRotation(t *testing.T) {
 func TestLegacySecretArchivedOnlyAfterAllowedCheck(t *testing.T) {
 	ctx := context.Background()
 	repo := newFakeRepository()
-	svc := NewService(repo, testCipher(t))
-	created, err := svc.Create(ctx, CreateInput{TenantID: "tenant-a", Name: "legacy", AllowedModelNames: []string{"model"}, CreatedBy: "user"})
+	svc := fakeService(t, repo)
+	created, err := svc.Create(ctx, CreateInput{TenantID: "tenant-a", Name: "legacy", PolicyID: testPolicyID, CreatedBy: "user"})
 	if err != nil {
 		t.Fatal(err)
 	}
