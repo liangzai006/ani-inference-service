@@ -73,6 +73,7 @@ message CreateInferenceAccessKeyResponse {
 message ListInferenceAccessKeysRequest {
   int32 page = 1;
   int32 page_size = 2 [json_name = "pageSize"];
+  optional string served_model_name = 3 [json_name = "served_model_name"];
 }
 
 message ListInferenceAccessKeysResponse {
