@@ -10,12 +10,11 @@ import (
 	kratosmetrics "github.com/go-kratos/kratos/contrib/otel/v3/metrics"
 	kratostracing "github.com/go-kratos/kratos/contrib/otel/v3/tracing"
 	"github.com/go-kratos/kratos/v3/middleware"
-	"github.com/go-kratos/kratos/v3/middleware/logging"
 	"github.com/go-kratos/kratos/v3/middleware/metadata"
 	"github.com/go-kratos/kratos/v3/middleware/recovery"
 	"github.com/go-kratos/kratos/v3/middleware/validate"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/liangzai006/ani-inference-service/internal/biz/work"
+	"github.com/prometheus/client_golang/prometheus"
 	"go.opentelemetry.io/otel"
 	otelprometheus "go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/metric"
@@ -190,7 +189,7 @@ func (o *Observability) ServerMiddleware(logger *slog.Logger) []middleware.Middl
 		metadata.Server(),
 		DirectTenantMiddleware(),
 		kratostracing.Server(kratostracing.WithTracerProvider(o.tracerProvider)),
-		logging.Server(logger),
+		requestLogging(logger),
 		kratosmetrics.Server(
 			kratosmetrics.WithRequests(o.requests),
 			kratosmetrics.WithSeconds(o.seconds),
