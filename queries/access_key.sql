@@ -47,15 +47,25 @@ SELECT tenant_id, id, name, key_prefix, secret_hash, hash_version,
   requests_per_second, requests_per_minute, requests_per_hour,
   expires_at, revoked_at, created_by, created_at, last_used_at, version,
   create_idempotency_key, rotation_idempotency_key, secret_ciphertext, policy_id
-FROM inference_access_keys
-WHERE tenant_id = $1
+FROM inference_access_keys AS key
+WHERE key.tenant_id = sqlc.arg(tenant_id)
+  AND (sqlc.arg(served_model_name)::text = '' OR EXISTS (
+    SELECT 1 FROM inference_access_policies AS policy
+    WHERE policy.tenant_id = key.tenant_id AND policy.id = key.policy_id
+      AND sqlc.arg(served_model_name)::text = ANY(policy.allowed_model_names)
+  ))
 ORDER BY created_at DESC, id DESC
-LIMIT $2 OFFSET $3;
+LIMIT sqlc.arg(page_limit) OFFSET sqlc.arg(page_offset);
 
 -- name: CountInferenceAccessKeys :one
 SELECT count(*)::bigint
-FROM inference_access_keys
-WHERE tenant_id = $1;
+FROM inference_access_keys AS key
+WHERE key.tenant_id = sqlc.arg(tenant_id)
+  AND (sqlc.arg(served_model_name)::text = '' OR EXISTS (
+    SELECT 1 FROM inference_access_policies AS policy
+    WHERE policy.tenant_id = key.tenant_id AND policy.id = key.policy_id
+      AND sqlc.arg(served_model_name)::text = ANY(policy.allowed_model_names)
+  ));
 
 -- name: RevokeInferenceAccessKey :one
 UPDATE inference_access_keys
