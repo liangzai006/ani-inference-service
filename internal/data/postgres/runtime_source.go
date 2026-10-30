@@ -26,10 +26,14 @@ import (
 type RuntimeSource struct {
 	Pool      DBTX
 	Namespace string
+	// ClusterID and NamespaceUID are the deployment facts of that one shared
+	// namespace. They are required for the shared pull Secret scope.
+	ClusterID    string
+	NamespaceUID string
 }
 
-func NewRuntimeSource(pool DBTX, namespace string) *RuntimeSource {
-	return &RuntimeSource{Pool: pool, Namespace: namespace}
+func NewRuntimeSource(pool DBTX, namespace, clusterID, namespaceUID string) *RuntimeSource {
+	return &RuntimeSource{Pool: pool, Namespace: namespace, ClusterID: clusterID, NamespaceUID: namespaceUID}
 }
 
 var _ kube.DesiredRuntimeSource = (*RuntimeSource)(nil)
@@ -87,6 +91,12 @@ func (s *RuntimeSource) CurrentRuntime(ctx context.Context, tenantID, serviceID 
 		if err := json.Unmarshal(row.SpecJson, &acceptedImage); err != nil {
 			return kube.DesiredRuntime{}, fmt.Errorf("decode accepted image selection: %w", err)
 		}
+	}
+	// Only catalog generations project a shared pull Secret, so only they need
+	// the two deployment facts of this runtime namespace. Legacy raw-image
+	// generations keep their accepted runtime data unchanged.
+	if acceptedImage.ImageSelection != nil && (s.ClusterID == "" || s.NamespaceUID == "") {
+		return kube.DesiredRuntime{}, errors.New("runtime source cluster identity and namespace UID are required for catalog images")
 	}
 	command, err := unmarshalEngineSpec(row.CommandArgv)
 	if err != nil {
@@ -197,7 +207,7 @@ func (s *RuntimeSource) CurrentRuntime(ctx context.Context, tenantID, serviceID 
 	result := kube.DesiredRuntime{
 		RuntimeSpec: kube.RuntimeSpec{
 			TenantID: tenantID, ServiceID: serviceID, Name: aggregate.Name, RuntimeProvider: provider,
-			Namespace: s.Namespace, Image: row.ImageRef, ModelVersionID: row.ModelVersionID.String(), ArtifactProvider: row.ArtifactProvider, ArtifactRef: row.ArtifactRef, ArtifactSHA256: row.ArtifactSha256, ServedModelName: row.ServedModelName, EngineRuntime: row.EngineRuntime, Generation: generation,
+			Namespace: s.Namespace, ClusterID: s.ClusterID, NamespaceUID: s.NamespaceUID, Image: row.ImageRef, ModelVersionID: row.ModelVersionID.String(), ArtifactProvider: row.ArtifactProvider, ArtifactRef: row.ArtifactRef, ArtifactSHA256: row.ArtifactSha256, ServedModelName: row.ServedModelName, EngineRuntime: row.EngineRuntime, Generation: generation,
 			EngineCommand: command, Resources: normalized, Replicas: row.Replicas,
 			WorkerReplicas: workers, RuntimeMode: mode,
 			GPUSnapshot: gpuPlan, Managed: managed.Managed, ManagedGPU: managed.Managed && resourceSpec.GPU != nil,

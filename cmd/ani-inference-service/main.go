@@ -188,6 +188,21 @@ func buildKubernetesServersWithImages(pool *pgxpool.Pool, modelClient *modeldata
 	if namespace == "" {
 		return nil, false, errors.New("ANI_INFERENCE_NAMESPACE is required for Kubernetes runtime")
 	}
+	// The runtime cluster is a deployment fact of the shared namespace, not the
+	// accelerator/GPU compute cluster ID. Catalog image generations need both
+	// facts to derive the shared pull Secret scope; a deployment without the
+	// image runtime keeps its previous behavior and never has an accepted
+	// selection to project.
+	runtimeClusterID := strings.TrimSpace(os.Getenv("ANI_INFERENCE_RUNTIME_CLUSTER_ID"))
+	namespaceUID := strings.TrimSpace(os.Getenv("ANI_INFERENCE_NAMESPACE_UID"))
+	if imageClient != nil {
+		if runtimeClusterID == "" {
+			return nil, false, errors.New("ANI_INFERENCE_RUNTIME_CLUSTER_ID is required for catalog images")
+		}
+		if namespaceUID == "" {
+			return nil, false, errors.New("ANI_INFERENCE_NAMESPACE_UID is required for catalog images")
+		}
+	}
 	publicBaseURL, err := requiredEnv("ANI_HIGRESS_PUBLIC_BASE_URL")
 	if err != nil {
 		return nil, false, err
@@ -205,7 +220,7 @@ func buildKubernetesServersWithImages(pool *pgxpool.Pool, modelClient *modeldata
 	}
 	workStore := postgres.NewWorkStore(pool, postgres.WorkStoreOptions{})
 	reconcileStore := postgres.NewReconcileStore(pool)
-	runtimeSource := postgres.NewRuntimeSource(pool, namespace)
+	runtimeSource := postgres.NewRuntimeSource(pool, namespace, runtimeClusterID, namespaceUID)
 	runtimeExecutor := &kubernetes.RuntimeExecutor{Source: runtimeSource, Bindings: postgres.NewRepository(pool), RequireQuota: false, ServiceAccountName: materializerSettings.ServiceAccountName}
 	kserveExecutor := &kubernetes.KServeRuntimeExecutor{RuntimeExecutor: runtimeExecutor}
 	runtimeRouter := &kubernetes.RuntimeRouter{
@@ -227,7 +242,9 @@ func buildKubernetesServersWithImages(pool *pgxpool.Pool, modelClient *modeldata
 	runtimeExecutor.APIReader = mgr.GetAPIReader()
 	runtimeExecutor.CRClient = mgr.GetClient()
 	if imageClient != nil {
-		runtimeRouter.PullSecrets = &kubernetes.SharedPullSecrets{Client: mgr.GetClient(), Material: imageClient}
+		// Resource is the single writer of the shared tenant pull Secret.
+		// Inference only verifies the frozen reference and observes the object.
+		runtimeRouter.PullSecrets = &kubernetes.ResourcePullSecrets{Ensurer: imageClient, Reader: mgr.GetAPIReader()}
 	}
 	controller.Status = &kubernetes.StatusProjector{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Source: postgres.NewStatusProjectionSource(pool)}
 	modelMaterializer := &modeldata.Materializer{

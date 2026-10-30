@@ -110,6 +110,8 @@ github.com/liangzai006/ani-inference-service/api v0.1.2-image-registry.2.0.20261
 github.com/liangzai006/ani-inference-service/api v0.1.2-image-registry.2.0.20261029104314-3688ea191407/go.mod h1:LL8ApWoysh2oFryZhi+2A07DfyVoIVd8m0Lpu1vCcbk=
 github.com/liangzai006/ani-model-service/api v0.0.0-20261021113912-a21befaaa5e5 h1:0VFzXXMs7dy9AmDMMqoD6UJZhjD7QNDrPAMKUY/Ytg0=
 github.com/liangzai006/ani-model-service/api v0.0.0-20261021113912-a21befaaa5e5/go.mod h1:JsFcJK23M4jXHkXdX9U28lEArWVkp9SS6h2hGroLjIM=
+github.com/liangzai006/ani-model-service/api v0.0.0-20261022121005-cf833e370815 h1:qGtbMNzopK4Pczb6XjXcDrvRq4MR1TEBY1uUVCRXCqI=
+github.com/liangzai006/ani-model-service/api v0.0.0-20261022121005-cf833e370815/go.mod h1:JsFcJK23M4jXHkXdX9U28lEArWVkp9SS6h2hGroLjIM=
 github.com/mailru/easyjson v0.7.7 h1:UGYAvKxe3sBsEDzO8ZeWOSlIQfWFlxbzLZe7hwFURr0=
 github.com/mailru/easyjson v0.7.7/go.mod h1:xzfreul335JAWq5oZzymOObrkdz5UnU4kGfJJLY9Nlc=
 github.com/modern-go/concurrent v0.0.0-20180228061459-e0a39a4cb421/go.mod h1:6dJC0mAP4ikYIbvyc7fijjWJddQyLn8Ig3JB5CqoB9Q=
@@ -165,6 +167,8 @@ github.com/zhangzhe-ctrl/ani-governance/api/quota v0.0.0-20261017184327-1c605c79
 github.com/zhangzhe-ctrl/ani-resource-service v0.0.0-20261022081320-13fa2b465960 h1:E8WpFjnZvlxedsQ4h2BidYoD/rEnoi5XmK59IFRP7Q0=
 github.com/zhangzhe-ctrl/ani-resource-service v0.0.0-20261022081320-13fa2b465960/go.mod h1:Wvk2KPLU/rhe/62nB1a52LJlayj7oPe4gzCOMsV5kPU=
 github.com/zhangzhe-ctrl/ani-resource-service v0.0.0-20261026034642-10b9ad881320/go.mod h1:+TRnZawvaXlnCY6JGnRnMM7OyXFCQWmvU+RzOQf8FC8=
+github.com/zhangzhe-ctrl/ani-resource-service v0.0.0-20261030020749-f60752bbf081 h1:dM6r3Bx5vCHbuzTJdPlcwV2jXyAVtM8tqSzmvPjPsMY=
+github.com/zhangzhe-ctrl/ani-resource-service v0.0.0-20261030020749-f60752bbf081/go.mod h1:6ZJcttlKHaHiKhdPJ3EZZo66xM4wxrsyK7k5MMdvERg=
 go.opentelemetry.io/auto/sdk v1.2.1 h1:jXsnJ4Lmnqd11kwkBV2LgLoFMZKizbCi5fNZ/ipaZ64=
 go.opentelemetry.io/auto/sdk v1.2.1/go.mod h1:KRTj+aOaElaLi+wW1kO/DZRXwkF4C5xPbEe3ZiIhN7Y=
 go.opentelemetry.io/otel v1.45.0 h1:pdrWmLHofpubmArBv1LgFSv1Z0Ie/ppdZzu+kUN5EeU=

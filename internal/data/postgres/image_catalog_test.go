@@ -34,7 +34,18 @@ func (r *catalogBoundary) ResolveImageForWorkload(_ context.Context, in *imagev1
 		return nil, r.err
 	}
 	digest := "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	return &imagev1.ResolveImageForWorkloadResponse{TenantId: in.TenantId, ImageId: in.ImageId, Scope: in.Scope, ResolvedReference: "private.registry/engine@" + digest, Digest: digest, SelectedPlatform: in.TargetPlatform}, nil
+	return &imagev1.ResolveImageForWorkloadResponse{TenantId: in.TenantId, ImageId: in.ImageId, Scope: in.Scope, ResolvedReference: "private.registry/engine@" + digest, Digest: digest, RegistryAuthority: "private.registry", SelectedPlatform: in.TargetPlatform}, nil
+}
+
+// catalogPullSecretRef is the shared tenant scope name embedded in the frozen
+// selection. cluster-a mirrors the runtime cluster ID configured for the client.
+func catalogPullSecretRef(t *testing.T, tenant string) string {
+	t.Helper()
+	name, err := biz.PullSecretName(tenant, "cluster-a", "runtime", "private.registry")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return name
 }
 
 func TestCatalogImagePostgresAcceptanceReplayAndDeleteFence(t *testing.T) {
@@ -61,7 +72,7 @@ func TestCatalogImagePostgresAcceptanceReplayAndDeleteFence(t *testing.T) {
 			boundary := &catalogBoundary{}
 			newServer := func() *service.InferenceServer {
 				durable := NewCreateUseCase(NewRepository(pool))
-				uc := &imagedata.CreateUseCase{Client: &imagedata.Client{Runtime: boundary, Platform: &imagev1.ImagePlatform{Os: "linux", Architecture: "amd64"}, Namespace: "runtime", RequireCatalog: true}, Next: durable, Preflight: durable}
+				uc := &imagedata.CreateUseCase{Client: &imagedata.Client{Runtime: boundary, Platform: &imagev1.ImagePlatform{Os: "linux", Architecture: "amd64"}, Namespace: "runtime", ClusterID: "cluster-a", RequireCatalog: true}, Next: durable, Preflight: durable}
 				s := service.NewInferenceServerWithAll(uc, NewReadUseCase(pool), NewCommandUseCase(NewRepository(pool)), NewUpdateUseCase(NewRepository(pool)))
 				s.SetManagedGPUClusterID(req.ClusterId)
 				return s
@@ -77,7 +88,7 @@ func TestCatalogImagePostgresAcceptanceReplayAndDeleteFence(t *testing.T) {
 			var saved struct {
 				Image *biz.ImageSelection `json:"image_selection"`
 			}
-			if json.Unmarshal(spec.SpecJson, &saved) != nil || saved.Image == nil || saved.Image.ImageID != req.Engine.ImageId || saved.Image.PullSecretRef != biz.PullSecretName(tenant.String(), "runtime", "private.registry") || spec.ImageRef != out.GetResource().GetEngine().GetImage() {
+			if json.Unmarshal(spec.SpecJson, &saved) != nil || saved.Image == nil || saved.Image.ImageID != req.Engine.ImageId || saved.Image.PullSecretRef != catalogPullSecretRef(t, tenant.String()) || spec.ImageRef != out.GetResource().GetEngine().GetImage() {
 				t.Fatal("accepted image not persisted")
 			}
 			boundary.err = status.Error(codes.Unavailable, "directory offline")

@@ -63,6 +63,14 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+            # The shared pull Secret scope is (tenant, cluster, namespace,
+            # registry). Both facts are deployment configuration: the cluster
+            # is this runtime cluster (not the accelerator cluster), and the
+            # namespace UID cannot be read from the downward API.
+            - name: ANI_INFERENCE_RUNTIME_CLUSTER_ID
+              value: {{ required "inferenceRuntime.clusterID is required" (trim .Values.inferenceRuntime.clusterID) | quote }}
+            - name: ANI_INFERENCE_NAMESPACE_UID
+              value: {{ required "inferenceRuntime.namespaceUID is required" (trim .Values.inferenceRuntime.namespaceUID) | quote }}
             - name: ANI_HIGRESS_PUBLIC_BASE_URL
               value: {{ required "higress.publicBaseURL is required" (trim .Values.higress.publicBaseURL) | quote }}
             - name: ANI_HIGRESS_GATEWAY_NAMESPACE

@@ -33,6 +33,10 @@ rules:
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get", "list", "watch", "delete"]
+  # Secret write access remains only for the model materializer's own
+  # per-generation download credential and its cleanup. Inference never writes
+  # the shared tenant image pull Secret: Resource is its single writer, and
+  # Inference only reads the ensured object by the frozen reference.
   - apiGroups: [""]
     resources: ["services", "persistentvolumeclaims", "secrets"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
