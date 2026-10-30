@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -76,5 +77,36 @@ func TestAdminServerRunsKratosMiddlewareChain(t *testing.T) {
 	admin.ServeHTTP(recoveryResponse, httptest.NewRequest(http.MethodGet, "/panic", nil))
 	if recoveryResponse.Code != http.StatusInternalServerError || !strings.Contains(recoveryResponse.Body.String(), `"reason":"UNKNOWN"`) {
 		t.Fatalf("panic route = %d %q", recoveryResponse.Code, recoveryResponse.Body.String())
+	}
+}
+
+func TestAdminProbeLoggingKeepsFailures(t *testing.T) {
+	readiness := NewReadiness()
+	obs, err := NewObservability("probe-test", "test", readiness)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer obs.Shutdown(context.Background())
+	var output bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&output, nil))
+	admin := NewAdminServer(&conf.Server_Admin{Network: "tcp", Addr: "127.0.0.1:0", Timeout: durationpb.New(time.Second)}, readiness, obs.Gatherer(), obs.ServerMiddleware(logger)...)
+	for _, path := range []string{"/healthz", "/metrics"} {
+		rec := httptest.NewRecorder()
+		admin.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: %d", path, rec.Code)
+		}
+	}
+	readiness.Set(true)
+	rec := httptest.NewRecorder()
+	admin.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if rec.Code != http.StatusOK || output.Len() != 0 {
+		t.Fatalf("successful probe logged: %s", output.String())
+	}
+	readiness.Set(false)
+	rec = httptest.NewRecorder()
+	admin.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(output.String(), "operation=/readyz") {
+		t.Fatalf("failed probe missing: %d %s", rec.Code, output.String())
 	}
 }
