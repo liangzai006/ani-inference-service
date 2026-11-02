@@ -27,6 +27,7 @@ const (
 )
 
 type RuntimeSpec struct {
+	// ClusterID and NamespaceUID identify the target namespace for the shared pull Secret.
 	ClusterID, NamespaceUID                                       string
 	TenantID, ServiceID, Name, Namespace, Image                   string
 	ModelVersionID, ArtifactProvider, ArtifactRef, ArtifactSHA256 string

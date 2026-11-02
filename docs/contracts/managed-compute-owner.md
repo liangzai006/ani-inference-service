@@ -67,8 +67,9 @@ Deploy a compatible receiver before enabling the new producer. Set
 and a client TLS Secret with the exact identity `ani-inference-service`. The
 Resource runtime server identity is `ani-network-service`; this client never
 borrows a Governance certificate. The environment equivalents are
-`ANI_IMAGE_RUNTIME_GRPC_ADDR`, `ANI_IMAGE_RUNTIME_{CA,CERT,KEY}_FILE`, and
-`ANI_IMAGE_TARGET_{OS,ARCH,VARIANT}`. Namespace remains `ANI_INFERENCE_NAMESPACE`.
+`ANI_IMAGE_RUNTIME_GRPC_ADDR`, `ANI_IMAGE_RUNTIME_{CA,CERT,KEY}_FILE`,
+`ANI_IMAGE_TARGET_{OS,ARCH,VARIANT}`, `ANI_INFERENCE_RUNTIME_CLUSTER_ID` and
+`ANI_INFERENCE_NAMESPACE_UID`. Namespace remains `ANI_INFERENCE_NAMESPACE`.
 
 When enabled, new creates and engine updates require catalog contract version
 2. Durable accepted replays run before directory access. First acceptance
@@ -81,12 +82,18 @@ they are not represented as digest-controlled catalog services. Migrate one by
 an explicit complete-engine update with a catalog selection. There is no
 automatic lookup or fabricated image ID for old tags.
 
-The sole Secret writer is `SharedPullSecrets`. Each tenant/namespace/registry
-scope has its own deterministic Secret; ownership, ImageSpace, registry,
-credential generation and resourceVersion are fenced. Runtime Pods reference
-it explicitly; the no-token runtime ServiceAccount and system materializer
-credentials remain separate. Stop/delete do not call Resource or delete this
-shared Secret.
+The sole Secret writer is Resource's `EnsureTenantPullSecret`. Each
+`(tenant, cluster, namespace, registry)` scope has one deterministic
+`ani-pull-<32hex>` Secret, and Inference derives that name from the
+authoritative `registry_authority` returned by resolution. Inference calls
+Ensure and then verifies the returned `secret_ref`, `registry_authority` and
+`generation` against the frozen selection before creating a workload; it reads
+the object through a read-only client and holds no write path. Runtime Pods
+reference it explicitly; the no-token runtime ServiceAccount and system
+materializer credentials remain separate. Stop/delete do not call Resource or
+delete this shared Secret. `ANI_INFERENCE_RUNTIME_CLUSTER_ID` and
+`ANI_INFERENCE_NAMESPACE_UID` are required deployment facts: the cluster is the
+runtime cluster, never the accelerator cluster.
 
 A structured Resource business denial before owner acceptance is returned as
 `FailedPrecondition / IMAGE_ADMISSION_REJECTED`, with `ErrorInfo` domain

@@ -20,9 +20,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
-// RuntimeSource reads desired state from PostgreSQL for one configured
-// Kubernetes namespace. Namespace is deployment configuration, not a mutable
-// business field supplied by a request.
+// RuntimeSource reads desired state and the accepted namespace placement from
+// PostgreSQL. Namespace is the fallback for records without a pinned placement.
 type RuntimeSource struct {
 	Pool                    DBTX
 	Namespace               string
