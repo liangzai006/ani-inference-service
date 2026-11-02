@@ -32,12 +32,15 @@ type Config struct {
 	Endpoint string
 	TLS      TLSConfig
 	Timeout  time.Duration
+	// DialTimeout bounds initial connection establishment independently of the
+	// per-request authorization deadline. Zero preserves the Timeout default.
+	DialTimeout time.Duration
 }
 
 func (c Config) Validate() error {
 	if strings.TrimSpace(c.Endpoint) == "" || strings.TrimSpace(c.TLS.CAFile) == "" ||
 		strings.TrimSpace(c.TLS.CertFile) == "" || strings.TrimSpace(c.TLS.KeyFile) == "" ||
-		strings.TrimSpace(c.TLS.ServerName) == "" || strings.TrimSpace(c.TLS.ClientIdentity) == "" || c.Timeout <= 0 {
+		strings.TrimSpace(c.TLS.ServerName) == "" || strings.TrimSpace(c.TLS.ClientIdentity) == "" || c.Timeout <= 0 || c.DialTimeout < 0 {
 		return ErrInvalidConfig
 	}
 	return nil
@@ -100,7 +103,11 @@ func Dial(ctx context.Context, cfg Config) (*Client, func() error, error) {
 			return fmt.Errorf("%w: server DNS SAN mismatch, expected %q", ErrInvalidConfig, cfg.TLS.ServerName)
 		},
 	}
-	dialCtx, cancel := context.WithTimeout(ctx, cfg.Timeout)
+	dialTimeout := cfg.DialTimeout
+	if dialTimeout == 0 {
+		dialTimeout = cfg.Timeout
+	}
+	dialCtx, cancel := context.WithTimeout(ctx, dialTimeout)
 	defer cancel()
 	conn, err := grpc.DialContext(dialCtx, cfg.Endpoint, grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)), grpc.WithBlock())
 	if err != nil {
