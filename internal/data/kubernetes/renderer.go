@@ -37,6 +37,10 @@ type RuntimeSpec struct {
 	Resources                                                     resources.Normalized
 	Replicas, WorkerReplicas                                      int32
 	RuntimeMode                                                   string
+	// ClusterID and NamespaceUID are deployment facts of the one shared
+	// namespace Inference writes into. They are required to derive and verify
+	// the shared pull Secret scope; the service does not receive them per request.
+	ClusterID, NamespaceUID string
 	// Endpoint fields are intentionally explicit. Renderers never infer a
 	// listener port from an image or silently choose 8080.
 	ContainerPort, ServicePort int32

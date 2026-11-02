@@ -12,21 +12,24 @@ through explicit handlers when the durable runtime binding repository is
 available. They must preserve the same ownership and generation checks.
 
 Catalog image generations carry their accepted `ImageSelection` from the
-existing PostgreSQL spec. `RuntimeRouter.PullSecrets` synchronizes their
-shared pull Secret before apply and running reconciliation. Stop/delete never
-fetches registry credentials or deletes this shared object. The only writer
-is `SharedPullSecrets`, which verifies tenant, namespace, registry, ImageSpace,
-managed-by, credential generation and resourceVersion. It rejects foreign or
-same-generation inconsistent objects and uses optimistic updates for a new
-credential generation. No individual service owner reference is attached.
+existing PostgreSQL spec. `RuntimeRouter.PullSecrets` ensures their shared
+tenant pull Secret before apply and running reconciliation. Stop/delete never
+contacts Resource or deletes this shared object. Resource is the only writer:
+`ResourcePullSecrets` only asks `EnsureTenantPullSecret` for the scope
+`(tenant, cluster, namespace, registry_authority)`, verifies that the returned
+`secret_ref`/`registry_authority`/`generation` match the frozen selection, and
+then reads the object through a read-only client. The frozen name must equal
+`ani-pull-` + the shared hash; Inference-specific or instance-specific names
+are rejected, and Inference holds no Secret write permission.
 
-During running reconciliation, a credential RPC `Unavailable` or timeout only
-blocks synchronization and runtime writes. The selected provider continues
-read-only readiness/invocation observation, and the existing reconciler saves
-those facts with its generation and lease fences. Missing objects are reported
-without repair or adoption. Apply operations, ownership/material errors and
-canceled work still fail; recovery resumes normal synchronization. This does
-not cache credentials or reduce refresh frequency.
+During running reconciliation, an Ensure `Unavailable` or timeout only blocks
+synchronization and runtime writes. The selected provider continues read-only
+readiness/invocation observation, and the existing reconciler saves those facts
+with its generation and lease fences. Missing objects are reported without
+repair or adoption; there is no fallback to the removed local writer. Apply
+operations, ownership/material errors and canceled work still fail; recovery
+resumes normal synchronization. This does not cache credentials or reduce
+refresh frequency.
 
 Deployment, LWS and KServe predictor/leader/worker templates explicitly refer
 to that Secret and constrain OS/architecture from the accepted resolution.

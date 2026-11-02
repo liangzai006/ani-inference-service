@@ -7,6 +7,8 @@ trap 'rm -rf "$tmp_dir"' EXIT
 public_url=${HIGRESS_PUBLIC_BASE_URL:-https://inference.example.test}
 common_values=(
   --set higress.publicBaseURL="$public_url"
+  --set inferenceRuntime.clusterID=cluster-a
+  --set inferenceRuntime.namespaceUID=00000000-0000-0000-0000-000000000000
 )
 
 # The root migration directory is authoritative; the chart packages exact
@@ -67,6 +69,8 @@ grep -q '^    name: custom-control-plane$' "$tmp_dir/higress-rbac-custom.yaml"
 test "$(grep -c '^  namespace: custom-higress-system$' "$tmp_dir/higress-rbac-custom.yaml")" -eq 2
 grep -q '^kind: Certificate$' "$tmp_dir/inference.yaml"
 grep -q 'ANI_SERVER_TLS_CA_FILE' "$tmp_dir/inference.yaml"
+grep -q 'name: ANI_INFERENCE_RUNTIME_CLUSTER_ID' "$tmp_dir/inference.yaml"
+grep -q 'name: ANI_INFERENCE_NAMESPACE_UID' "$tmp_dir/inference.yaml"
 grep -q 'ani-inference-server-tls' "$tmp_dir/inference.yaml"
 grep -q 'CREATE TABLE IF NOT EXISTS public.inference_schema_migrations' "$tmp_dir/inference.yaml"
 grep -q 'pg_advisory_xact_lock' "$tmp_dir/inference.yaml"

@@ -21,6 +21,7 @@ type Client struct {
 	Runtime        imagev1.ImageRuntimeServiceClient
 	Platform       *imagev1.ImagePlatform
 	Namespace      string
+	ClusterID      string
 	RequireCatalog bool
 }
 
@@ -33,7 +34,7 @@ func runtimeContext(ctx context.Context, tenant string) (context.Context, contex
 var fixedDigest = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
 
 func (c *Client) Resolve(ctx context.Context, tenant, id, scope string) (string, *biz.ImageSelection, error) {
-	if c == nil || c.Runtime == nil || c.Platform == nil || c.Namespace == "" {
+	if c == nil || c.Runtime == nil || c.Platform == nil || c.Namespace == "" || c.ClusterID == "" {
 		return "", nil, status.Error(codes.FailedPrecondition, "image runtime is not configured")
 	}
 	wireScope := imagev1.ImageScope_IMAGE_SCOPE_TENANT
@@ -50,20 +51,31 @@ func (c *Client) Resolve(ctx context.Context, tenant, id, scope string) (string,
 	}
 	p := resolved.GetSelectedPlatform()
 	ref := resolved.GetResolvedReference()
-	registry, _, ok := strings.Cut(ref, "/")
-	if resolved.GetTenantId() != tenant || resolved.GetImageId() != id || resolved.GetScope() != wireScope || !fixedDigest.MatchString(resolved.GetDigest()) || !strings.HasSuffix(ref, "@"+resolved.GetDigest()) || !ok || registry == "" || p.GetOs() != c.Platform.GetOs() || p.GetArchitecture() != c.Platform.GetArchitecture() || p.GetVariant() != c.Platform.GetVariant() {
+	// The registry authority is Resource's authoritative value. It is never
+	// re-derived from the reference: case, port and mirror aliases must not be
+	// able to make the two services disagree on the Secret hash input.
+	registry := resolved.GetRegistryAuthority()
+	if resolved.GetTenantId() != tenant || resolved.GetImageId() != id || resolved.GetScope() != wireScope || !fixedDigest.MatchString(resolved.GetDigest()) || !strings.HasSuffix(ref, "@"+resolved.GetDigest()) ||
+		registry == "" || !strings.HasPrefix(ref, registry+"/") || p.GetOs() != c.Platform.GetOs() || p.GetArchitecture() != c.Platform.GetArchitecture() || p.GetVariant() != c.Platform.GetVariant() {
 		return "", nil, status.Error(codes.Internal, "invalid image runtime resolution")
 	}
-	return ref, &biz.ImageSelection{ImageID: id, Scope: scope, OS: p.GetOs(), Architecture: p.GetArchitecture(), Variant: p.GetVariant(), RegistryAuthority: registry, PullSecretRef: biz.PullSecretName(tenant, c.Namespace, registry)}, nil
+	name, err := biz.PullSecretName(tenant, c.ClusterID, c.Namespace, registry)
+	if err != nil {
+		return "", nil, status.Error(codes.Internal, "invalid pull Secret scope")
+	}
+	return ref, &biz.ImageSelection{ImageID: id, Scope: scope, OS: p.GetOs(), Architecture: p.GetArchitecture(), Variant: p.GetVariant(), RegistryAuthority: registry, PullSecretRef: name}, nil
 }
 
-func (c *Client) PullMaterial(ctx context.Context, tenant string) (*imagev1.GetTenantPullMaterialResponse, error) {
-	if c == nil || c.Runtime == nil {
+// EnsurePullSecret asks Resource to write the shared Secret and returns only
+// the non-sensitive reference. Inference no longer reads plaintext material or
+// writes the Secret itself.
+func (c *Client) EnsurePullSecret(ctx context.Context, tenant, namespace, namespaceUID, registry string) (*imagev1.EnsureTenantPullSecretResponse, error) {
+	if c == nil || c.Runtime == nil || c.ClusterID == "" {
 		return nil, status.Error(codes.FailedPrecondition, "image runtime is not configured")
 	}
 	callCtx, cancel := runtimeContext(ctx, tenant)
 	defer cancel()
-	return c.Runtime.GetTenantPullMaterial(callCtx, &imagev1.GetTenantPullMaterialRequest{TenantId: tenant})
+	return c.Runtime.EnsureTenantPullSecret(callCtx, &imagev1.EnsureTenantPullSecretRequest{TenantId: tenant, ClusterId: c.ClusterID, Namespace: namespace, NamespaceUid: namespaceUID, RegistryAuthority: registry})
 }
 
 // Only structured business denials from the authenticated Resource runtime

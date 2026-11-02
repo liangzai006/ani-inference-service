@@ -20,7 +20,7 @@ func configuredImageClient() (*imagedata.Client, func(), error) {
 		return nil, func() {}, nil
 	}
 	values := map[string]string{}
-	for _, key := range []string{"ANI_IMAGE_RUNTIME_CA_FILE", "ANI_IMAGE_RUNTIME_CERT_FILE", "ANI_IMAGE_RUNTIME_KEY_FILE", "ANI_IMAGE_TARGET_OS", "ANI_IMAGE_TARGET_ARCH", "ANI_INFERENCE_NAMESPACE"} {
+	for _, key := range []string{"ANI_IMAGE_RUNTIME_CA_FILE", "ANI_IMAGE_RUNTIME_CERT_FILE", "ANI_IMAGE_RUNTIME_KEY_FILE", "ANI_IMAGE_TARGET_OS", "ANI_IMAGE_TARGET_ARCH", "ANI_INFERENCE_NAMESPACE", "ANI_INFERENCE_RUNTIME_CLUSTER_ID"} {
 		values[key] = strings.TrimSpace(os.Getenv(key))
 		if values[key] == "" {
 			return nil, func() {}, fmt.Errorf("%s is required for catalog images", key)
@@ -57,5 +57,5 @@ func configuredImageClient() (*imagedata.Client, func(), error) {
 	if err != nil {
 		return nil, func() {}, err
 	}
-	return &imagedata.Client{Runtime: imagev1.NewImageRuntimeServiceClient(conn), Platform: &imagev1.ImagePlatform{Os: values["ANI_IMAGE_TARGET_OS"], Architecture: values["ANI_IMAGE_TARGET_ARCH"], Variant: strings.TrimSpace(os.Getenv("ANI_IMAGE_TARGET_VARIANT"))}, Namespace: values["ANI_INFERENCE_NAMESPACE"], RequireCatalog: true}, func() { _ = conn.Close() }, nil
+	return &imagedata.Client{Runtime: imagev1.NewImageRuntimeServiceClient(conn), Platform: &imagev1.ImagePlatform{Os: values["ANI_IMAGE_TARGET_OS"], Architecture: values["ANI_IMAGE_TARGET_ARCH"], Variant: strings.TrimSpace(os.Getenv("ANI_IMAGE_TARGET_VARIANT"))}, Namespace: values["ANI_INFERENCE_NAMESPACE"], ClusterID: values["ANI_INFERENCE_RUNTIME_CLUSTER_ID"], RequireCatalog: true}, func() { _ = conn.Close() }, nil
 }

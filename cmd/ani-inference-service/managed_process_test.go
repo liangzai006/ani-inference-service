@@ -145,7 +145,7 @@ func TestInspectManagedOwnerProjection(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	desired, err := postgres.NewRuntimeSource(pool, namespace).CurrentRuntime(ctx, tenantID, resourceID, 1)
+	desired, err := postgres.NewRuntimeSource(pool, namespace, requiredProcessEnv(t, "INFERENCE_PROJECTION_CLUSTER_ID"), requiredProcessEnv(t, "INFERENCE_PROJECTION_NAMESPACE_UID")).CurrentRuntime(ctx, tenantID, resourceID, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
