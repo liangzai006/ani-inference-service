@@ -46,7 +46,8 @@ func run(logger *slog.Logger) error {
 			ServerName:     envOrDefault("ANI_INFERENCE_SERVER_NAME", "ani-inference.ani.internal"),
 			ClientIdentity: envOrDefault("ANI_INFERENCE_CLIENT_IDENTITY", "ani-inference-gateway.ani.internal"),
 		},
-		Timeout: timeout,
+		Timeout:     timeout,
+		DialTimeout: 60 * time.Second,
 	})
 	if err != nil {
 		return err
