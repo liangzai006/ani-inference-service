@@ -1,0 +1,13 @@
+# Install into the namespace provided by the platform; this chart never
+# constructs a namespace name from a tenant ID.
+inference:
+  serviceAccount: ani-inference
+  namespace: ani-system
+runtimeServiceAccount:
+  name: ani-inference-runtime
+  imagePullSecrets: []
+modelDownloadCA:
+  # Set when the control plane configures ANI_MODEL_DOWNLOAD_CA_CONFIGMAP.
+  name: ""
+  key: ca-certificates.crt
+  bundle: ""

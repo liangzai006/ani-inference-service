@@ -67,6 +67,10 @@ imageRegistry:
   existingSecret: ""
   mountPath: /var/run/secrets/image-runtime
 
+inferenceRuntime:
+  clusterID: ""
+  namespaceUID: ""
+
 # One service identity for Accelerator, Resource image runtime and Gov quota.
 # The Model client keeps its separately registered identity below.
 serviceClientTLS:
@@ -123,6 +127,8 @@ higress:
   routePrefix: /v1/
   bootstrapRouteName: ani-inference-model-router
   bootstrapServiceName: ani-inference-model-router-sink
+  # Disable only when another control plane already owns the bootstrap route.
+  manageBootstrapRoute: true
   rateLimitNamespace: higress-system
   rateLimitPlugin: ani-request-rate-limit
   rbac:

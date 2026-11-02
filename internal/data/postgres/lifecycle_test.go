@@ -59,6 +59,7 @@ func lifecycleDatabase(t *testing.T) (context.Context, *pgxpool.Pool, uuid.UUID,
 			"DELETE FROM inference_runtime WHERE tenant_id=$1",
 			"DELETE FROM inference_specs WHERE tenant_id=$1",
 			"DELETE FROM inference_operations WHERE tenant_id=$1",
+			"DELETE FROM inference_namespace_placements WHERE tenant_id=$1",
 			"DELETE FROM inference_services WHERE tenant_id=$1",
 		} {
 			if _, err := pool.Exec(cleanupCtx, statement, tenant); err != nil {

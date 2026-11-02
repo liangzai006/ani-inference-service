@@ -3,185 +3,205 @@ package kubernetes
 import (
 	"context"
 	"errors"
-	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
 	bizreconcile "github.com/liangzai006/ani-inference-service/internal/biz/reconcile"
 	imagev1 "github.com/zhangzhe-ctrl/ani-resource-service/api/image/v1"
-	"google.golang.org/protobuf/types/known/timestamppb"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
-type pullMaterialFake struct {
-	response *imagev1.GetTenantPullMaterialResponse
+const (
+	imagePullTestCluster   = "cluster-a"
+	imagePullTestNamespace = "models"
+	imagePullTestNS        = "33333333-3333-4333-8333-333333333333"
+	imagePullTestRegistry  = "registry.test"
+)
+
+type pullEnsureFake struct {
+	response *imagev1.EnsureTenantPullSecretResponse
 	err      error
 	calls    int
+	request  *imagev1.EnsureTenantPullSecretRequest
 }
 
-func (m *pullMaterialFake) PullMaterial(_ context.Context, tenant string) (*imagev1.GetTenantPullMaterialResponse, error) {
-	m.calls++
-	return m.response, m.err
+func (f *pullEnsureFake) EnsurePullSecret(_ context.Context, tenant, namespace, namespaceUID, registry string) (*imagev1.EnsureTenantPullSecretResponse, error) {
+	f.calls++
+	f.request = &imagev1.EnsureTenantPullSecretRequest{TenantId: tenant, ClusterId: imagePullTestCluster, Namespace: namespace, NamespaceUid: namespaceUID, RegistryAuthority: registry}
+	return f.response, f.err
 }
 
 func imagePullTestSpec() RuntimeSpec {
-	spec := RuntimeSpec{TenantID: "11111111-1111-4111-8111-111111111111", ServiceID: "22222222-2222-4222-8222-222222222222", Name: "image-test", Namespace: "models", Image: "registry.test/platform/engine@sha256:" + strings.Repeat("a", 64), Generation: 1, Replicas: 1, WorkerReplicas: 1}
-	spec.ImageSelection = &inferencebiz.ImageSelection{ImageID: "img_" + strings.Repeat("a", 32), Scope: "platform", OS: "linux", Architecture: "amd64", RegistryAuthority: "registry.test", PullSecretRef: inferencebiz.PullSecretName(spec.TenantID, spec.Namespace, "registry.test")}
+	spec := RuntimeSpec{
+		TenantID:     "11111111-1111-4111-8111-111111111111",
+		ServiceID:    "22222222-2222-4222-8222-222222222222",
+		Name:         "image-test",
+		Namespace:    imagePullTestNamespace,
+		ClusterID:    imagePullTestCluster,
+		NamespaceUID: imagePullTestNS,
+		Image:        imagePullTestRegistry + "/platform/engine@sha256:" + strings.Repeat("a", 64),
+		Generation:   1,
+		Replicas:     1,
+		WorkerReplicas: 1,
+	}
+	name, err := inferencebiz.PullSecretName(spec.TenantID, spec.ClusterID, spec.Namespace, imagePullTestRegistry)
+	if err != nil {
+		panic(err)
+	}
+	spec.ImageSelection = &inferencebiz.ImageSelection{ImageID: "img_" + strings.Repeat("a", 32), Scope: "platform", OS: "linux", Architecture: "amd64", RegistryAuthority: imagePullTestRegistry, PullSecretRef: name}
 	return spec
 }
 
-func pullMaterialFixture() *imagev1.GetTenantPullMaterialResponse {
-	return &imagev1.GetTenantPullMaterialResponse{TenantId: imagePullTestSpec().TenantID, SpaceId: "space-a", RegistryAuthority: "registry.test", Username: "robot$pull-a", Secret: "pull-secret-sentinel", Generation: 1, ExpiresAt: timestamppb.New(time.Now().Add(time.Hour))}
+func pullSecretFixture(spec RuntimeSpec) *imagev1.EnsureTenantPullSecretResponse {
+	return &imagev1.EnsureTenantPullSecretResponse{SecretRef: spec.ImageSelection.PullSecretRef, RegistryAuthority: spec.ImageSelection.RegistryAuthority, Generation: 1}
 }
 
-func TestSharedPullSecretScopeOwnershipAndGeneration(t *testing.T) {
+// ensuredSecret is the object Resource would have written. Inference only reads it.
+func ensuredSecret(spec RuntimeSpec) *corev1.Secret {
+	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Namespace: spec.Namespace, Name: spec.ImageSelection.PullSecretRef},
+		Type:       corev1.SecretTypeDockerConfigJson,
+		Data:       map[string][]byte{corev1.DockerConfigJsonKey: []byte(`{"auths":{"registry.test":{}}}`)},
+	}
+}
+
+// readOnlyKube proves Inference never writes the shared Secret: any mutation is
+// a hard failure instead of a silent second writer.
+type readOnlyKube struct {
+	client.Client
+	writes int
+}
+
+func (c *readOnlyKube) Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
+	c.writes++
+	return errors.New("inference must not create secrets")
+}
+
+func (c *readOnlyKube) Update(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
+	c.writes++
+	return errors.New("inference must not update secrets")
+}
+
+func (c *readOnlyKube) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+	c.writes++
+	return errors.New("inference must not patch secrets")
+}
+
+func (c *readOnlyKube) Delete(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error {
+	c.writes++
+	return errors.New("inference must not delete secrets")
+}
+
+func pullSecretFixtureSync(t *testing.T, spec RuntimeSpec) (*ResourcePullSecrets, *pullEnsureFake, *readOnlyKube) {
+	t.Helper()
+	reader := fake.NewClientBuilder().WithScheme(executorScheme(t)).WithObjects(ensuredSecret(spec)).Build()
+	kube := &readOnlyKube{Client: reader}
+	ensurer := &pullEnsureFake{response: pullSecretFixture(spec)}
+	return &ResourcePullSecrets{Ensurer: ensurer, Reader: kube}, ensurer, kube
+}
+
+func TestResourcePullSecretEnsuresFrozenTenantScope(t *testing.T) {
 	ctx := context.Background()
-	scheme := runtime.NewScheme()
-	if err := corev1.AddToScheme(scheme); err != nil {
-		t.Fatal(err)
-	}
 	spec := imagePullTestSpec()
-	material := &pullMaterialFake{response: pullMaterialFixture()}
-	kube := fake.NewClientBuilder().WithScheme(scheme).Build()
-	sync := &SharedPullSecrets{Client: kube, Material: material}
-	if err := sync.Ensure(ctx, spec); err != nil {
-		t.Fatal(err)
+	sync, ensurer, kube := pullSecretFixtureSync(t, spec)
+	for i := 0; i < 2; i++ {
+		if err := sync.Ensure(ctx, spec); err != nil {
+			t.Fatal(err)
+		}
 	}
-	key := types.NamespacedName{Namespace: spec.Namespace, Name: spec.ImageSelection.PullSecretRef}
-	var original corev1.Secret
-	if err := kube.Get(ctx, key, &original); err != nil {
-		t.Fatal(err)
+	if ensurer.calls != 2 {
+		t.Fatalf("ensure calls = %d", ensurer.calls)
 	}
-	if len(original.OwnerReferences) != 0 || original.Type != corev1.SecretTypeDockerConfigJson || original.Labels[tenantIDLabel] != spec.TenantID {
-		t.Fatal("shared Secret ownership/type incorrect")
+	if got := ensurer.request; got.GetTenantId() != spec.TenantID || got.GetNamespace() != spec.Namespace || got.GetNamespaceUid() != spec.NamespaceUID || got.GetRegistryAuthority() != imagePullTestRegistry {
+		t.Fatalf("ensure scope = %+v", got)
 	}
-	if !strings.Contains(string(original.Data[corev1.DockerConfigJsonKey]), "pull-secret-sentinel") {
-		t.Fatal("credential missing from Secret")
+	if kube.writes != 0 {
+		t.Fatal("inference wrote the shared Secret")
 	}
-	otherService := spec
-	otherService.ServiceID = "33333333-3333-4333-8333-333333333333"
-	if err := sync.Ensure(ctx, otherService); err != nil {
-		t.Fatal(err)
+	if strings.Contains(spec.ImageSelection.PullSecretRef, "inference") {
+		t.Fatal("secret name must not embed the service kind")
 	}
-	var replayed corev1.Secret
-	if err := kube.Get(ctx, key, &replayed); err != nil {
-		t.Fatal(err)
-	}
-	if original.ResourceVersion != replayed.ResourceVersion {
-		t.Fatal("same credential generation rewrote shared Secret")
-	}
-	material.response.Generation = 2
-	material.response.Secret = "new-secret-sentinel"
-	if err := sync.Ensure(ctx, spec); err != nil {
-		t.Fatal(err)
-	}
-	var updated corev1.Secret
-	if err := kube.Get(ctx, key, &updated); err != nil {
-		t.Fatal(err)
-	}
-	if updated.Annotations[imageCredentialGenerationAnnotation] != "2" || updated.ResourceVersion == original.ResourceVersion || !strings.Contains(string(updated.Data[corev1.DockerConfigJsonKey]), "new-secret-sentinel") {
-		t.Fatal("credential generation was not synchronized with CAS")
-	}
-	material.response.Generation = 1
-	if err := sync.Ensure(ctx, spec); err == nil {
-		t.Fatal("credential downgrade accepted")
-	}
-	material.response.Generation = 2
+}
+
+func TestResourcePullSecretRejectsReceiptThatDiffersFromFrozenReference(t *testing.T) {
+	ctx := context.Background()
+	spec := imagePullTestSpec()
 	for _, tc := range []struct {
 		name   string
-		mutate func(*corev1.Secret)
+		mutate func(*imagev1.EnsureTenantPullSecretResponse)
 	}{
-		{"tenant", func(s *corev1.Secret) { s.Labels[tenantIDLabel] = "foreign" }},
-		{"space", func(s *corev1.Secret) { s.Annotations[imageSpaceAnnotation] = "foreign" }},
-		{"registry", func(s *corev1.Secret) { s.Annotations[imageRegistryAnnotation] = "foreign.test" }},
-		{"owner", func(s *corev1.Secret) { s.Labels["app.kubernetes.io/managed-by"] = "ani-resource-instance" }},
-		{"owner-reference", func(s *corev1.Secret) {
-			s.OwnerReferences = []metav1.OwnerReference{{APIVersion: "v1", Kind: "Pod", Name: "other", UID: "other"}}
-		}},
-		{"same-generation-corruption", func(s *corev1.Secret) { s.Data[corev1.DockerConfigJsonKey] = []byte("corrupt") }},
+		{"secret-ref", func(r *imagev1.EnsureTenantPullSecretResponse) { r.SecretRef = "ani-pull-00000000000000000000000000000000" }},
+		{"instance-secret", func(r *imagev1.EnsureTenantPullSecretResponse) { r.SecretRef = "ani-instance-image-pull" }},
+		{"registry", func(r *imagev1.EnsureTenantPullSecretResponse) { r.RegistryAuthority = "foreign.test" }},
+		{"no-generation", func(r *imagev1.EnsureTenantPullSecretResponse) { r.Generation = 0 }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			foreign := updated.DeepCopy()
-			tc.mutate(foreign)
-			isolated := fake.NewClientBuilder().WithScheme(scheme).WithObjects(foreign).Build()
-			if err := (&SharedPullSecrets{Client: isolated, Material: material}).Ensure(ctx, spec); err == nil {
-				t.Fatal("foreign or corrupted Secret adopted")
+			sync, ensurer, kube := pullSecretFixtureSync(t, spec)
+			tc.mutate(ensurer.response)
+			if err := sync.Ensure(ctx, spec); err == nil {
+				t.Fatal("mismatched receipt accepted")
 			}
-			var after corev1.Secret
-			if err := isolated.Get(ctx, key, &after); err != nil {
+			if kube.writes != 0 {
+				t.Fatal("refused receipt modified a Secret")
+			}
+		})
+	}
+}
+
+func TestResourcePullSecretRequiresVisibleSecret(t *testing.T) {
+	ctx := context.Background()
+	spec := imagePullTestSpec()
+	reader := fake.NewClientBuilder().WithScheme(executorScheme(t)).Build()
+	sync := &ResourcePullSecrets{Ensurer: &pullEnsureFake{response: pullSecretFixture(spec)}, Reader: reader}
+	if err := sync.Ensure(ctx, spec); err == nil {
+		t.Fatal("missing Secret after ensure accepted")
+	}
+	wrongType := ensuredSecret(spec)
+	wrongType.Type = corev1.SecretTypeOpaque
+	reader = fake.NewClientBuilder().WithScheme(executorScheme(t)).WithObjects(wrongType).Build()
+	sync = &ResourcePullSecrets{Ensurer: &pullEnsureFake{response: pullSecretFixture(spec)}, Reader: reader}
+	if err := sync.Ensure(ctx, spec); err == nil {
+		t.Fatal("Secret with unexpected content type accepted")
+	}
+}
+
+func TestResourcePullSecretRejectsNamesOutsideSharedScope(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name   string
+		mutate func(*RuntimeSpec)
+	}{
+		{"legacy-inference-name", func(s *RuntimeSpec) { s.ImageSelection.PullSecretRef = "ani-inference-pull-abc" }},
+		{"legacy-instance-name", func(s *RuntimeSpec) { s.ImageSelection.PullSecretRef = "ani-instance-image-pull" }},
+		{"other-cluster-name", func(s *RuntimeSpec) {
+			name, err := inferencebiz.PullSecretName(s.TenantID, "cluster-b", s.Namespace, imagePullTestRegistry)
+			if err != nil {
 				t.Fatal(err)
 			}
-			if !reflect.DeepEqual(after.Data, foreign.Data) || !reflect.DeepEqual(after.Labels, foreign.Labels) {
-				t.Fatal("refused Secret was modified")
-			}
-		})
-	}
-}
-
-type conflictingSecretClient struct {
-	client.Client
-	attempted bool
-}
-
-func (c *conflictingSecretClient) Update(_ context.Context, obj client.Object, _ ...client.UpdateOption) error {
-	c.attempted = obj.GetResourceVersion() != ""
-	return apierrors.NewConflict(schema.GroupResource{Resource: "secrets"}, obj.GetName(), errors.New("concurrent credential writer"))
-}
-
-func TestSharedPullSecretRejectsWrongMaterialAndConcurrentWriter(t *testing.T) {
-	ctx := context.Background()
-	spec := imagePullTestSpec()
-	scheme := runtime.NewScheme()
-	corev1.AddToScheme(scheme)
-	for _, tc := range []struct {
-		name   string
-		mutate func(*imagev1.GetTenantPullMaterialResponse)
-	}{
-		{"foreign-tenant", func(m *imagev1.GetTenantPullMaterialResponse) { m.TenantId = "33333333-3333-4333-8333-333333333333" }},
-		{"foreign-registry", func(m *imagev1.GetTenantPullMaterialResponse) { m.RegistryAuthority = "foreign.test" }},
-		{"expired", func(m *imagev1.GetTenantPullMaterialResponse) {
-			m.ExpiresAt = timestamppb.New(time.Now().Add(-time.Minute))
+			s.ImageSelection.PullSecretRef = name
 		}},
-		{"no-generation", func(m *imagev1.GetTenantPullMaterialResponse) { m.Generation = 0 }},
+		{"missing-namespace-uid", func(s *RuntimeSpec) { s.NamespaceUID = "" }},
+		{"missing-cluster", func(s *RuntimeSpec) { s.ClusterID = "" }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			m := pullMaterialFixture()
-			tc.mutate(m)
-			k := fake.NewClientBuilder().WithScheme(scheme).Build()
-			if err := (&SharedPullSecrets{Client: k, Material: &pullMaterialFake{response: m}}).Ensure(ctx, spec); err == nil {
-				t.Fatal("wrong material accepted")
+			spec := imagePullTestSpec()
+			tc.mutate(&spec)
+			sync, ensurer, _ := pullSecretFixtureSync(t, spec)
+			if err := sync.Ensure(ctx, spec); err == nil {
+				t.Fatal("non-shared scope accepted")
 			}
-			var secrets corev1.SecretList
-			if err := k.List(ctx, &secrets); err != nil || len(secrets.Items) != 0 {
-				t.Fatal("invalid material created Secret")
+			if ensurer.calls != 0 {
+				t.Fatal("invalid scope reached Resource")
 			}
 		})
-	}
-	k := fake.NewClientBuilder().WithScheme(scheme).Build()
-	material := &pullMaterialFake{response: pullMaterialFixture()}
-	if err := (&SharedPullSecrets{Client: k, Material: material}).Ensure(ctx, spec); err != nil {
-		t.Fatal(err)
-	}
-	material.response.Generation = 2
-	material.response.Secret = "replacement"
-	conflict := &conflictingSecretClient{Client: k}
-	if err := (&SharedPullSecrets{Client: conflict, Material: material}).Ensure(ctx, spec); !apierrors.IsConflict(err) || !conflict.attempted {
-		t.Fatal("CAS conflict was hidden", err)
-	}
-	foreign := spec
-	foreign.TenantID = "33333333-3333-4333-8333-333333333333"
-	if err := (&SharedPullSecrets{Client: k, Material: material}).Ensure(ctx, foreign); err == nil {
-		t.Fatal("cross-tenant Secret reference accepted")
 	}
 }
 
@@ -258,13 +278,13 @@ func TestRuntimeRouterSynchronizesOnlyRunningImageConsumers(t *testing.T) {
 	router := &RuntimeRouter{Source: routerSourceFake{desired: DesiredRuntime{RuntimeSpec: spec, DesiredState: "running"}}, Deployment: provider, DeploymentReconcile: reconcile, PullSecrets: sync}
 	op := inferencebiz.OperationContext{TenantID: spec.TenantID, ServiceID: spec.ServiceID, TargetGeneration: 1}
 	if err := router.ApplyCR(context.Background(), op); err == nil || len(provider.calls) != 0 {
-		t.Fatal("runtime applied without pull material")
+		t.Fatal("runtime applied without pull Secret")
 	}
 	if err := router.ApplyRuntime(context.Background(), op); err == nil || len(provider.calls) != 0 {
-		t.Fatal("runtime applied without pull material")
+		t.Fatal("runtime applied without pull Secret")
 	}
 	if _, err := router.Ensure(context.Background(), bizreconcile.Desired{TenantID: spec.TenantID, ServiceID: spec.ServiceID, Generation: 1}); err == nil || reconcile.calls != 0 {
-		t.Fatal("reconcile applied without pull material")
+		t.Fatal("reconcile applied without pull Secret")
 	}
 	calls := sync.calls
 	if err := router.DeleteRuntime(context.Background(), op); err != nil {
@@ -279,5 +299,34 @@ func TestRuntimeRouterSynchronizesOnlyRunningImageConsumers(t *testing.T) {
 	}
 	if sync.calls != calls {
 		t.Fatal("stop/delete depended on registry or touched shared Secret")
+	}
+}
+
+func TestResourcePullSecretClassifiesOnlyTransientFailures(t *testing.T) {
+	ctx := context.Background()
+	spec := imagePullTestSpec()
+	for _, tc := range []struct {
+		name      string
+		err       error
+		transient bool
+	}{
+		{"unavailable", status.Error(codes.Unavailable, "down"), true},
+		{"deadline", status.Error(codes.DeadlineExceeded, "slow"), true},
+		{"permission", status.Error(codes.PermissionDenied, "denied"), false},
+		{"not-found", status.Error(codes.NotFound, "missing"), false},
+		{"unknown", errors.New("unclassified"), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sync, ensurer, _ := pullSecretFixtureSync(t, spec)
+			ensurer.err = tc.err
+			err := sync.Ensure(ctx, spec)
+			if err == nil {
+				t.Fatal("failure ignored")
+			}
+			var unavailable *pullSecretUnavailableError
+			if errors.As(err, &unavailable) != tc.transient {
+				t.Fatalf("transient classification = %v for %v", !tc.transient, tc.err)
+			}
+		})
 	}
 }

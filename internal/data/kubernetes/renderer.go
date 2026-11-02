@@ -27,6 +27,7 @@ const (
 )
 
 type RuntimeSpec struct {
+	ClusterID, NamespaceUID                                       string
 	TenantID, ServiceID, Name, Namespace, Image                   string
 	ModelVersionID, ArtifactProvider, ArtifactRef, ArtifactSHA256 string
 	ServedModelName, EngineRuntime                                string

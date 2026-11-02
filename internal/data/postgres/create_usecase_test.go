@@ -34,7 +34,9 @@ func TestCreateUseCasePersistsModelCapabilitiesSnapshot(t *testing.T) {
 		TenantID: "tenant", RequestID: "cap-req", Name: "cap", ModelVersionID: "version", Replicas: 1,
 		ModelCapabilities: []string{"text-generation", "vision"},
 	})
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	if string(repo.in.SpecJSON) != `{"model_capabilities":["text-generation","vision"]}` {
 		t.Fatalf("spec json=%s", repo.in.SpecJSON)
 	}
@@ -55,5 +57,13 @@ func TestCreateUseCaseMapsDurableCommand(t *testing.T) {
 	}
 	if string(repo.in.Resources) != `{"requests":{"cpu":"2"},"limits":{"cpu":"4"}}` {
 		t.Fatalf("resources json=%s", repo.in.Resources)
+	}
+}
+
+func TestCreateUseCasePassesResolvedNamespaceToTransaction(t *testing.T) {
+	repo := &fakeCreateRepository{}
+	_, err := NewCreateUseCase(repo).Create(context.Background(), inference.CreateInput{TenantID: "tenant", Name: "svc", RuntimeNamespace: "platform-owned", RuntimeNamespaceUID: "uid"})
+	if err != nil || repo.in.RuntimeNamespace != "platform-owned" || repo.in.RuntimeNamespaceUID != "uid" {
+		t.Fatalf("placement lost: %+v, %v", repo.in, err)
 	}
 }

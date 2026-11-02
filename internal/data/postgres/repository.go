@@ -24,6 +24,7 @@ var (
 // CreateAggregateInput contains all facts needed to durably accept a create
 // command. Every UUID is tenant scoped; callers must supply the tenant id.
 type CreateAggregateInput struct {
+	RuntimeNamespace, RuntimeNamespaceUID    string
 	TenantID, ServiceID, SpecID, OperationID string
 	Name                                     string
 	ModelID, ModelVersionID                  string
@@ -210,6 +211,14 @@ func (r *Repository) CreateService(ctx context.Context, in CreateAggregateInput)
 
 	if err = q.InsertService(ctx, InsertServiceParams{TenantID: tenant, ID: serviceID, Name: in.Name, DesiredState: "running", DesiredGeneration: generation}); err != nil {
 		return CreateAggregateResult{}, err
+	}
+	if in.RuntimeNamespace != "" || in.RuntimeNamespaceUID != "" {
+		if in.RuntimeNamespace == "" || in.RuntimeNamespaceUID == "" {
+			return CreateAggregateResult{}, errors.New("namespace placement name and UID must both be set")
+		}
+		if err = q.InsertNamespacePlacement(ctx, InsertNamespacePlacementParams{TenantID: tenant, ServiceID: serviceID, NamespaceName: in.RuntimeNamespace, NamespaceUid: in.RuntimeNamespaceUID}); err != nil {
+			return CreateAggregateResult{}, err
+		}
 	}
 	if err = q.InsertOperation(ctx, InsertOperationParams{TenantID: tenant, ID: opID, ServiceID: serviceID, Kind: "create", Phase: "pending", Step: "admission", TargetGeneration: generation, RequestHash: in.RequestHash}); err != nil {
 		return CreateAggregateResult{}, err

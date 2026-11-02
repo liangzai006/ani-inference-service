@@ -73,11 +73,11 @@ class MigrationHookIntegration(unittest.TestCase):
         database = self.database()
         first = self.hook(database)
         self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
-        self.assertEqual(self.sql(database, "SELECT count(*) FROM inference_schema_migrations"), "26")
+        self.assertEqual(self.sql(database, "SELECT count(*) FROM inference_schema_migrations"), "27")
         self.assertEqual(self.sql(database, "SELECT to_regclass('public.inference_access_policies') IS NOT NULL"), "t")
         again = self.hook(database)
         self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
-        self.assertEqual(self.sql(database, "SELECT count(*) FROM inference_schema_migrations"), "26")
+        self.assertEqual(self.sql(database, "SELECT count(*) FROM inference_schema_migrations"), "27")
 
     def test_sql_failure_rolls_back_schema_and_ledger(self):
         database = self.database()
@@ -93,11 +93,11 @@ class MigrationHookIntegration(unittest.TestCase):
             path.write_text(original)
         retry = self.hook(database)
         self.assertEqual(retry.returncode, 0, retry.stdout + retry.stderr)
-        self.assertEqual(self.sql(database, "SELECT count(*) FROM inference_schema_migrations"), "26")
+        self.assertEqual(self.sql(database, "SELECT count(*) FROM inference_schema_migrations"), "27")
 
     def test_legacy_schema_requires_verified_baseline(self):
         database = self.database()
-        later = sorted(self.migrations.glob("00002[5-6]_*.sql"))
+        later = sorted(self.migrations.glob("00002[5-7]_*.sql"))
         saved = {path: path.read_text() for path in later}
         try:
             for path in later:
@@ -120,7 +120,7 @@ class MigrationHookIntegration(unittest.TestCase):
             self.sql(database, f"INSERT INTO inference_schema_migrations(filename) VALUES ('{filename}')")
         resumed = self.hook(database)
         self.assertEqual(resumed.returncode, 0, resumed.stdout + resumed.stderr)
-        self.assertEqual(self.sql(database, "SELECT count(*) FROM inference_schema_migrations"), "26")
+        self.assertEqual(self.sql(database, "SELECT count(*) FROM inference_schema_migrations"), "27")
         self.assertEqual(self.sql(database, "SELECT to_regclass('public.inference_access_policies') IS NOT NULL"), "t")
 
     def test_ledger_insert_failure_rolls_back_schema(self):
@@ -141,7 +141,7 @@ class MigrationHookIntegration(unittest.TestCase):
         self.sql(database, "ALTER TABLE inference_schema_migrations DROP CONSTRAINT reject_26")
         retry = self.hook(database)
         self.assertEqual(retry.returncode, 0, retry.stdout + retry.stderr)
-        self.assertEqual(self.sql(database, "SELECT count(*) FROM inference_schema_migrations"), "26")
+        self.assertEqual(self.sql(database, "SELECT count(*) FROM inference_schema_migrations"), "27")
 
 
 if __name__ == "__main__":

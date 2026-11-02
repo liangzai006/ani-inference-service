@@ -43,7 +43,7 @@ func (b *updateCatalogBoundary) ResolveImageForWorkload(_ context.Context, req *
 	if !ok {
 		return nil, status.Error(codes.NotFound, "unknown image")
 	}
-	return &imagev1.ResolveImageForWorkloadResponse{TenantId: req.GetTenantId(), ImageId: req.GetImageId(), Scope: req.GetScope(), ResolvedReference: "private.registry/engine@" + digest, Digest: digest, SelectedPlatform: req.GetTargetPlatform()}, nil
+	return &imagev1.ResolveImageForWorkloadResponse{TenantId: req.GetTenantId(), ImageId: req.GetImageId(), Scope: req.GetScope(), ResolvedReference: "private.registry/engine@" + digest, Digest: digest, RegistryAuthority: "private.registry", SelectedPlatform: req.GetTargetPlatform()}, nil
 }
 
 func TestCatalogImagePostgresUpdateFreezesNewGeneration(t *testing.T) {
@@ -74,7 +74,7 @@ func TestCatalogImagePostgresUpdateFreezesNewGeneration(t *testing.T) {
 				repo := NewRepository(pool)
 				durableCreate := NewCreateUseCase(repo)
 				durableUpdate := NewUpdateUseCase(repo)
-				client := &imagedata.Client{Runtime: boundary, Platform: &imagev1.ImagePlatform{Os: "linux", Architecture: "amd64"}, Namespace: "runtime", RequireCatalog: true}
+				client := &imagedata.Client{Runtime: boundary, Platform: &imagev1.ImagePlatform{Os: "linux", Architecture: "amd64"}, Namespace: "runtime", ClusterID: "cluster-a", RequireCatalog: true}
 				server := service.NewInferenceServerWithAll(&imagedata.CreateUseCase{Client: client, Next: durableCreate, Preflight: durableCreate}, NewReadUseCase(pool), NewCommandUseCase(repo), &imagedata.UpdateUseCase{Client: client, Next: durableUpdate, Preflight: durableUpdate})
 				server.SetManagedGPUClusterID(create.ClusterId)
 				return server
@@ -126,7 +126,7 @@ func TestCatalogImagePostgresUpdateFreezesNewGeneration(t *testing.T) {
 				t.Fatalf("catalog update acceptance: %v %v", accepted, err)
 			}
 			second, secondSelection := readSpec(2)
-			if boundary.calls != 2 || second.ImageRef != "private.registry/engine@"+nextDigest || secondSelection.ImageID != nextID || secondSelection.Scope != "tenant" || secondSelection.PullSecretRef != biz.PullSecretName(tenant.String(), "runtime", "private.registry") {
+			if boundary.calls != 2 || second.ImageRef != "private.registry/engine@"+nextDigest || secondSelection.ImageID != nextID || secondSelection.Scope != "tenant" || secondSelection.PullSecretRef != catalogPullSecretRef(t, tenant.String()) {
 				t.Fatal("updated image not frozen into generation 2")
 			}
 			command, err := unmarshalEngineSpec(second.CommandArgv)

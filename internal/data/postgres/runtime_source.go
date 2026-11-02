@@ -24,12 +24,16 @@ import (
 // Kubernetes namespace. Namespace is deployment configuration, not a mutable
 // business field supplied by a request.
 type RuntimeSource struct {
-	Pool      DBTX
-	Namespace string
+	Pool                    DBTX
+	Namespace               string
+	ClusterID, NamespaceUID string
+	NamespaceVerifier       interface {
+		Verify(context.Context, string, kube.TenantNamespace) error
+	}
 }
 
-func NewRuntimeSource(pool DBTX, namespace string) *RuntimeSource {
-	return &RuntimeSource{Pool: pool, Namespace: namespace}
+func NewRuntimeSource(pool DBTX, namespace, clusterID, namespaceUID string) *RuntimeSource {
+	return &RuntimeSource{Pool: pool, Namespace: namespace, ClusterID: clusterID, NamespaceUID: namespaceUID}
 }
 
 var _ kube.DesiredRuntimeSource = (*RuntimeSource)(nil)
@@ -53,6 +57,10 @@ func (s *RuntimeSource) CurrentRuntime(ctx context.Context, tenantID, serviceID 
 		return kube.DesiredRuntime{}, err
 	}
 	q := New(s.Pool)
+	placement, err := s.namespaceIdentity(ctx, tenantID, serviceID)
+	if err != nil {
+		return kube.DesiredRuntime{}, err
+	}
 	managed, err := q.GetManagedGPUState(ctx, GetManagedGPUStateParams{TenantID: tenant, ResourceID: service})
 	if err != nil {
 		return kube.DesiredRuntime{}, err
@@ -87,6 +95,9 @@ func (s *RuntimeSource) CurrentRuntime(ctx context.Context, tenantID, serviceID 
 		if err := json.Unmarshal(row.SpecJson, &acceptedImage); err != nil {
 			return kube.DesiredRuntime{}, fmt.Errorf("decode accepted image selection: %w", err)
 		}
+	}
+	if acceptedImage.ImageSelection != nil && (s.ClusterID == "" || placement.UID == "") {
+		return kube.DesiredRuntime{}, errors.New("runtime source cluster identity and namespace UID are required for catalog images")
 	}
 	command, err := unmarshalEngineSpec(row.CommandArgv)
 	if err != nil {
@@ -197,7 +208,7 @@ func (s *RuntimeSource) CurrentRuntime(ctx context.Context, tenantID, serviceID 
 	result := kube.DesiredRuntime{
 		RuntimeSpec: kube.RuntimeSpec{
 			TenantID: tenantID, ServiceID: serviceID, Name: aggregate.Name, RuntimeProvider: provider,
-			Namespace: s.Namespace, Image: row.ImageRef, ModelVersionID: row.ModelVersionID.String(), ArtifactProvider: row.ArtifactProvider, ArtifactRef: row.ArtifactRef, ArtifactSHA256: row.ArtifactSha256, ServedModelName: row.ServedModelName, EngineRuntime: row.EngineRuntime, Generation: generation,
+			Namespace: placement.Name, NamespaceUID: placement.UID, ClusterID: s.ClusterID, Image: row.ImageRef, ModelVersionID: row.ModelVersionID.String(), ArtifactProvider: row.ArtifactProvider, ArtifactRef: row.ArtifactRef, ArtifactSHA256: row.ArtifactSha256, ServedModelName: row.ServedModelName, EngineRuntime: row.EngineRuntime, Generation: generation,
 			EngineCommand: command, Resources: normalized, Replicas: row.Replicas,
 			WorkerReplicas: workers, RuntimeMode: mode,
 			GPUSnapshot: gpuPlan, Managed: managed.Managed, ManagedGPU: managed.Managed && resourceSpec.GPU != nil,
@@ -216,6 +227,42 @@ func (s *RuntimeSource) CurrentRuntime(ctx context.Context, tenantID, serviceID 
 		result.ModelClaim = kube.ModelClaimName(result.RuntimeSpec)
 	}
 	return result, nil
+}
+
+// NamespaceForService is generation-independent so that withdrawal of a
+// previous generation uses the same immutable service placement.
+func (s *RuntimeSource) NamespaceForService(ctx context.Context, tenantID, serviceID string) (string, error) {
+	ns, err := s.namespaceIdentity(ctx, tenantID, serviceID)
+	return ns.Name, err
+}
+
+func (s *RuntimeSource) namespaceIdentity(ctx context.Context, tenantID, serviceID string) (kube.TenantNamespace, error) {
+	if s == nil || s.Pool == nil || s.Namespace == "" {
+		return kube.TenantNamespace{}, errors.New("runtime source is not configured")
+	}
+	tenant, err := tenantUUID(tenantID)
+	if err != nil {
+		return kube.TenantNamespace{}, err
+	}
+	service, err := workUUID("service_id", serviceID)
+	if err != nil {
+		return kube.TenantNamespace{}, err
+	}
+	placement, err := New(s.Pool).GetNamespacePlacement(ctx, GetNamespacePlacementParams{TenantID: tenant, ServiceID: service})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return kube.TenantNamespace{Name: s.Namespace, UID: s.NamespaceUID}, nil
+	}
+	if err != nil {
+		return kube.TenantNamespace{}, err
+	}
+	if s.NamespaceVerifier == nil {
+		return kube.TenantNamespace{}, errors.New("tenant namespace verifier is required for pinned placement")
+	}
+	pinned := kube.TenantNamespace{Name: placement.NamespaceName, UID: placement.NamespaceUid}
+	if err := s.NamespaceVerifier.Verify(ctx, tenantID, pinned); err != nil {
+		return kube.TenantNamespace{}, fmt.Errorf("verify runtime placement: %w", err)
+	}
+	return pinned, nil
 }
 
 // decodePersistedGPUSnapshot reads the current Execution/Display JSON and

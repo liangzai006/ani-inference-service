@@ -10,6 +10,9 @@ import (
 
 // CreateInput is the transport-independent command accepted after admission.
 type CreateInput struct {
+	// RuntimeNamespace and RuntimeNamespaceUID are resolved internally from the
+	// platform-owned tenant namespace; they are never accepted from the API.
+	RuntimeNamespace, RuntimeNamespaceUID            string
 	ImageID, ImageScope                              string
 	ImageSelection                                   *ImageSelection
 	TenantID, RequestID, Actor, Name, ModelVersionID string

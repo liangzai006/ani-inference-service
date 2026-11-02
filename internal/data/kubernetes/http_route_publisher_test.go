@@ -12,6 +12,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
+	gatewayv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 )
 
 type publicationRuntimeSource struct {
@@ -27,6 +28,9 @@ func testPublisher(objects ...client.Object) *HTTPRoutePublisher {
 	if err := gatewayv1.AddToScheme(scheme); err != nil {
 		panic(err)
 	}
+	if err := gatewayv1beta1.AddToScheme(scheme); err != nil {
+		panic(err)
+	}
 	scheme.AddKnownTypeWithName(higressWasmPluginGVK, &unstructured.Unstructured{})
 	return &HTTPRoutePublisher{
 		Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(append([]client.Object{testRateLimitPlugin()}, objects...)...).Build(),
@@ -38,6 +42,69 @@ func testPublisher(objects ...client.Object) *HTTPRoutePublisher {
 		GatewayNamespace: "ingress-higress", GatewayName: "ani-higress",
 		RouteNamespace: "models", PublicBaseURL: "http://10.10.1.67:30090", PathPrefix: "/v1/completions", RoutePrefix: "/v1/completions",
 		RateLimitNamespace: "higress-system", RateLimitPlugin: "ani-request-rate-limit",
+	}
+}
+
+func TestHTTPRoutePublisherCrossNamespaceGrantIsScopedAndCleaned(t *testing.T) {
+	ctx := context.Background()
+	p := testPublisher()
+	p.RouteNamespace = "ani-system"
+	pub := testPublication()
+	if err := p.Publish(ctx, pub); err != nil {
+		t.Fatal(err)
+	}
+	route := &gatewayv1.HTTPRoute{}
+	if err := p.Client.Get(ctx, client.ObjectKey{Namespace: "ani-system", Name: routeName(pub)}, route); err != nil {
+		t.Fatal(err)
+	}
+	backend := route.Spec.Rules[0].BackendRefs[0]
+	if backend.Namespace == nil || string(*backend.Namespace) != "models" || string(backend.Name) != "service-endpoint" {
+		t.Fatalf("wrong backend: %+v", backend)
+	}
+	grant := &gatewayv1beta1.ReferenceGrant{}
+	key := client.ObjectKey{Namespace: "models", Name: routeName(pub)}
+	if err := p.Client.Get(ctx, key, grant); err != nil {
+		t.Fatal(err)
+	}
+	if len(grant.Spec.From) != 1 || string(grant.Spec.From[0].Namespace) != "ani-system" || len(grant.Spec.To) != 1 || grant.Spec.To[0].Name == nil || string(*grant.Spec.To[0].Name) != "service-endpoint" {
+		t.Fatalf("unexpected grant: %+v", grant.Spec)
+	}
+	// Fake client does not assign UIDs, unlike a real API server.
+	grant.UID = "grant-uid"
+	if err := p.Client.Update(ctx, grant); err != nil {
+		t.Fatal(err)
+	}
+	route.UID = "route-uid"
+	if err := p.Client.Update(ctx, route); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Withdraw(ctx, pub); err != nil {
+		t.Fatal(err)
+	}
+	done, err := p.ConfirmWithdrawn(ctx, pub)
+	if err != nil || done {
+		t.Fatalf("withdraw should wait for grant removal: %v, %v", done, err)
+	}
+	done, err = p.ConfirmWithdrawn(ctx, pub)
+	if err != nil || !done {
+		t.Fatalf("withdraw: %v, %v", done, err)
+	}
+	if err := p.Client.Get(ctx, key, grant); client.IgnoreNotFound(err) != nil || err == nil {
+		t.Fatalf("grant still exists: %v", err)
+	}
+}
+
+func TestHTTPRoutePublisherRejectsForeignCrossNamespaceGrant(t *testing.T) {
+	ctx := context.Background()
+	p := testPublisher()
+	p.RouteNamespace = "ani-system"
+	pub := testPublication()
+	foreign := &gatewayv1beta1.ReferenceGrant{ObjectMeta: metav1.ObjectMeta{Namespace: "models", Name: routeName(pub)}}
+	if err := p.Client.Create(ctx, foreign); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Publish(ctx, pub); err == nil {
+		t.Fatal("foreign ReferenceGrant accepted")
 	}
 }
 

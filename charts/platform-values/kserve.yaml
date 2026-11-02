@@ -18,6 +18,10 @@ kserve:
     gateway:
       # ANI publishes the model-specific Higress HTTPRoutes.
       disableIngressCreation: true
+      # Keep the existing hostname for shared namespaces. A standard tenant
+      # namespace is 43 characters; separating it into its own DNS label
+      # avoids KServe's 63-character label limit for normal service names.
+      domainTemplate: '{{ if and (eq (len .Namespace) 43) (eq (printf "%.7s" .Namespace) "tenant-") }}{{ .Name }}.{{ .Namespace }}.{{ .IngressDomain }}{{ else }}{{ .Name }}-{{ .Namespace }}.{{ .IngressDomain }}{{ end }}'
       ingressGateway:
         enableGatewayApi: true
         createGateway: false

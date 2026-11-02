@@ -47,7 +47,7 @@ func (m *Materializer) EnsureModel(ctx context.Context, op inference.OperationCo
 	if m == nil || m.Client == nil || m.Source == nil || m.Catalog == nil || m.Image == "" {
 		return unknown, fmt.Errorf("model materializer dependencies are not configured")
 	}
-	if op.ServiceID == "" || op.TargetGeneration < 1 || op.LeaseToken == "" || m.Namespace == "" {
+	if op.ServiceID == "" || op.TargetGeneration < 1 || op.LeaseToken == "" {
 		return unknown, fmt.Errorf("model materializer scope mismatch")
 	}
 	desired, err := m.Source.CurrentRuntime(ctx, op.TenantID, op.ServiceID, op.TargetGeneration)
@@ -55,9 +55,10 @@ func (m *Materializer) EnsureModel(ctx context.Context, op inference.OperationCo
 		return unknown, err
 	}
 	spec := desired.RuntimeSpec
-	if spec.TenantID != op.TenantID || spec.ServiceID != op.ServiceID || spec.Generation != op.TargetGeneration || spec.Namespace != m.Namespace || spec.ArtifactProvider != "model" || !strings.HasSuffix(spec.ArtifactRef, ".tar") {
+	if spec.TenantID != op.TenantID || spec.ServiceID != op.ServiceID || spec.Generation != op.TargetGeneration || strings.TrimSpace(spec.Namespace) == "" || spec.ArtifactProvider != "model" || !strings.HasSuffix(spec.ArtifactRef, ".tar") {
 		return unknown, fmt.Errorf("model materializer requires matching model scope and a tar artifact")
 	}
+	namespace := spec.Namespace
 	snapshot, err := m.Catalog.GetReadyVersion(ctx, op.TenantID, spec.ModelVersionID)
 	if err != nil {
 		return unknown, err
@@ -76,7 +77,7 @@ func (m *Materializer) EnsureModel(ctx context.Context, op inference.OperationCo
 	labels := map[string]string{"ani.kubercloud.com/tenant-id": op.TenantID, "ani.kubercloud.com/service-id": op.ServiceID, "ani.kubercloud.com/generation": fmt.Sprint(op.TargetGeneration), materializationComponentLabel: materializationComponentValue}
 	annotations := map[string]string{"ani.kubercloud.com/artifact-sha256": spec.ArtifactSHA256, "ani.kubercloud.com/model-version-id": spec.ModelVersionID}
 	meta := func(n string) metav1.ObjectMeta {
-		return metav1.ObjectMeta{Name: n, Namespace: m.Namespace, Labels: labels, Annotations: annotations}
+		return metav1.ObjectMeta{Name: n, Namespace: namespace, Labels: labels, Annotations: annotations}
 	}
 	owned := func(obj client.Object) error {
 		for k, v := range labels {
@@ -95,7 +96,7 @@ func (m *Materializer) EnsureModel(ctx context.Context, op inference.OperationCo
 		return nil
 	}
 	job := &batchv1.Job{}
-	err = reader.Get(ctx, client.ObjectKey{Namespace: m.Namespace, Name: name + "-fetch"}, job)
+	err = reader.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name + "-fetch"}, job)
 	jobMissing := apierrors.IsNotFound(err)
 	if err != nil && !jobMissing {
 		return unknown, err
@@ -114,7 +115,7 @@ func (m *Materializer) EnsureModel(ctx context.Context, op inference.OperationCo
 			}
 			if condition.Type == batchv1.JobComplete {
 				verifiedClaim := &corev1.PersistentVolumeClaim{}
-				if err = reader.Get(ctx, client.ObjectKey{Namespace: m.Namespace, Name: name}, verifiedClaim); err != nil {
+				if err = reader.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, verifiedClaim); err != nil {
 					return unknown, err
 				}
 				if err = owned(verifiedClaim); err != nil {
@@ -126,7 +127,7 @@ func (m *Materializer) EnsureModel(ctx context.Context, op inference.OperationCo
 				return inference.ModelObservation{Known: true, Ready: true, Reason: "model archive downloaded and checksum verified by Job"}, nil
 			}
 			if condition.Type == batchv1.JobFailed {
-				if err := m.resetFailedMaterialization(ctx, name, job); err != nil {
+				if err := m.resetFailedMaterialization(ctx, namespace, name, job); err != nil {
 					return unknown, err
 				}
 				return unknown, fmt.Errorf("model download Job failed; reset for retry")
@@ -134,7 +135,7 @@ func (m *Materializer) EnsureModel(ctx context.Context, op inference.OperationCo
 		}
 	}
 	claim := &corev1.PersistentVolumeClaim{}
-	err = reader.Get(ctx, client.ObjectKey{Namespace: m.Namespace, Name: name}, claim)
+	err = reader.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, claim)
 	if apierrors.IsNotFound(err) {
 		claimSpec := corev1.PersistentVolumeClaimSpec{
 			AccessModes: []corev1.PersistentVolumeAccessMode{materializationAccessMode(m.StorageClass)},
@@ -160,7 +161,7 @@ func (m *Materializer) EnsureModel(ctx context.Context, op inference.OperationCo
 		return unknown, fmt.Errorf("model download identity or transport mismatch")
 	}
 	secret := &corev1.Secret{}
-	err = reader.Get(ctx, client.ObjectKey{Namespace: m.Namespace, Name: name + "-download"}, secret)
+	err = reader.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name + "-download"}, secret)
 	if apierrors.IsNotFound(err) {
 		secret = &corev1.Secret{ObjectMeta: meta(name + "-download"), Data: map[string][]byte{"url": []byte(download.URL)}}
 		if err = m.Client.Create(ctx, secret); err != nil {
@@ -236,17 +237,31 @@ func (m *Materializer) EnsureModel(ctx context.Context, op inference.OperationCo
 // inference service. Model catalog data and the object-storage artifact are
 // deliberately outside this boundary and are retained for reuse.
 func (m *Materializer) CleanupModel(ctx context.Context, op inference.OperationContext) error {
-	if m == nil || m.Client == nil || strings.TrimSpace(m.Namespace) == "" {
+	if m == nil || m.Client == nil {
 		return fmt.Errorf("model materializer dependencies are not configured")
 	}
 	if strings.TrimSpace(op.TenantID) == "" || strings.TrimSpace(op.ServiceID) == "" {
 		return fmt.Errorf("model materializer scope mismatch")
 	}
+	namespace := m.Namespace
+	if m.Source != nil {
+		desired, err := m.Source.CurrentRuntime(ctx, op.TenantID, op.ServiceID, op.TargetGeneration)
+		if err != nil {
+			return err
+		}
+		if desired.TenantID != op.TenantID || desired.ServiceID != op.ServiceID || desired.Generation != op.TargetGeneration {
+			return fmt.Errorf("model cleanup runtime scope mismatch")
+		}
+		namespace = desired.Namespace
+	}
+	if strings.TrimSpace(namespace) == "" {
+		return fmt.Errorf("model cleanup namespace is unavailable")
+	}
 	reader := m.Reader
 	if reader == nil {
 		reader = m.Client
 	}
-	selector := m.materializationListOptions(op)
+	selector := materializationListOptions(op, namespace)
 
 	jobs := &batchv1.JobList{}
 	if err := reader.List(ctx, jobs, selector...); err != nil {
@@ -317,7 +332,7 @@ func (m *Materializer) CleanupModel(ctx context.Context, op inference.OperationC
 	// A successful Delete may only mark an object terminating. Keep the
 	// operation in this step until the API no longer returns any owned object;
 	// the durable worker will retry on the next pass.
-	return m.ensureMaterializationAbsent(ctx, op)
+	return m.ensureMaterializationAbsent(ctx, op, namespace)
 }
 
 func (m *Materializer) deleteMaterializationObject(ctx context.Context, object client.Object) error {
@@ -331,12 +346,12 @@ func (m *Materializer) deleteMaterializationObject(ctx context.Context, object c
 	return nil
 }
 
-func (m *Materializer) ensureMaterializationAbsent(ctx context.Context, op inference.OperationContext) error {
+func (m *Materializer) ensureMaterializationAbsent(ctx context.Context, op inference.OperationContext, namespace string) error {
 	reader := m.Reader
 	if reader == nil {
 		reader = m.Client
 	}
-	selector := m.materializationListOptions(op)
+	selector := materializationListOptions(op, namespace)
 	jobs := &batchv1.JobList{}
 	if err := reader.List(ctx, jobs, selector...); err != nil {
 		return fmt.Errorf("verify model materialization jobs: %w", err)
@@ -378,9 +393,9 @@ func (m *Materializer) ensureMaterializationAbsent(ctx context.Context, op infer
 	return nil
 }
 
-func (m *Materializer) materializationListOptions(op inference.OperationContext) []client.ListOption {
+func materializationListOptions(op inference.OperationContext, namespace string) []client.ListOption {
 	return []client.ListOption{
-		client.InNamespace(m.Namespace),
+		client.InNamespace(namespace),
 		client.MatchingLabels{
 			"ani.kubercloud.com/tenant-id":  op.TenantID,
 			"ani.kubercloud.com/service-id": op.ServiceID,
@@ -431,7 +446,7 @@ func materializationAccessMode(storageClass string) corev1.PersistentVolumeAcces
 	return corev1.ReadWriteMany
 }
 
-func (m *Materializer) resetFailedMaterialization(ctx context.Context, name string, job *batchv1.Job) error {
+func (m *Materializer) resetFailedMaterialization(ctx context.Context, namespace, name string, job *batchv1.Job) error {
 	reader := m.Reader
 	if reader == nil {
 		reader = m.Client
@@ -441,7 +456,7 @@ func (m *Materializer) resetFailedMaterialization(ctx context.Context, name stri
 		&corev1.PersistentVolumeClaim{},
 		&corev1.Secret{},
 	} {
-		key := client.ObjectKey{Namespace: m.Namespace, Name: name}
+		key := client.ObjectKey{Namespace: namespace, Name: name}
 		if _, ok := object.(*corev1.Secret); ok {
 			key.Name += "-download"
 		}
@@ -451,7 +466,7 @@ func (m *Materializer) resetFailedMaterialization(ctx context.Context, name stri
 			}
 			return err
 		}
-		if err := ensureMaterializationOwnership(object, job, name, m.Namespace); err != nil {
+		if err := ensureMaterializationOwnership(object, job, name, namespace); err != nil {
 			return err
 		}
 		objects = append(objects, object)

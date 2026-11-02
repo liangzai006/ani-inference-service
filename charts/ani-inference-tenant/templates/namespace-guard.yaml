@@ -1,0 +1,10 @@
+{{- if not (regexMatch "^tenant-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" .Release.Namespace) }}
+{{- fail "ani-inference-tenant must be installed into an existing platform tenant namespace" }}
+{{- end }}
+{{- $ns := lookup "v1" "Namespace" "" .Release.Namespace }}
+{{- if $ns }}
+{{- $labels := $ns.metadata.labels | default dict }}
+{{- if or (ne (get $labels "network.ani.io/managed-by") "ani-network-service") (ne (get $labels "network.ani.io/tenant-id") (trimPrefix "tenant-" .Release.Namespace)) }}
+{{- fail "tenant namespace is not owned by the platform for the expected tenant" }}
+{{- end }}
+{{- end }}

@@ -3,7 +3,8 @@
 FROM scratch
 
 USER 65534:65534
-COPY .build/ani-inference-service /ani-inference-service
-COPY configs/config.yaml /configs/config.yaml
+COPY --chmod=0755 .build/ani-inference-service /ani-inference-service
+COPY --chmod=0755 configs /configs
+COPY --chmod=0644 configs/config.yaml /configs/config.yaml
 
 ENTRYPOINT ["/ani-inference-service"]

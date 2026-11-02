@@ -85,6 +85,7 @@ func (u *CreateUseCase) Create(ctx context.Context, in inferencebiz.CreateInput)
 		}
 	}
 	result, err := u.repo.CreateService(ctx, CreateAggregateInput{
+		RuntimeNamespace: in.RuntimeNamespace, RuntimeNamespaceUID: in.RuntimeNamespaceUID,
 		TenantID: in.TenantID, Actor: in.Actor, ServiceID: serviceID.String(), SpecID: uuid.NewString(), OperationID: operationID.String(),
 		Name: in.Name, ModelVersionID: in.ModelVersionID, Resources: resourcesJSON,
 		ArtifactProvider: in.ArtifactProvider, ArtifactRef: in.ArtifactRef, ArtifactSHA256: in.ArtifactSHA256,

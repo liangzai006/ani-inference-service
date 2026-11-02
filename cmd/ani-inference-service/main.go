@@ -17,13 +17,16 @@ import (
 	"github.com/go-kratos/kratos/v3/config/file"
 	"github.com/go-kratos/kratos/v3/log"
 	kratosTransport "github.com/go-kratos/kratos/v3/transport"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/liangzai006/ani-inference-service/internal/conf"
 	"go.uber.org/automaxprocs/maxprocs"
+	corev1 "k8s.io/api/core/v1"
 	coreclient "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlmanager "sigs.k8s.io/controller-runtime/pkg/manager"
 
 	accesskeybiz "github.com/liangzai006/ani-inference-service/internal/biz/accesskey"
@@ -151,7 +154,36 @@ func run(logger *slog.Logger) error {
 		}
 		if imageClient != nil {
 			create = &imagedata.CreateUseCase{Client: imageClient, Next: create, Preflight: durableCreate}
-			update = &imagedata.UpdateUseCase{Client: imageClient, Next: update, Preflight: durableUpdate}
+		}
+		kubeConfig, err := inferenceRESTConfig()
+		if err != nil {
+			return fmt.Errorf("load Kubernetes config for tenant namespace: %w", err)
+		}
+		kubeReader, err := ctrlclient.New(kubeConfig, ctrlclient.Options{})
+		if err != nil {
+			return fmt.Errorf("build tenant namespace reader: %w", err)
+		}
+		resolver := kubernetes.TenantNamespaceResolver{Reader: kubeReader}
+		settings, err := configuredModelMaterializerSettings()
+		if err != nil {
+			return err
+		}
+		prerequisites := kubernetes.TenantRuntimePrerequisites{Reader: kubeReader, ServiceAccountName: settings.ServiceAccountName, DownloadCAConfigMap: settings.DownloadCAConfigMap, DownloadCAKey: settings.DownloadCAKey}
+		create = &kubernetes.NamespaceCreate{Resolver: resolver, Prerequisites: prerequisites, Preflight: durableCreate, Next: create}
+		if imageClient != nil {
+			update = &imagedata.UpdateUseCase{Client: imageClient, Next: update, Preflight: durableUpdate, NamespaceForService: func(ctx context.Context, tenant, serviceID string) (string, error) {
+				placement, err := repo.GetNamespacePlacement(ctx, tenant, serviceID)
+				if errors.Is(err, pgx.ErrNoRows) {
+					return imageClient.Namespace, nil
+				}
+				if err != nil {
+					return "", err
+				}
+				if err := resolver.Verify(ctx, tenant, placement); err != nil {
+					return "", err
+				}
+				return placement.Name, nil
+			}}
 		}
 		servers, ready, err := configureKubernetesRuntimeWithImages(pool, modelClient, imageClient, refund)
 		if err != nil {
@@ -205,7 +237,10 @@ func buildKubernetesServersWithImages(pool *pgxpool.Pool, modelClient *modeldata
 	}
 	workStore := postgres.NewWorkStore(pool, postgres.WorkStoreOptions{})
 	reconcileStore := postgres.NewReconcileStore(pool)
-	runtimeSource := postgres.NewRuntimeSource(pool, namespace)
+	runtimeSource := postgres.NewRuntimeSource(pool, namespace, strings.TrimSpace(os.Getenv("ANI_INFERENCE_RUNTIME_CLUSTER_ID")), strings.TrimSpace(os.Getenv("ANI_INFERENCE_NAMESPACE_UID")))
+	if imageClient != nil && (runtimeSource.ClusterID == "" || runtimeSource.NamespaceUID == "") {
+		return nil, false, errors.New("runtime cluster ID and control namespace UID are required for catalog images")
+	}
 	runtimeExecutor := &kubernetes.RuntimeExecutor{Source: runtimeSource, Bindings: postgres.NewRepository(pool), RequireQuota: false, ServiceAccountName: materializerSettings.ServiceAccountName}
 	kserveExecutor := &kubernetes.KServeRuntimeExecutor{RuntimeExecutor: runtimeExecutor}
 	runtimeRouter := &kubernetes.RuntimeRouter{
@@ -219,15 +254,16 @@ func buildKubernetesServersWithImages(pool *pgxpool.Pool, modelClient *modeldata
 	var reconcileRuntime bizreconcile.Runtime = runtimeRouter
 	domain := &bizreconcile.Reconciler{Repository: reconcileStore, Runtime: reconcileRuntime}
 	controller := &kubernetes.Controller{Work: workStore}
-	mgr, err := kubernetes.NewManager(config, controller, ctrlmanager.Options{Cache: ctrlcache.Options{DefaultNamespaces: map[string]ctrlcache.Config{namespace: {}}}})
+	mgr, err := kubernetes.NewManager(config, controller, ctrlmanager.Options{Client: ctrlclient.Options{Cache: &ctrlclient.CacheOptions{DisableFor: []ctrlclient.Object{&corev1.Secret{}, &corev1.ConfigMap{}}}}, Cache: ctrlcache.Options{}})
 	if err != nil {
 		return nil, false, fmt.Errorf("build Kubernetes manager: %w", err)
 	}
+	runtimeSource.NamespaceVerifier = kubernetes.TenantNamespaceResolver{Reader: mgr.GetAPIReader()}
 	runtimeExecutor.Client = mgr.GetClient()
 	runtimeExecutor.APIReader = mgr.GetAPIReader()
 	runtimeExecutor.CRClient = mgr.GetClient()
 	if imageClient != nil {
-		runtimeRouter.PullSecrets = &kubernetes.SharedPullSecrets{Client: mgr.GetClient(), Material: imageClient}
+		runtimeRouter.PullSecrets = &kubernetes.ResourcePullSecrets{Reader: mgr.GetAPIReader(), Ensurer: imageClient}
 	}
 	controller.Status = &kubernetes.StatusProjector{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Source: postgres.NewStatusProjectionSource(pool)}
 	modelMaterializer := &modeldata.Materializer{
@@ -259,16 +295,18 @@ func buildKubernetesServersWithImages(pool *pgxpool.Pool, modelClient *modeldata
 		RateLimitNamespace: envOrDefault("ANI_HIGRESS_RATE_LIMIT_NAMESPACE", "higress-system"),
 		RateLimitPlugin:    envOrDefault("ANI_HIGRESS_RATE_LIMIT_PLUGIN", "ani-request-rate-limit"),
 	}
-	bootstrapCtx, bootstrapCancel := context.WithTimeout(context.Background(), 15*time.Second)
-	bootstrapErr := publicationPublisher.EnsureBootstrapRoute(
-		bootstrapCtx,
-		envOrDefault("ANI_HIGRESS_BOOTSTRAP_ROUTE_NAME", "ani-inference-model-router"),
-		envOrDefault("ANI_HIGRESS_BOOTSTRAP_SERVICE_NAME", "ani-inference-model-router-sink"),
-		80,
-	)
-	bootstrapCancel()
-	if bootstrapErr != nil {
-		return nil, false, fmt.Errorf("publish Higress bootstrap route: %w", bootstrapErr)
+	if !strings.EqualFold(strings.TrimSpace(os.Getenv("ANI_HIGRESS_SKIP_BOOTSTRAP_ROUTE")), "true") {
+		bootstrapCtx, bootstrapCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		bootstrapErr := publicationPublisher.EnsureBootstrapRoute(
+			bootstrapCtx,
+			envOrDefault("ANI_HIGRESS_BOOTSTRAP_ROUTE_NAME", "ani-inference-model-router"),
+			envOrDefault("ANI_HIGRESS_BOOTSTRAP_SERVICE_NAME", "ani-inference-model-router-sink"),
+			80,
+		)
+		bootstrapCancel()
+		if bootstrapErr != nil {
+			return nil, false, fmt.Errorf("publish Higress bootstrap route: %w", bootstrapErr)
+		}
 	}
 	operationStore := postgres.NewOperationStore(pool)
 	gpuResolver, err := configuredGPUResolver()

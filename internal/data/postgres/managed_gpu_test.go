@@ -215,7 +215,7 @@ func TestPostgresManagedGPUFrozenSnapshotProjectsSharedAndWholeReplicas(t *testi
 			if persistedDigest != req.GpuExecution.ExecutionDigest {
 				t.Fatalf("persisted GPU plan digest=%q, want ACC execution digest %q", persistedDigest, req.GpuExecution.ExecutionDigest)
 			}
-			loaded, err := NewRuntimeSource(pool, "models").CurrentRuntime(ctx, tenant.String(), resource.String(), 1)
+			loaded, err := NewRuntimeSource(pool, "models", "cluster-a", "ns-uid-a").CurrentRuntime(ctx, tenant.String(), resource.String(), 1)
 			if err != nil {
 				t.Fatal(err)
 			}

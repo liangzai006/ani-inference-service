@@ -33,7 +33,7 @@ func TestRuntimeSourcePublishedFactRequiresCurrentConfirmedGeneration(t *testing
 		if err := q.UpsertPublication(ctx, UpsertPublicationParams{TenantID: pgUUID(tenant), ServiceID: pgUUID(service), Generation: tt.generation, DesiredPhase: tt.desired, ObservedPhase: tt.observed}); err != nil {
 			t.Fatal(err)
 		}
-		got, err := NewRuntimeSource(pool, "ns").CurrentRuntime(ctx, tenant.String(), service.String(), 2)
+		got, err := NewRuntimeSource(pool, "ns", "cluster-a", "ns-uid-a").CurrentRuntime(ctx, tenant.String(), service.String(), 2)
 		if err != nil || got.PublicationPublished != tt.want {
 			t.Fatalf("publication=%+v runtime=%+v err=%v", tt, got, err)
 		}

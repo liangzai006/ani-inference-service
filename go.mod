@@ -9,7 +9,7 @@ require (
 	github.com/liangzai006/ani-inference-service/api v0.1.2-image-registry.2.0.20261029104314-3688ea191407
 	github.com/prometheus/client_golang v1.24.1
 	github.com/zhangzhe-ctrl/ani-accelerator-service v0.0.0-20261022092841-c8d761d4ff1a
-	github.com/zhangzhe-ctrl/ani-resource-service v0.0.0-20261022081320-13fa2b465960
+	github.com/zhangzhe-ctrl/ani-resource-service v0.0.0-20261030020749-f60752bbf081
 	go.opentelemetry.io/otel v1.45.0
 	go.opentelemetry.io/otel/exporters/prometheus v0.66.0
 	go.opentelemetry.io/otel/metric v1.45.0
@@ -67,7 +67,7 @@ require (
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/liangzai006/ani-model-service/api v0.0.0-20261021113912-a21befaaa5e5
+	github.com/liangzai006/ani-model-service/api v0.0.0-20261022121005-cf833e370815
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
