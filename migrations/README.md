@@ -7,3 +7,5 @@ It deliberately does not copy `repo/deploy/migrations` from ANI. It has no share
 Migration credentials and runtime credentials are separate. Every generated query must include the applicable `tenant_id` predicate; absent tenant scope is an error. The migration has been replayed in the user-provided local `recycling-postgres` container into the isolated `ani_inference` database; controller/Kubernetes and cross-service quota protocol verification remain pending.
 
 `000026_inference_access_policies.sql` introduces tenant-owned policies bound to AKs. Existing AKs have no policy and are denied until explicitly rebound; old service-bound policies no longer govern requests.
+
+`000027_inference_namespace_placement.sql` adds immutable per-service namespace identity storage (name and Kubernetes UID). It does not move or backfill existing services.

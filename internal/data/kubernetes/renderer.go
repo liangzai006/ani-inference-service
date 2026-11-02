@@ -27,6 +27,8 @@ const (
 )
 
 type RuntimeSpec struct {
+	// ClusterID and NamespaceUID identify the target namespace for the shared pull Secret.
+	ClusterID, NamespaceUID                                       string
 	TenantID, ServiceID, Name, Namespace, Image                   string
 	ModelVersionID, ArtifactProvider, ArtifactRef, ArtifactSHA256 string
 	ServedModelName, EngineRuntime                                string
@@ -37,10 +39,6 @@ type RuntimeSpec struct {
 	Resources                                                     resources.Normalized
 	Replicas, WorkerReplicas                                      int32
 	RuntimeMode                                                   string
-	// ClusterID and NamespaceUID are deployment facts of the one shared
-	// namespace Inference writes into. They are required to derive and verify
-	// the shared pull Secret scope; the service does not receive them per request.
-	ClusterID, NamespaceUID string
 	// Endpoint fields are intentionally explicit. Renderers never infer a
 	// listener port from an image or silently choose 8080.
 	ContainerPort, ServicePort int32

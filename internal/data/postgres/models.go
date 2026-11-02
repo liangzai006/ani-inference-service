@@ -154,6 +154,14 @@ type InferenceManagedGpuResource struct {
 	CreateCommandDigest   string
 }
 
+type InferenceNamespacePlacement struct {
+	TenantID      pgtype.UUID
+	ServiceID     pgtype.UUID
+	NamespaceName string
+	NamespaceUid  string
+	CreatedAt     pgtype.Timestamptz
+}
+
 type InferenceObservationEvent struct {
 	TenantID              pgtype.UUID
 	EventID               pgtype.UUID

@@ -1,0 +1,6 @@
+apiVersion: v2
+name: ani-inference-tenant
+description: Tenant-local runtime permissions and prerequisites for ani-inference
+type: application
+version: 0.1.0
+appVersion: "1.0"

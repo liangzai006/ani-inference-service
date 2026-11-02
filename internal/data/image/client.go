@@ -34,7 +34,14 @@ func runtimeContext(ctx context.Context, tenant string) (context.Context, contex
 var fixedDigest = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
 
 func (c *Client) Resolve(ctx context.Context, tenant, id, scope string) (string, *biz.ImageSelection, error) {
-	if c == nil || c.Runtime == nil || c.Platform == nil || c.Namespace == "" || c.ClusterID == "" {
+	if c == nil {
+		return "", nil, status.Error(codes.FailedPrecondition, "image runtime is not configured")
+	}
+	return c.ResolveInNamespace(ctx, tenant, id, scope, c.Namespace)
+}
+
+func (c *Client) ResolveInNamespace(ctx context.Context, tenant, id, scope, namespace string) (string, *biz.ImageSelection, error) {
+	if c == nil || c.Runtime == nil || c.Platform == nil || namespace == "" || c.ClusterID == "" {
 		return "", nil, status.Error(codes.FailedPrecondition, "image runtime is not configured")
 	}
 	wireScope := imagev1.ImageScope_IMAGE_SCOPE_TENANT
@@ -51,24 +58,17 @@ func (c *Client) Resolve(ctx context.Context, tenant, id, scope string) (string,
 	}
 	p := resolved.GetSelectedPlatform()
 	ref := resolved.GetResolvedReference()
-	// The registry authority is Resource's authoritative value. It is never
-	// re-derived from the reference: case, port and mirror aliases must not be
-	// able to make the two services disagree on the Secret hash input.
 	registry := resolved.GetRegistryAuthority()
-	if resolved.GetTenantId() != tenant || resolved.GetImageId() != id || resolved.GetScope() != wireScope || !fixedDigest.MatchString(resolved.GetDigest()) || !strings.HasSuffix(ref, "@"+resolved.GetDigest()) ||
-		registry == "" || !strings.HasPrefix(ref, registry+"/") || p.GetOs() != c.Platform.GetOs() || p.GetArchitecture() != c.Platform.GetArchitecture() || p.GetVariant() != c.Platform.GetVariant() {
+	if resolved.GetTenantId() != tenant || resolved.GetImageId() != id || resolved.GetScope() != wireScope || !fixedDigest.MatchString(resolved.GetDigest()) || !strings.HasSuffix(ref, "@"+resolved.GetDigest()) || registry == "" || !strings.HasPrefix(ref, registry+"/") || p.GetOs() != c.Platform.GetOs() || p.GetArchitecture() != c.Platform.GetArchitecture() || p.GetVariant() != c.Platform.GetVariant() {
 		return "", nil, status.Error(codes.Internal, "invalid image runtime resolution")
 	}
-	name, err := biz.PullSecretName(tenant, c.ClusterID, c.Namespace, registry)
+	name, err := biz.PullSecretName(tenant, c.ClusterID, namespace, registry)
 	if err != nil {
 		return "", nil, status.Error(codes.Internal, "invalid pull Secret scope")
 	}
 	return ref, &biz.ImageSelection{ImageID: id, Scope: scope, OS: p.GetOs(), Architecture: p.GetArchitecture(), Variant: p.GetVariant(), RegistryAuthority: registry, PullSecretRef: name}, nil
 }
 
-// EnsurePullSecret asks Resource to write the shared Secret and returns only
-// the non-sensitive reference. Inference no longer reads plaintext material or
-// writes the Secret itself.
 func (c *Client) EnsurePullSecret(ctx context.Context, tenant, namespace, namespaceUID, registry string) (*imagev1.EnsureTenantPullSecretResponse, error) {
 	if c == nil || c.Runtime == nil || c.ClusterID == "" {
 		return nil, status.Error(codes.FailedPrecondition, "image runtime is not configured")
@@ -130,7 +130,11 @@ func (u *CreateUseCase) Create(ctx context.Context, in biz.CreateInput) (*infere
 		}
 		return u.Next.Create(ctx, in)
 	}
-	ref, selection, err := u.Client.Resolve(ctx, in.TenantID, in.ImageID, in.ImageScope)
+	namespace := in.RuntimeNamespace
+	if namespace == "" && u.Client != nil {
+		namespace = u.Client.Namespace
+	}
+	ref, selection, err := u.Client.ResolveInNamespace(ctx, in.TenantID, in.ImageID, in.ImageScope, namespace)
 	if err != nil {
 		// A concurrent delivery may have committed while Resource was in flight.
 		// Prefer that durable receipt over a later catalog rejection.
@@ -144,9 +148,10 @@ func (u *CreateUseCase) Create(ctx context.Context, in biz.CreateInput) (*infere
 }
 
 type UpdateUseCase struct {
-	Client    *Client
-	Next      biz.UpdateUseCase
-	Preflight biz.UpdatePreflight
+	Client              *Client
+	Next                biz.UpdateUseCase
+	Preflight           biz.UpdatePreflight
+	NamespaceForService func(context.Context, string, string) (string, error)
 }
 
 func (u *UpdateUseCase) Update(ctx context.Context, in biz.UpdateInput) (*inferencev1.OperationResponse, error) {
@@ -171,7 +176,17 @@ func (u *UpdateUseCase) Update(ctx context.Context, in biz.UpdateInput) (*infere
 		}
 		return u.Next.Update(ctx, in)
 	}
-	ref, selection, err := u.Client.Resolve(ctx, in.TenantID, in.ImageID, in.ImageScope)
+	namespace := ""
+	if u.NamespaceForService != nil {
+		var err error
+		namespace, err = u.NamespaceForService(ctx, in.TenantID, in.ServiceID)
+		if err != nil {
+			return nil, err
+		}
+	} else if u.Client != nil {
+		namespace = u.Client.Namespace
+	}
+	ref, selection, err := u.Client.ResolveInNamespace(ctx, in.TenantID, in.ImageID, in.ImageScope, namespace)
 	if err != nil {
 		if out, handled, replayErr := u.Preflight.PrepareUpdate(ctx, in); handled || replayErr != nil {
 			return out, replayErr

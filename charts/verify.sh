@@ -29,6 +29,14 @@ helm template ani-inference "$repo_root/charts/ani-inference" \
 helm template ani-inference "$repo_root/charts/ani-inference" \
   --namespace ani-system \
   "${common_values[@]}" \
+  --set imageRegistry.enabled=true \
+  --set imageRegistry.grpcAddress=resource.example.test:19094 \
+  --set imageRegistry.targetOS=linux \
+  --set imageRegistry.targetArchitecture=amd64 \
+  >"$tmp_dir/inference-image.yaml"
+helm template ani-inference "$repo_root/charts/ani-inference" \
+  --namespace ani-system \
+  "${common_values[@]}" \
   --show-only templates/higress-rbac.yaml \
   >"$tmp_dir/higress-rbac.yaml"
 helm template ani-inference "$repo_root/charts/ani-inference" \
@@ -69,13 +77,13 @@ grep -q '^    name: custom-control-plane$' "$tmp_dir/higress-rbac-custom.yaml"
 test "$(grep -c '^  namespace: custom-higress-system$' "$tmp_dir/higress-rbac-custom.yaml")" -eq 2
 grep -q '^kind: Certificate$' "$tmp_dir/inference.yaml"
 grep -q 'ANI_SERVER_TLS_CA_FILE' "$tmp_dir/inference.yaml"
-grep -q 'name: ANI_INFERENCE_RUNTIME_CLUSTER_ID' "$tmp_dir/inference.yaml"
-grep -q 'name: ANI_INFERENCE_NAMESPACE_UID' "$tmp_dir/inference.yaml"
+grep -q 'name: ANI_INFERENCE_RUNTIME_CLUSTER_ID' "$tmp_dir/inference-image.yaml"
+grep -q 'name: ANI_INFERENCE_NAMESPACE_UID' "$tmp_dir/inference-image.yaml"
 grep -q 'ani-inference-server-tls' "$tmp_dir/inference.yaml"
 grep -q 'CREATE TABLE IF NOT EXISTS public.inference_schema_migrations' "$tmp_dir/inference.yaml"
 grep -q 'pg_advisory_xact_lock' "$tmp_dir/inference.yaml"
 grep -q -- '--single-transaction' "$tmp_dir/inference.yaml"
-grep -q 'partial legacy inference schema' "$tmp_dir/inference.yaml"
+grep -q 'existing inference schema has no migration ledger entries' "$tmp_dir/inference.yaml"
 grep -q 'name: ani-inference-model-router' "$tmp_dir/inference.yaml"
 grep -q 'name: ANI_HIGRESS_ROUTE_PREFIX' "$tmp_dir/inference.yaml"
 grep -q 'name: ani-inference-model-router-sink' "$tmp_dir/inference.yaml"

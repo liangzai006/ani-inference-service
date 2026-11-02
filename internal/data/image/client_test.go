@@ -46,6 +46,11 @@ func TestResolveFencesScopePlatformDigestAndMetadata(t *testing.T) {
 	if len(runtime.metadata.Get("authorization")) != 0 || len(runtime.metadata.Get("x-ani-actor-id")) != 0 || runtime.metadata.Get("x-ani-tenant-id")[0] != tenant {
 		t.Fatal("unsafe metadata forwarded")
 	}
+	_, tenantSelection, err := client.ResolveInNamespace(ctx, tenant, id, "platform", "tenant-runtime")
+	wantTenant, _ := biz.PullSecretName(tenant, "cluster-a", "tenant-runtime", "private.registry")
+	if err != nil || tenantSelection.PullSecretRef != wantTenant {
+		t.Fatalf("tenant namespace image scope: %+v, %v", tenantSelection, err)
+	}
 	runtime.response.TenantId = id
 	if _, _, err := client.Resolve(ctx, tenant, id, "platform"); status.Code(err) != codes.Internal {
 		t.Fatalf("foreign tenant accepted: %v", err)

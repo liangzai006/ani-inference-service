@@ -20,7 +20,8 @@ contacts Resource or deletes this shared object. Resource is the only writer:
 `secret_ref`/`registry_authority`/`generation` match the frozen selection, and
 then reads the object through a read-only client. The frozen name must equal
 `ani-pull-` + the shared hash; Inference-specific or instance-specific names
-are rejected, and Inference holds no Secret write permission.
+are rejected. Inference retains Secret write permission for the model
+materializer's download credentials, but does not write the shared pull Secret.
 
 During running reconciliation, an Ensure `Unavailable` or timeout only blocks
 synchronization and runtime writes. The selected provider continues read-only

@@ -14,8 +14,10 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
+	"reflect"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
+	gatewayv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 )
 
 const (
@@ -66,9 +68,6 @@ func (p *HTTPRoutePublisher) Publish(ctx context.Context, pub publication.Public
 	}
 	if desired.Namespace == "" || desired.Name == "" {
 		return errors.New("publication runtime namespace and name are required")
-	}
-	if p.RouteNamespace != "" && p.RouteNamespace != desired.Namespace {
-		return fmt.Errorf("publication route namespace %q does not match runtime namespace %q", p.RouteNamespace, desired.Namespace)
 	}
 	runtimeProvider := strings.ToLower(strings.TrimSpace(desired.RuntimeProvider))
 	if runtimeProvider == "" {
@@ -151,6 +150,12 @@ func (p *HTTPRoutePublisher) Publish(ctx context.Context, pub publication.Public
 	} else if !apierrors.IsNotFound(err) {
 		return err
 	}
+	if routeNamespace != desired.Namespace {
+		if err := p.ensureBackendGrant(ctx, pub, routeNamespace, desired.Namespace, backendName); err != nil {
+			return err
+		}
+		route.Spec.Rules[0].BackendRefs[0].Namespace = ptr.To(gatewayv1.Namespace(desired.Namespace))
+	}
 	owner := p.FieldManager
 	if owner == "" {
 		owner = "ani-inference-publication"
@@ -196,11 +201,79 @@ func (p *HTTPRoutePublisher) ConfirmWithdrawn(ctx context.Context, pub publicati
 			if err := p.cleanupRateLimit(ctx, routeOwnerID(route.GetNamespace(), route.GetName())); err != nil {
 				return false, err
 			}
-			return true, nil
+			absent, err := p.cleanupBackendGrant(ctx, pub, route.GetNamespace())
+			if err != nil {
+				return false, err
+			}
+			return absent, nil
 		}
 		return false, err
 	}
 	return false, nil
+}
+
+// ReferenceGrant is target-namespace consent for the centrally managed Higress
+// route to reference exactly this service. It never grants access to all
+// Services in a tenant namespace.
+func (p *HTTPRoutePublisher) ensureBackendGrant(ctx context.Context, pub publication.Publication, routeNS, targetNS, backend string) error {
+	grant := &gatewayv1beta1.ReferenceGrant{ObjectMeta: metav1.ObjectMeta{Name: routeName(pub), Namespace: targetNS, Labels: map[string]string{tenantIDLabel: pub.TenantID, serviceIDLabel: pub.ServiceID, generationLabel: strconv.FormatInt(pub.Generation, 10), managedByLabel: managedByInference}}, Spec: gatewayv1beta1.ReferenceGrantSpec{
+		From: []gatewayv1beta1.ReferenceGrantFrom{{Group: gatewayv1beta1.Group("gateway.networking.k8s.io"), Kind: gatewayv1beta1.Kind("HTTPRoute"), Namespace: gatewayv1beta1.Namespace(routeNS)}},
+		To:   []gatewayv1beta1.ReferenceGrantTo{{Group: gatewayv1beta1.Group(""), Kind: gatewayv1beta1.Kind("Service"), Name: ptr.To(gatewayv1beta1.ObjectName(backend))}},
+	}}
+	current := &gatewayv1beta1.ReferenceGrant{}
+	if err := p.reader().Get(ctx, client.ObjectKeyFromObject(grant), current); err != nil {
+		if apierrors.IsNotFound(err) {
+			return p.Client.Create(ctx, grant)
+		}
+		return err
+	}
+	if !samePublication(current, pub) || current.Labels[managedByLabel] != managedByInference || current.DeletionTimestamp != nil || !reflect.DeepEqual(current.Spec, grant.Spec) {
+		return errors.New("ReferenceGrant ownership or backend mismatch")
+	}
+	return nil
+}
+
+func (p *HTTPRoutePublisher) cleanupBackendGrant(ctx context.Context, pub publication.Publication, routeNS string) (bool, error) {
+	if p.Source == nil {
+		return false, errors.New("publication desired runtime source is nil")
+	}
+	var targetNS string
+	if source, ok := p.Source.(interface {
+		NamespaceForService(context.Context, string, string) (string, error)
+	}); ok {
+		var err error
+		targetNS, err = source.NamespaceForService(ctx, pub.TenantID, pub.ServiceID)
+		if err != nil {
+			return false, err
+		}
+	} else {
+		desired, err := p.Source.CurrentRuntime(ctx, pub.TenantID, pub.ServiceID, pub.Generation)
+		if err != nil {
+			return false, err
+		}
+		targetNS = desired.Namespace
+	}
+	if targetNS == routeNS {
+		return true, nil
+	}
+	grant := &gatewayv1beta1.ReferenceGrant{}
+	if err := p.reader().Get(ctx, client.ObjectKey{Namespace: targetNS, Name: routeName(pub)}, grant); err != nil {
+		if apierrors.IsNotFound(err) {
+			return true, nil
+		}
+		return false, err
+	}
+	if !samePublication(grant, pub) || grant.Labels[managedByLabel] != managedByInference {
+		return false, errors.New("ReferenceGrant is owned by a different publication")
+	}
+	uid, rv := grant.UID, grant.ResourceVersion
+	if uid == "" || rv == "" {
+		return false, errors.New("ReferenceGrant is missing UID or resourceVersion")
+	}
+	if err := client.IgnoreNotFound(p.Client.Delete(ctx, grant, client.Preconditions{UID: &uid, ResourceVersion: &rv})); err != nil {
+		return false, err
+	}
+	return false, nil // confirm absence on the next reconciliation
 }
 
 func (p *HTTPRoutePublisher) ConfirmPublished(ctx context.Context, pub publication.Publication) (bool, error) {

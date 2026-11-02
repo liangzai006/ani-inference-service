@@ -43,6 +43,15 @@ def variables(container):
 
 
 class OfflineChartContract(unittest.TestCase):
+    def test_tenant_watch_role_does_not_grant_secrets(self):
+        objects = render()
+        role = resource(objects, "ClusterRole", "ani-inference-tenant-watch")
+        granted = {name for rule in role["rules"] for name in rule["resources"]}
+        self.assertIn("namespaces", granted)
+        self.assertIn("inferenceservices", granted)
+        self.assertNotIn("secrets", granted)
+        self.assertTrue(all(set(rule["verbs"]) <= {"get", "list", "watch"} for rule in role["rules"]))
+
     def test_legacy_tag_and_database_fallback(self):
         objects = render()
         self.assertTrue(containers(objects)[0]["image"].endswith(":main-ff24af7-20261016"))

@@ -43,6 +43,55 @@ func (s materializerSource) CurrentRuntime(context.Context, string, string, int6
 	return s.spec, nil
 }
 
+func TestMaterializerUsesRuntimeNamespace(t *testing.T) {
+	ctx := context.Background()
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	_ = batchv1.AddToScheme(scheme)
+	kc := fake.NewClientBuilder().WithScheme(scheme).Build()
+	v := readyVersion()
+	v.StoragePath = "tenant/model.tar"
+	api := &modelAPIFake{version: v, download: &modelv1.GetModelDownloadURLResponse{DownloadUrl: "http://storage/bundle", StoragePath: v.StoragePath, ExpiresAt: timestamppb.New(time.Now().Add(time.Hour))}}
+	spec := kube.RuntimeSpec{TenantID: "tenant", ServiceID: "service", Namespace: "tenant-runtime", Generation: 1, ModelVersionID: v.Id, ArtifactProvider: "model", ArtifactRef: v.StoragePath, ArtifactSHA256: v.ChecksumSha256}
+	m := &Materializer{Catalog: NewClient(api), Source: materializerSource{kube.DesiredRuntime{RuntimeSpec: spec}}, Client: kc, Reader: kc, Namespace: "ani-system", Image: "image@sha256:fixed"}
+	op := inference.OperationContext{TenantID: spec.TenantID, ServiceID: spec.ServiceID, TargetGeneration: 1, LeaseToken: "lease"}
+	if _, err := m.EnsureModel(ctx, op); err != nil {
+		t.Fatal(err)
+	}
+	jobs := &batchv1.JobList{}
+	if err := kc.List(ctx, jobs); err != nil || len(jobs.Items) != 1 || jobs.Items[0].Namespace != spec.Namespace {
+		t.Fatalf("unexpected jobs: %+v, %v", jobs.Items, err)
+	}
+	claims := &corev1.PersistentVolumeClaimList{}
+	if err := kc.List(ctx, claims); err != nil || len(claims.Items) != 1 || claims.Items[0].Namespace != spec.Namespace {
+		t.Fatalf("unexpected claims: %+v, %v", claims.Items, err)
+	}
+}
+
+func TestMaterializerCleanupUsesPersistedRuntimeNamespace(t *testing.T) {
+	ctx := context.Background()
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	_ = batchv1.AddToScheme(scheme)
+	labels := map[string]string{"ani.kubercloud.com/tenant-id": "tenant", "ani.kubercloud.com/service-id": "service", materializationComponentLabel: materializationComponentValue}
+	claim := func(namespace string) *corev1.PersistentVolumeClaim {
+		return &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "owned", Namespace: namespace, Labels: labels}}
+	}
+	kc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(claim("tenant-runtime"), claim("ani-system")).Build()
+	spec := kube.RuntimeSpec{TenantID: "tenant", ServiceID: "service", Namespace: "tenant-runtime", Generation: 2}
+	m := &Materializer{Source: materializerSource{kube.DesiredRuntime{RuntimeSpec: spec}}, Client: kc, Reader: namespaceOnlyReader{Reader: kc, namespace: spec.Namespace}, Namespace: "ani-system"}
+	op := inference.OperationContext{TenantID: spec.TenantID, ServiceID: spec.ServiceID, TargetGeneration: spec.Generation}
+	if err := m.CleanupModel(ctx, op); err != nil {
+		t.Fatal(err)
+	}
+	if err := kc.Get(ctx, client.ObjectKey{Namespace: "tenant-runtime", Name: "owned"}, &corev1.PersistentVolumeClaim{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("target claim remains: %v", err)
+	}
+	if err := kc.Get(ctx, client.ObjectKey{Namespace: "ani-system", Name: "owned"}, &corev1.PersistentVolumeClaim{}); err != nil {
+		t.Fatalf("other namespace was modified: %v", err)
+	}
+}
+
 func TestMaterializerRequiresVerifiedJobBeforeReady(t *testing.T) {
 	ctx := context.Background()
 	scheme := runtime.NewScheme()
