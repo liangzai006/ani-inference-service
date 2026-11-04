@@ -176,9 +176,6 @@ func validateDeleteIdentity(req *inferencev1.DeleteInferenceServiceRequest) erro
 	if req.GetCreateOperationId() == req.GetContext().GetOperationId() {
 		return fmt.Errorf("DELETE must use a new operation_id")
 	}
-	if req.GetExpectedGeneration() != 0 {
-		return fmt.Errorf("managed DELETE does not accept expected_generation")
-	}
 	return nil
 }
 

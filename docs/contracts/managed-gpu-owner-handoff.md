@@ -96,9 +96,10 @@ messages embed trusted attachments; public callers do not supply their
 tenant/actor/ref, plans, hashes or charges. `original_charges` is always the
 entire original ledger vector, including any non-GPU entries; CREATE
 `gpu_charges` and DELETE `original_gpu_charges` are its complete GPU subset.
-The deleting actor is the currently authorized actor. Managed commands do not
-derive identity from `expected_generation`; historical direct records keep
-their separate generation rules.
+The deleting actor is the currently authorized actor. Delete requests do not
+carry `expected_generation`: direct and managed deletes derive the current
+generation inside their respective transactions while preserving tenant and
+operation identity.
 
 Use the current public Inference API helpers in
 [`business_payload.go`](../../api/inference/v1/business_payload.go):

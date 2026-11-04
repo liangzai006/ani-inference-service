@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
 	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
+	"google.golang.org/protobuf/proto"
 )
 
 // CommandUseCase durably accepts lifecycle commands. Runtime changes happen
@@ -36,7 +37,7 @@ func (u *CommandUseCase) Command(ctx context.Context, in inferencebiz.CommandInp
 	if err != nil {
 		return nil, err
 	}
-	if in.ExpectedGeneration < 1 {
+	if in.Kind != "delete" && in.ExpectedGeneration < 1 {
 		return nil, inferencebiz.ErrGenerationConflict
 	}
 	if in.Kind != "start" && in.Kind != "stop" && in.Kind != "restart" && in.Kind != "delete" {
@@ -55,12 +56,19 @@ func (u *CommandUseCase) Command(ctx context.Context, in inferencebiz.CommandInp
 		}
 		existing, e := q.GetIdempotency(ctx, GetIdempotencyParams{TenantID: tenant, Method: "InferenceService/" + in.Kind, IdempotencyKey: in.RequestID})
 		if e == nil {
-			if existing.PayloadHash != in.RequestHash {
-				return nil, inferencebiz.ErrIdempotencyConflict
-			}
 			op, e := q.GetOperation(ctx, GetOperationParams{TenantID: tenant, ID: existing.OperationID})
 			if e != nil {
 				return nil, e
+			}
+			if existing.PayloadHash != in.RequestHash {
+				// Before delete dropped expected_generation, the request digest
+				// included the version immediately before this operation. Keep
+				// retries of already accepted deletes idempotent across upgrades.
+				legacy := &inferencev1.ServiceCommandRequest{RequestId: in.RequestID, ResourceId: in.ServiceID, ExpectedGeneration: op.TargetGeneration - 1}
+				encoded, marshalErr := (proto.MarshalOptions{Deterministic: true}).Marshal(legacy)
+				if in.Kind != "delete" || op.Kind != "delete" || op.TargetGeneration < 2 || marshalErr != nil || existing.PayloadHash != RequestHash(append([]byte("delete\x00"+in.Actor+"\x00"), encoded...)) {
+					return nil, inferencebiz.ErrIdempotencyConflict
+				}
 			}
 			if err := tx.Commit(ctx); err != nil {
 				return nil, err
@@ -78,7 +86,7 @@ func (u *CommandUseCase) Command(ctx context.Context, in inferencebiz.CommandInp
 	if err != nil {
 		return nil, err
 	}
-	if current.DesiredGeneration != in.ExpectedGeneration || current.DeletedAt.Valid {
+	if (in.Kind != "delete" && current.DesiredGeneration != in.ExpectedGeneration) || current.DeletedAt.Valid {
 		return nil, inferencebiz.ErrGenerationConflict
 	}
 	managedState, err := q.GetManagedGPUState(ctx, GetManagedGPUStateParams{TenantID: tenant, ResourceID: serviceID})

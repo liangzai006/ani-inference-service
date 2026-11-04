@@ -33,7 +33,7 @@ func commandRPCs(server *InferenceServer) map[string]commandRPC {
 			if req == nil {
 				return server.DeleteInferenceService(ctx, nil)
 			}
-			return server.DeleteInferenceService(ctx, &inferencev1.DeleteInferenceServiceRequest{RequestId: req.RequestId, ResourceId: req.ResourceId, ExpectedGeneration: req.ExpectedGeneration})
+			return server.DeleteInferenceService(ctx, &inferencev1.DeleteInferenceServiceRequest{RequestId: req.RequestId, ResourceId: req.ResourceId})
 		},
 	}
 }
@@ -55,8 +55,12 @@ func TestCommandsRequireIdentityAndGeneration(t *testing.T) {
 			{"unconfigured", WithTenantID(context.Background(), "tenant-a"), &inferencev1.ServiceCommandRequest{RequestId: "r", ResourceId: "s", ExpectedGeneration: 1}, codes.FailedPrecondition},
 		} {
 			t.Run(kind+"/"+tc.name, func(t *testing.T) {
-				if _, err := rpc(tc.ctx, tc.req); status.Code(err) != tc.code {
-					t.Fatalf("code=%v want=%v err=%v", status.Code(err), tc.code, err)
+				want := tc.code
+				if kind == "delete" && (tc.name == "zero generation" || tc.name == "negative generation") {
+					want = codes.FailedPrecondition // the unconfigured command use case
+				}
+				if _, err := rpc(tc.ctx, tc.req); status.Code(err) != want {
+					t.Fatalf("code=%v want=%v err=%v", status.Code(err), want, err)
 				}
 			})
 		}
@@ -77,7 +81,11 @@ func TestCommandsDelegateIdentityAndStableActionHash(t *testing.T) {
 			}
 		}
 		in := uc.inputs[len(uc.inputs)-1]
-		if in.TenantID != "tenant-a" || in.Actor != "user-42" || in.RequestID != "r-1" || in.ServiceID != "svc-1" || in.ExpectedGeneration != 3 || in.Kind != kind {
+		generation := int64(3)
+		if kind == "delete" {
+			generation = 0
+		}
+		if in.TenantID != "tenant-a" || in.Actor != "user-42" || in.RequestID != "r-1" || in.ServiceID != "svc-1" || in.ExpectedGeneration != generation || in.Kind != kind {
 			t.Fatalf("%s: input=%+v", kind, in)
 		}
 		if len(in.RequestHash) != 64 || in.RequestHash != uc.inputs[len(uc.inputs)-2].RequestHash || hashes[in.RequestHash] {

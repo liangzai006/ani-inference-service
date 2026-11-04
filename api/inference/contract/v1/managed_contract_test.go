@@ -198,7 +198,6 @@ func TestManagedDeleteHashBindsScopeAndCurrentActor(t *testing.T) {
 			r.ManagedDeleteScope.CreateCommandDigest = "bad"
 		},
 		func(r *inferencev1.DeleteInferenceServiceRequest) { r.ResourceId = managedTenant },
-		func(r *inferencev1.DeleteInferenceServiceRequest) { r.ExpectedGeneration = 1 },
 	} {
 		candidate := proto.Clone(req).(*inferencev1.DeleteInferenceServiceRequest)
 		mutate(candidate)

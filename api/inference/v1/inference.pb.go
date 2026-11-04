@@ -1353,14 +1353,12 @@ func (x *ServiceCommandRequest) GetExpectedGeneration() int64 {
 }
 
 type DeleteInferenceServiceRequest struct {
-	state      protoimpl.MessageState `protogen:"open.v1"`
-	RequestId  string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	ResourceId string                 `protobuf:"bytes,2,opt,name=resource_id,json=resourceId,proto3" json:"resource_id,omitempty"`
-	// Legacy direct records require generation. Governance commands do not.
-	ExpectedGeneration int64               `protobuf:"varint,3,opt,name=expected_generation,json=expectedGeneration,proto3" json:"expected_generation,omitempty"`
-	Context            *CommandContext     `protobuf:"bytes,6,opt,name=context,proto3" json:"context,omitempty"`
-	CreateOperationId  string              `protobuf:"bytes,7,opt,name=create_operation_id,json=createOperationId,proto3" json:"create_operation_id,omitempty"`
-	ManagedDeleteScope *ManagedDeleteScope `protobuf:"bytes,8,opt,name=managed_delete_scope,json=managedDeleteScope,proto3" json:"managed_delete_scope,omitempty"`
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	RequestId          string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	ResourceId         string                 `protobuf:"bytes,2,opt,name=resource_id,json=resourceId,proto3" json:"resource_id,omitempty"`
+	Context            *CommandContext        `protobuf:"bytes,6,opt,name=context,proto3" json:"context,omitempty"`
+	CreateOperationId  string                 `protobuf:"bytes,7,opt,name=create_operation_id,json=createOperationId,proto3" json:"create_operation_id,omitempty"`
+	ManagedDeleteScope *ManagedDeleteScope    `protobuf:"bytes,8,opt,name=managed_delete_scope,json=managedDeleteScope,proto3" json:"managed_delete_scope,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
@@ -1407,13 +1405,6 @@ func (x *DeleteInferenceServiceRequest) GetResourceId() string {
 		return x.ResourceId
 	}
 	return ""
-}
-
-func (x *DeleteInferenceServiceRequest) GetExpectedGeneration() int64 {
-	if x != nil {
-		return x.ExpectedGeneration
-	}
-	return 0
 }
 
 func (x *DeleteInferenceServiceRequest) GetContext() *CommandContext {
@@ -3484,16 +3475,15 @@ const file_inference_v1_inference_proto_rawDesc = "" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x1f\n" +
 	"\vresource_id\x18\x02 \x01(\tR\n" +
 	"resourceId\x12/\n" +
-	"\x13expected_generation\x18\x03 \x01(\x03R\x12expectedGeneration\"\x80\x03\n" +
+	"\x13expected_generation\x18\x03 \x01(\x03R\x12expectedGeneration\"\xea\x02\n" +
 	"\x1dDeleteInferenceServiceRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x1f\n" +
 	"\vresource_id\x18\x02 \x01(\tR\n" +
-	"resourceId\x12/\n" +
-	"\x13expected_generation\x18\x03 \x01(\x03R\x12expectedGeneration\x126\n" +
+	"resourceId\x126\n" +
 	"\acontext\x18\x06 \x01(\v2\x1c.inference.v1.CommandContextR\acontext\x12.\n" +
 	"\x13create_operation_id\x18\a \x01(\tR\x11createOperationId\x12R\n" +
-	"\x14managed_delete_scope\x18\b \x01(\v2 .inference.v1.ManagedDeleteScopeR\x12managedDeleteScopeJ\x04\b\x04\x10\x05J\x04\b\x05\x10\x06R\x14gpu_owner_attachmentR\x10original_charges\"=\n" +
+	"\x14managed_delete_scope\x18\b \x01(\v2 .inference.v1.ManagedDeleteScopeR\x12managedDeleteScopeJ\x04\b\x03\x10\x04J\x04\b\x04\x10\x05J\x04\b\x05\x10\x06R\x13expected_generationR\x14gpu_owner_attachmentR\x10original_charges\"=\n" +
 	"\x1aGetInferenceServiceRequest\x12\x1f\n" +
 	"\vresource_id\x18\x01 \x01(\tR\n" +
 	"resourceId\"\xb4\x01\n" +

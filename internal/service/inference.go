@@ -360,8 +360,8 @@ func (s *InferenceServer) acceptCommand(ctx context.Context, kind string, req *i
 	if !ok {
 		return nil, status.Error(codes.Unauthenticated, "tenant identity is required")
 	}
-	if req.GetRequestId() == "" || req.GetResourceId() == "" || req.GetExpectedGeneration() < 1 {
-		return nil, status.Error(codes.InvalidArgument, "request_id, resource_id and positive expected_generation are required")
+	if req.GetRequestId() == "" || req.GetResourceId() == "" || (kind != "delete" && req.GetExpectedGeneration() < 1) {
+		return nil, status.Error(codes.InvalidArgument, "request_id and resource_id are required; non-delete commands also require positive expected_generation")
 	}
 	if s.command == nil {
 		return nil, status.Error(codes.FailedPrecondition, "inference command use case is not configured")
