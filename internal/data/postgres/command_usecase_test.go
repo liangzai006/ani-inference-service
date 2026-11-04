@@ -9,7 +9,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
 	"github.com/liangzai006/ani-inference-service/internal/biz/inference"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestCommandUseCaseAcceptsFencedStopAndReplays(t *testing.T) {
@@ -73,6 +75,22 @@ func TestCommandUseCaseAcceptsFencedStopAndReplays(t *testing.T) {
 	if err == nil || !errors.Is(err, inference.ErrGenerationConflict) {
 		t.Fatalf("stale command err=%v", err)
 	}
+	deleteInput := inference.CommandInput{TenantID: tenant.String(), ServiceID: service.String(), Kind: "delete", RequestID: "delete-concurrent", RequestHash: "hash-delete"}
+	type deleteResult struct {
+		response *inferencev1.OperationResponse
+		err      error
+	}
+	results := make(chan deleteResult, 2)
+	for range 2 {
+		go func() {
+			response, err := uc.Command(ctx, deleteInput)
+			results <- deleteResult{response, err}
+		}()
+	}
+	first, second := <-results, <-results
+	if first.err != nil || second.err != nil || first.response.GetOperation().GetId() != second.response.GetOperation().GetId() || first.response.GetOperation().GetTargetGeneration() != 3 {
+		t.Fatalf("concurrent deletes first=%v err=%v second=%v err=%v", first.response, first.err, second.response, second.err)
+	}
 }
 
 func TestCommandUseCaseDeleteCancelsActiveOperation(t *testing.T) {
@@ -120,15 +138,52 @@ func TestCommandUseCaseDeleteCancelsActiveOperation(t *testing.T) {
 	})
 
 	uc := NewCommandUseCase(NewRepository(pool))
-	deleted, err := uc.Command(ctx, inference.CommandInput{
+	command := inference.CommandInput{
 		TenantID: tenant.String(), ServiceID: service.String(), Kind: "delete",
-		RequestID: "delete-active-1", RequestHash: "delete-active-hash", ExpectedGeneration: 1,
-	})
+		RequestID: "delete-active-1", Actor: "user-1",
+	}
+	request := &inferencev1.ServiceCommandRequest{RequestId: command.RequestID, ResourceId: command.ServiceID}
+	wire, err := (proto.MarshalOptions{Deterministic: true}).Marshal(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command.RequestHash = RequestHash(append([]byte("delete\x00"+command.Actor+"\x00"), wire...))
+	deleted, err := uc.Command(ctx, command)
 	if err != nil {
 		t.Fatalf("delete with active operation: %v", err)
 	}
 	if deleted.GetOperation().GetKind() != "delete" || deleted.GetOperation().GetTargetGeneration() != 2 {
 		t.Fatalf("unexpected delete response: %v", deleted)
+	}
+	replay, err := uc.Command(ctx, command)
+	if err != nil || replay.GetOperation().GetId() != deleted.GetOperation().GetId() {
+		t.Fatalf("delete replay=%v err=%v", replay, err)
+	}
+	otherTenant := command
+	otherTenant.TenantID = uuid.NewString()
+	if _, err := uc.Command(ctx, otherTenant); !errors.Is(err, inference.ErrNotFound) {
+		t.Fatalf("cross-tenant delete: %v", err)
+	}
+	// Existing deletes were hashed with the previous generation. Simulate the
+	// stored digest from the old server and retry through the new contract.
+	request.ExpectedGeneration = 1
+	legacyWire, err := (proto.MarshalOptions{Deterministic: true}).Marshal(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyHash := RequestHash(append([]byte("delete\x00"+command.Actor+"\x00"), legacyWire...))
+	if _, err := pool.Exec(ctx, "UPDATE inference_idempotency_requests SET payload_hash=$1 WHERE tenant_id=$2 AND idempotency_key=$3", legacyHash, tenant, command.RequestID); err != nil {
+		t.Fatal(err)
+	}
+	replay, err = uc.Command(ctx, command)
+	if err != nil || replay.GetOperation().GetId() != deleted.GetOperation().GetId() {
+		t.Fatalf("legacy delete replay=%v err=%v", replay, err)
+	}
+	otherActor := command
+	otherActor.Actor = "user-2"
+	otherActor.RequestHash = RequestHash(append([]byte("delete\x00"+otherActor.Actor+"\x00"), wire...))
+	if _, err := uc.Command(ctx, otherActor); !errors.Is(err, inference.ErrIdempotencyConflict) {
+		t.Fatalf("different actor reused delete key: %v", err)
 	}
 	old, err := New(pool).GetOperation(ctx, GetOperationParams{TenantID: pgUUID(tenant), ID: pgUUID(createOp)})
 	if err != nil {

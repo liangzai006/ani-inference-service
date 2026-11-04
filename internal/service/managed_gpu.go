@@ -128,7 +128,7 @@ func (s *InferenceServer) DeleteInferenceService(ctx context.Context, req *infer
 		if req.GetManagedDeleteScope() != nil {
 			return nil, status.Error(codes.InvalidArgument, "managed_delete_scope requires trusted command context")
 		}
-		return s.acceptCommand(ctx, "delete", &inferencev1.ServiceCommandRequest{RequestId: req.GetRequestId(), ResourceId: req.GetResourceId(), ExpectedGeneration: req.GetExpectedGeneration()})
+		return s.acceptCommand(ctx, "delete", &inferencev1.ServiceCommandRequest{RequestId: req.GetRequestId(), ResourceId: req.GetResourceId()})
 	}
 	if err := contractv1.ValidateManagedDelete(req); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
@@ -159,7 +159,6 @@ func (s *InferenceServer) DeleteInferenceService(ctx context.Context, req *infer
 	}
 	canonical := proto.Clone(req).(*inferencev1.DeleteInferenceServiceRequest)
 	canonical.RequestId = ""
-	canonical.ExpectedGeneration = 0
 	payload, err := (proto.MarshalOptions{Deterministic: true}).Marshal(canonical)
 	if err != nil {
 		return nil, err

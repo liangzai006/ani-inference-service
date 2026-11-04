@@ -177,8 +177,8 @@ message ServiceCommandRequest { string request_id = 1; string resource_id = 2; i
 message DeleteInferenceServiceRequest {
   string request_id = 1;
   string resource_id = 2;
-  // Legacy direct records require generation. Governance commands do not.
-  int64 expected_generation = 3;
+  reserved 3;
+  reserved "expected_generation";
   reserved 4, 5;
   reserved "gpu_owner_attachment", "original_charges";
   CommandContext context = 6;

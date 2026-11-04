@@ -68,7 +68,7 @@ ani-inference-service/
 | GetInferenceService / ListInferenceServices | 已授权租户范围、资源 ID 或分页参数 | 纯读已持久化的资源状态与观察时效 |
 | UpdateInferenceService | resource_id、request_id、expected_generation、field_mask、变更配置 | CAS 新 generation + 持久 operation；首期允许字段要明确白名单 |
 | Start / Stop / RestartInferenceService | resource_id、request_id、expected_generation | 同一资源互斥的持久命令；Restart 不伪装成新建资源 |
-| DeleteInferenceService | resource_id、request_id、expected_generation | 受理删除；异步撤发布和清理，保留可查结果及墓碑 |
+| DeleteInferenceService | resource_id、request_id | 在事务锁内读取当前 generation 并受理删除；异步撤发布和清理，保留可查结果及墓碑 |
 | GetOperation / ListOperations | tenant scope、operation_id 或资源/分页过滤 | 纯读；不推进生命周期 |
 
 日志流、访问策略管理、取消操作等独立扩展不得因未在此表冻结就被默认为已有接口；其能力排期见第 10 节和计划。
