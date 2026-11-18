@@ -18,6 +18,7 @@ import (
 const governanceCallerDNS = "ani-governance"
 const gatewayAuthzCallerDNS = "ani-inference-gateway.ani.internal"
 const checkInferenceAccessMethod = "/inference.v1.InferenceAccessKeyService/CheckInferenceAccess"
+const listInferenceModelsMethod = "/inference.gateway.v1.ModelDiscovery/ListModels"
 
 // clientDNSIdentity is shared by both TLS listeners and RPC authentication.
 // ANI client identities have exactly one DNS SAN and no other SAN types.
@@ -147,6 +148,7 @@ func InferenceServicePolicy() RPCPolicy {
 		},
 		gatewayAuthzCallerDNS: {
 			checkInferenceAccessMethod,
+			listInferenceModelsMethod,
 		},
 		// Add other trusted services here as needed
 	}

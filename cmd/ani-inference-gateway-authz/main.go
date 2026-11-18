@@ -58,6 +58,7 @@ func run(logger *slog.Logger) error {
 	authz := gatewayauthz.NewHandler(client)
 	authz.RequiredSource = envOrDefault("ANI_GATEWAY_AUTHZ_SOURCE", "higress")
 	mux.Handle("/authz", authz)
+	mux.Handle("/v1/models", &gatewayauthz.ModelsHandler{Lister: client})
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	mux.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	server := &http.Server{

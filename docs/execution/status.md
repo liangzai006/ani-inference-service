@@ -1,6 +1,25 @@
 # Inference 执行状态
 
-更新日期：2026-10-22。本文件是本设计包唯一当前进度入口。
+更新日期：2026-11-18。本文件是本设计包唯一当前进度入口。
+
+## 2026-11-18 网关模型发现与租户运行准备
+
+- `pass`：推理入口支持 `x-api-key` 和 OpenAI Bearer 凭证；重复或冲突凭证拒绝，
+  转发给模型容器前移除两种凭证头。
+- `pass`：`GET /v1/models` 使用真实 authz 后端，按 AK 所属租户、当前绑定策略及有效
+  发布状态返回模型，与推理调用共用该 AK 的 QPS/RPM/RPH 额度；私有发现 RPC 只对
+  gateway mTLS 身份开放。`/api/v1/...` 管理接口继续由 Governance BFF 提供。
+- `pass`：创建前幂等准备租户 runtime ServiceAccount、下载 CA 和租户 RoleBinding；
+  主 Chart 已补齐所需环境变量、可委派角色及 bootstrap 权限。共享镜像拉取 Secret
+  继续由 Resource 维护，Inference 不创建租户 namespace。
+- `pass`：模型下载 Job 不再设置固定 600 秒截止时间；已有下载 Job 的旧截止时间
+  会被移除，下载 PVC 保留。
+- `pass`：全量 Go 测试、`go vet -p 2 ./...`、`go build -p 2 ./...`、主/配置 Chart
+  lint 与渲染、租户 Chart lint、gofmt 和 diff 检查通过。独占临时 PostgreSQL 17 应用
+  全部 27 个迁移后，Postgres 包完整测试通过，覆盖模型发现的跨租户过滤、当前策略、
+  撤销和共享限流；临时数据库已清理。
+- `not_verified`：本轮仅处理源码入库，没有构建、推送或更新服务镜像，没有部署或
+  验收集群中的新版本；Kubernetes envtest 未配置，Go 测试中的相应场景跳过。
 
 ## 2026-10-22 服务访问策略
 

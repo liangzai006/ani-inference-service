@@ -32,7 +32,7 @@ func trustedTenantMiddleware() middleware.Middleware {
 					return nil, status.Errorf(codes.PermissionDenied, "unregistered trusted service %q", identity)
 				}
 				tr, ok := transport.FromServerContext(ctx)
-				if !ok || tr.Operation() != checkInferenceAccessMethod {
+				if !ok || (tr.Operation() != checkInferenceAccessMethod && tr.Operation() != listInferenceModelsMethod) {
 					return nil, status.Errorf(codes.PermissionDenied, "gateway identity is not authorized for this method")
 				}
 				if hasTrustedTenantOrActorMetadata(ctx) {

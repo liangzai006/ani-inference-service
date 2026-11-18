@@ -17,7 +17,7 @@ model-router 插件配置为 `enableOnPathSuffix: ["*"]`，会从 OpenAI 兼容 
 ## 推理网关 API Key
 
 动态 Inference-owned AK 的网关链路使用 `ani-inference-ext-auth`：Higress 的官方
-`ext-auth` WasmPlugin 把 `x-api-key`、model-router 生成的模型头和请求 ID 转发给
+`ext-auth` WasmPlugin 把 `x-api-key` 或 `Authorization: Bearer <推理AK>`、model-router 生成的模型头和请求 ID 转发给
 `ani-inference-authz`，adapter 再用 `ani-inference-gateway.ani.internal` 的 mTLS
 身份调用 Inference `CheckInferenceAccess`。当前网关按 key 和 model-router 从请求体提取的 served model 做校验。Inference
 在持久发布记录中解析实际服务和租户，再检查 AK 绑定策略中的模型范围及限流；
@@ -26,6 +26,22 @@ model-router 插件配置为 `enableOnPathSuffix: ["*"]`，会从 OpenAI 兼容 
 发布含 `/ani-inference-gateway-authz` 的镜像，再应用独立的 `ext-auth.yaml`
 对象；该插件只对 `/v1/` 前缀和 `/v1` 精确路径生效，`/api/v1/` 仍由 Governance BFF 处理；没有
 adapter 时不要应用这个插件。
+
+两种请求头使用同一推理 AK、模型策略和限流；同时提供时密钥必须一致，重复、
+格式错误或冲突的凭证会被拒绝。Bearer 兼容需同时发布新版 adapter、放行插件中的
+`authorization` 转发，并确保所有现存模型和兜底 HTTPRoute 都移除上游请求的
+`authorization` 和 `x-api-key`；仅更新代码或插件不能完成升级。先核验各路由的
+header 移除规则，再放通 Bearer，避免凭据传给模型容器。
+
+OpenAI 兼容客户端将 Base URL 设置为 `http://<网关地址>:30090/v1`，API Key 填
+完整的 `iak_...`，模型填写策略允许的 served model name。
+
+`GET /v1/models` 不需要请求体或模型头。该精确路由指向 authz adapter 的真实后端，
+由列表处理器校验 AK，按所属租户、当前策略与有效发布状态返回 OpenAI 格式的
+`{"object":"list","data":[...]}`；没有可用模型时返回空数组。模型发现与推理调用
+共用 AK 的 QPS/RPM/RPH 限额，无效或撤销凭证返回 401，超过限额返回 429。
+ext-auth 仅将精确的 GET 列表请求交给该处理器完成鉴权；聊天等推理请求继续检查
+具体模型范围。此发现接口属于 `/v1/` 推理入口，`/api/v1/` 管理接口仍走 Governance。
 
 已有 release 如包含额外的环境变量、挂载或证书配置，先保存现场 Deployment 并审查
 增量部署。记录 `gatewayAuthz.enabled`、主服务与 companion 镜像、证书 issuer 覆盖项；
@@ -206,3 +222,17 @@ kubectl apply -f docs/deploy/higress/plugins.yaml
 
 Inference Deployment 继续使用 `ANI_HIGRESS_*` 变量。此操作与旧环境相互
 独立，不会触碰旧环境资源。
+
+## 1.6.0 patch3：OpenAI模型列表
+
+`GET /v1/models`由独立的`ani-inference-models` HTTPRoute转给gateway-authz容器，客户端只需Bearer或原x-api-key，无须model字段或模型内部头。处理器通过原mTLS连接调用内部`inference.gateway.v1.ModelDiscovery/ListModels`，按当前AK策略、租户和有效发布筛选，返回OpenAI object/data数组，并共用原请求限流计数。现有管理API仍走Gov。
+
+原ext-auth只将Higress forward_auth自动生成的精确GET列表请求交给该处理器；处理器自身验证AK，没有关闭鉴权。列表路由需保留凭据到鉴权容器，模型调用路由仍移除x-api-key和authorization，凭据不会送进模型容器。地址由Chart自身Service名称和端口生成`ANI_GATEWAY_MODELS_SERVICE_NAME`与`ANI_GATEWAY_MODELS_SERVICE_PORT`。旧安装由增量入口读取现场真实Service填写，无需新增用户配置。
+
+内部协议源码为`internal/gatewayapi/models.proto`；重新生成命令：
+
+```bash
+protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative internal/gatewayapi/models.proto
+```
+
+本功能已做本地定向回归和独立PostgreSQL集成；目标现场DSH、真实模型调用和原网关行为须以用户现场结果为准。

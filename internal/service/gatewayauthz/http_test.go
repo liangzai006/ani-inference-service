@@ -63,25 +63,88 @@ func TestHandlerRejectsMissingOrDuplicateSecret(t *testing.T) {
 	}
 }
 
-func TestHandlerMapsScopeAndRateDenials(t *testing.T) {
-	for code, want := range map[string]int{"scope_denied": http.StatusForbidden, "rate_limited": http.StatusTooManyRequests, "revoked": http.StatusUnauthorized} {
-		t.Run(code, func(t *testing.T) {
-			h := NewHandler(checkerFunc(func(context.Context, CheckRequest) (CheckResult, error) {
-				return CheckResult{DenialCode: code, RetryAfterSeconds: 3}, nil
+func TestHandlerBearerAndAPIKeyCredentials(t *testing.T) {
+	tests := []struct {
+		name   string
+		apiKey []string
+		auth   []string
+		allow  bool
+	}{
+		{name: "api key", apiKey: []string{"iak_secret"}, allow: true},
+		{name: "bearer", auth: []string{"Bearer iak_secret"}, allow: true},
+		{name: "bearer case insensitive", auth: []string{"bearer iak_secret"}, allow: true},
+		{name: "matching headers", apiKey: []string{"iak_secret"}, auth: []string{"Bearer iak_secret"}, allow: true},
+		{name: "conflicting headers", apiKey: []string{"iak_other"}, auth: []string{"Bearer iak_secret"}},
+		{name: "empty api key with bearer", apiKey: []string{""}, auth: []string{"Bearer iak_secret"}},
+		{name: "duplicate api key", apiKey: []string{"iak_secret", "iak_secret"}},
+		{name: "duplicate authorization", auth: []string{"Bearer iak_secret", "Bearer iak_secret"}},
+		{name: "comma joined authorization", auth: []string{"Bearer iak_secret, Bearer iak_secret"}},
+		{name: "wrong scheme", auth: []string{"Basic iak_secret"}},
+		{name: "missing bearer token", auth: []string{"Bearer"}},
+		{name: "extra bearer token", auth: []string{"Bearer iak_secret extra"}},
+		{name: "empty authorization with api key", apiKey: []string{"iak_secret"}, auth: []string{""}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			calls := 0
+			h := NewHandler(checkerFunc(func(_ context.Context, req CheckRequest) (CheckResult, error) {
+				calls++
+				if req.APIKey != "iak_secret" || req.ServedModelName != "model-a" {
+					t.Fatalf("unexpected credential or model passed to checker")
+				}
+				return CheckResult{Allowed: true, TenantID: "tenant-a", InferenceKeyID: "key-a"}, nil
 			}))
 			req := httptest.NewRequest(http.MethodPost, "http://authz/authz", nil)
-			req.Header.Set(HeaderAPIKey, "iak_secret")
 			req.Header.Set(HeaderModel, "model-a")
 			req.Header.Set(HeaderAuthzSource, "higress")
+			for _, key := range tt.apiKey {
+				req.Header.Add(HeaderAPIKey, key)
+			}
+			for _, auth := range tt.auth {
+				req.Header.Add(HeaderAuthorization, auth)
+			}
 			response := httptest.NewRecorder()
 			h.ServeHTTP(response, req)
-			if response.Code != want {
-				t.Fatalf("status = %d, want %d", response.Code, want)
+			wantStatus, wantCalls := http.StatusUnauthorized, 0
+			if tt.allow {
+				wantStatus, wantCalls = http.StatusOK, 1
 			}
-			if code == "rate_limited" && response.Header().Get(HeaderRetryAfter) != "3" {
-				t.Fatalf("Retry-After = %q", response.Header().Get(HeaderRetryAfter))
+			if response.Code != wantStatus || calls != wantCalls {
+				t.Fatalf("status = %d, checker calls = %d; want %d, %d", response.Code, calls, wantStatus, wantCalls)
 			}
 		})
+	}
+}
+
+func TestHandlerMapsScopeAndRateDenials(t *testing.T) {
+	for code, want := range map[string]int{"scope_denied": http.StatusForbidden, "rate_limited": http.StatusTooManyRequests, "revoked": http.StatusUnauthorized} {
+		for _, bearer := range []bool{false, true} {
+			name := code + "/x-api-key"
+			if bearer {
+				name = code + "/bearer"
+			}
+			t.Run(name, func(t *testing.T) {
+				h := NewHandler(checkerFunc(func(context.Context, CheckRequest) (CheckResult, error) {
+					return CheckResult{DenialCode: code, RetryAfterSeconds: 3}, nil
+				}))
+				req := httptest.NewRequest(http.MethodPost, "http://authz/authz", nil)
+				if bearer {
+					req.Header.Set(HeaderAuthorization, "Bearer iak_secret")
+				} else {
+					req.Header.Set(HeaderAPIKey, "iak_secret")
+				}
+				req.Header.Set(HeaderModel, "model-a")
+				req.Header.Set(HeaderAuthzSource, "higress")
+				response := httptest.NewRecorder()
+				h.ServeHTTP(response, req)
+				if response.Code != want {
+					t.Fatalf("status = %d, want %d", response.Code, want)
+				}
+				if code == "rate_limited" && response.Header().Get(HeaderRetryAfter) != "3" {
+					t.Fatalf("Retry-After = %q", response.Header().Get(HeaderRetryAfter))
+				}
+			})
+		}
 	}
 }
 

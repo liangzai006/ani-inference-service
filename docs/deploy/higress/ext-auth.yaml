@@ -8,7 +8,7 @@ metadata:
     ani.liangzai006.io/purpose: inference-authentication
 spec:
   # The adapter is fail-closed. It calls Inference over mTLS and never stores
-  # the presented x-api-key in a Kubernetes object.
+  # presented credentials in a Kubernetes object.
   # Only OpenAI-compatible inference paths use this adapter. Governance's
   # /api/v1 management API remains on the BFF and must bypass this plugin.
   defaultConfig:
@@ -31,6 +31,7 @@ spec:
       authorization_request:
         allowed_headers:
           - exact: x-api-key
+          - exact: authorization
           - exact: x-higress-llm-model
           - exact: x-request-id
         headers_to_add:

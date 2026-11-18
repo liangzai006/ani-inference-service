@@ -391,9 +391,8 @@ func (p *HTTPRoutePublisher) route(pub publication.Publication, namespace, backe
 			Filters: []gatewayv1.HTTPRouteFilter{{
 				Type: gatewayv1.HTTPRouteFilterRequestHeaderModifier,
 				RequestHeaderModifier: &gatewayv1.HTTPHeaderFilter{
-					// The ext-auth filter reads x-api-key before the route is sent
-					// upstream; remove it from the model backend request.
-					Remove: []string{"x-api-key"},
+					// Credentials are checked by ext-auth and must not reach models.
+					Remove: []string{"x-api-key", "authorization"},
 				},
 			}},
 			BackendRefs: []gatewayv1.HTTPBackendRef{{
@@ -484,7 +483,7 @@ func (p *HTTPRoutePublisher) EnsureBootstrapRoute(ctx context.Context, routeName
 				Matches: []gatewayv1.HTTPRouteMatch{{Path: &gatewayv1.HTTPPathMatch{Type: &pathType, Value: &path}}},
 				Filters: []gatewayv1.HTTPRouteFilter{{
 					Type:                  gatewayv1.HTTPRouteFilterRequestHeaderModifier,
-					RequestHeaderModifier: &gatewayv1.HTTPHeaderFilter{Remove: []string{"x-api-key"}},
+					RequestHeaderModifier: &gatewayv1.HTTPHeaderFilter{Remove: []string{"x-api-key", "authorization"}},
 				}},
 				BackendRefs: []gatewayv1.HTTPBackendRef{{
 					BackendRef: gatewayv1.BackendRef{BackendObjectReference: gatewayv1.BackendObjectReference{

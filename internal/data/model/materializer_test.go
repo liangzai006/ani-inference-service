@@ -116,6 +116,9 @@ func TestMaterializerRequiresVerifiedJobBeforeReady(t *testing.T) {
 		t.Fatal("expected one materialization job", err)
 	}
 	job := &jobs.Items[0]
+	if job.Spec.ActiveDeadlineSeconds != nil {
+		t.Fatalf("model download Job has a fixed completion deadline: %v", *job.Spec.ActiveDeadlineSeconds)
+	}
 	var caPath string
 	for _, env := range job.Spec.Template.Spec.Containers[0].Env {
 		if env.Name == "SSL_CERT_FILE" {
@@ -202,8 +205,20 @@ func TestMaterializerRequiresVerifiedJobBeforeReady(t *testing.T) {
 	if strings.Contains(strings.Join(job.Spec.Template.Spec.Containers[0].Args, " "), "private?secret") {
 		t.Fatal("signed URL leaked in Job args")
 	}
+	legacyDeadline := int64(600)
+	job.Spec.ActiveDeadlineSeconds = &legacyDeadline
+	job.UID = "existing-download-job"
+	if err = kc.Update(ctx, job); err != nil {
+		t.Fatal(err)
+	}
 	if observation, err = m.EnsureModel(ctx, op); err != nil || observation.Ready {
 		t.Fatal("pending Job became ready", err)
+	}
+	if err = kc.Get(ctx, client.ObjectKeyFromObject(job), job); err != nil {
+		t.Fatal(err)
+	}
+	if job.Spec.ActiveDeadlineSeconds != nil || job.UID != "existing-download-job" {
+		t.Fatalf("existing download Job was not preserved without its old deadline: %+v", job)
 	}
 	claim := &corev1.PersistentVolumeClaim{}
 	if err = kc.Get(ctx, client.ObjectKey{Namespace: spec.Namespace, Name: kube.ModelClaimName(spec)}, claim); err != nil {

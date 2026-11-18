@@ -288,11 +288,10 @@ func (s *Service) Rotate(ctx context.Context, tenantID, id, idempotencyKey, acto
 	return RotateResult{Record: result.Record, Secret: secret}, nil
 }
 
-func (s *Service) Check(ctx context.Context, apiKey, serviceID, model string, cost int64) (CheckResult, error) {
+func (s *Service) authenticate(ctx context.Context, apiKey string) (CheckResult, error) {
 	if s == nil || s.Repository == nil {
 		return CheckResult{}, errors.New("inference access-key repository is not configured")
 	}
-	apiKey = strings.TrimSpace(apiKey)
 	if apiKey == "" || !strings.HasPrefix(apiKey, secretPrefix) {
 		return CheckResult{Allowed: false, DenialCode: "invalid_key"}, nil
 	}
@@ -314,6 +313,17 @@ func (s *Service) Check(ctx context.Context, apiKey, serviceID, model string, co
 	if record.ExpiresAt != nil && !record.ExpiresAt.After(now) {
 		return CheckResult{Record: record, Allowed: false, DenialCode: "expired", PolicyVersion: record.Version}, nil
 	}
+	return CheckResult{Record: record, Allowed: true}, nil
+}
+
+func (s *Service) Check(ctx context.Context, apiKey, serviceID, model string, cost int64) (CheckResult, error) {
+	apiKey = strings.TrimSpace(apiKey)
+	decision, err := s.authenticate(ctx, apiKey)
+	if err != nil || !decision.Allowed {
+		return decision, err
+	}
+	record := decision.Record
+	now := s.now()
 	if s.Policy == nil {
 		return CheckResult{}, errors.New("inference access policy is not configured")
 	}

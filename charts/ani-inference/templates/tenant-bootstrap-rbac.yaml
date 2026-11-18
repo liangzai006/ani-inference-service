@@ -1,0 +1,56 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "ani-inference.fullname" . }}-runtime
+  labels:
+    {{- include "ani-inference.labels" . | nindent 4 }}
+rules:
+  {{- include "ani-inference.runtimeRules" . | nindent 2 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "ani-inference.fullname" . }}-image-pull
+  labels:
+    {{- include "ani-inference.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create", "update"]
+---
+# Delegate these two fixed roles through tenant RoleBindings; do not bind the
+# runtime or Secret-writing rules cluster-wide to the Inference controller.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "ani-inference.fullname" . }}-tenant-bootstrap
+  labels:
+    {{- include "ani-inference.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["serviceaccounts", "configmaps"]
+    verbs: ["get", "create"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["rolebindings"]
+    verbs: ["get", "create", "update"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterroles"]
+    resourceNames:
+      - {{ include "ani-inference.fullname" . }}-runtime
+      - {{ include "ani-inference.fullname" . }}-image-pull
+    verbs: ["bind"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "ani-inference.fullname" . }}-tenant-bootstrap
+  labels:
+    {{- include "ani-inference.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "ani-inference.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "ani-inference.fullname" . }}-tenant-bootstrap

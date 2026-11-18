@@ -1,5 +1,5 @@
 # Dedicated inference gateway. Run CORS before ext-auth so a browser preflight
-# does not consume an API-key quota. Actual POST requests still use ext-auth.
+# does not consume an API-key quota. Chat and model discovery still require an AK.
 # Replace this explicit origin list for the intended Console deployment.
 apiVersion: extensions.higress.io/v1alpha1
 kind: WasmPlugin
@@ -16,9 +16,11 @@ spec:
       - http://192.168.102.68:30081
     allow_methods:
       - POST
+      - GET
     allow_headers:
       - Content-Type
       - x-api-key
+      - Authorization
     expose_headers:
       - Retry-After
       - x-request-id

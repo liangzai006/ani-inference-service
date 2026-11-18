@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -168,7 +169,12 @@ func run(logger *slog.Logger) error {
 		if err != nil {
 			return err
 		}
-		prerequisites := kubernetes.TenantRuntimePrerequisites{Reader: kubeReader, ServiceAccountName: settings.ServiceAccountName, DownloadCAConfigMap: settings.DownloadCAConfigMap, DownloadCAKey: settings.DownloadCAKey}
+		prerequisites := kubernetes.TenantRuntimePrerequisites{
+			Reader: kubeReader, Writer: kubeReader,
+			ServiceAccountName: settings.ServiceAccountName, DownloadCAConfigMap: settings.DownloadCAConfigMap, DownloadCAKey: settings.DownloadCAKey,
+			SourceNamespace: os.Getenv("ANI_INFERENCE_NAMESPACE"), ControllerServiceAccount: os.Getenv("ANI_INFERENCE_CONTROL_SERVICE_ACCOUNT"),
+			RuntimeRole: os.Getenv("ANI_TENANT_RUNTIME_ROLE"), PullSecretRole: os.Getenv("ANI_TENANT_IMAGE_PULL_ROLE"), ResourceServiceAccount: os.Getenv("ANI_RESOURCE_SERVICE_ACCOUNT"),
+		}
 		create = &kubernetes.NamespaceCreate{Resolver: resolver, Prerequisites: prerequisites, Preflight: durableCreate, Next: create}
 		if imageClient != nil {
 			update = &imagedata.UpdateUseCase{Client: imageClient, Next: update, Preflight: durableUpdate, NamespaceForService: func(ctx context.Context, tenant, serviceID string) (string, error) {
@@ -307,6 +313,17 @@ func buildKubernetesServersWithImages(pool *pgxpool.Pool, modelClient *modeldata
 		if bootstrapErr != nil {
 			return nil, false, fmt.Errorf("publish Higress bootstrap route: %w", bootstrapErr)
 		}
+	}
+	// Model discovery has a real backend and is independent of the optional sink.
+	modelsPort, err := strconv.Atoi(envOrDefault("ANI_GATEWAY_MODELS_SERVICE_PORT", "8080"))
+	if err != nil || modelsPort < 1 || modelsPort > 65535 {
+		return nil, false, errors.New("invalid model discovery service port")
+	}
+	modelsCtx, modelsCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	modelsErr := publicationPublisher.EnsureModelDiscoveryRoute(modelsCtx, namespace, envOrDefault("ANI_GATEWAY_MODELS_SERVICE_NAME", "ani-inference-authz"), modelsPort)
+	modelsCancel()
+	if modelsErr != nil {
+		return nil, false, fmt.Errorf("publish Higress model discovery route: %w", modelsErr)
 	}
 	operationStore := postgres.NewOperationStore(pool)
 	gpuResolver, err := configuredGPUResolver()

@@ -63,3 +63,57 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- define "ani-inference.higressRoleName" -}}
 {{- printf "%s-%s-higress-rate-limit" (include "ani-inference.fullname" .) .Release.Namespace | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
+
+{{/* The same runtime rules are bound only within an actual tenant. */}}
+{{- define "ani-inference.runtimeRules" -}}
+- apiGroups: [""]
+  resources: ["serviceaccounts", "configmaps"]
+  verbs: ["get"]
+- apiGroups: ["gateway.networking.k8s.io"]
+  resources: ["httproutes"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+# Central Higress routes need the original publisher's target-tenant grant.
+- apiGroups: ["gateway.networking.k8s.io"]
+  resources: ["referencegrants"]
+  verbs: ["get", "create", "delete"]
+- apiGroups: ["ani.kubercloud.com"]
+  resources: ["inferenceservices"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["ani.kubercloud.com"]
+  resources: ["inferenceservices/status", "inferenceservices/finalizers"]
+  verbs: ["get", "update", "patch"]
+- apiGroups: ["serving.kserve.io"]
+  resources: ["inferenceservices", "llminferenceservices"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["serving.kserve.io"]
+  resources: ["inferenceservices/status", "inferenceservices/finalizers", "llminferenceservices/status", "llminferenceservices/finalizers"]
+  verbs: ["get", "update", "patch"]
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["leaderworkerset.x-k8s.io"]
+  resources: ["leaderworkersets"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch", "delete"]
+# Secret write access remains only for the model materializer's own
+# per-generation download credential and its cleanup. Inference never writes
+# the shared tenant image pull Secret: Resource is its single writer, and
+# Inference only reads the ensured object by the frozen reference.
+- apiGroups: [""]
+  resources: ["services", "persistentvolumeclaims", "secrets"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["apps"]
+  resources: ["replicasets", "statefulsets"]
+  verbs: ["get"]
+- apiGroups: [""]
+  resources: ["pods/log"]
+  verbs: ["get"]
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["get", "list"]
+{{- end -}}
