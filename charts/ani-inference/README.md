@@ -23,6 +23,17 @@
 `InferenceService` 和 `LLMInferenceService` 使用这个账号拉取模型引擎及物化镜像，
 控制面 ServiceAccount 不会被运行时 Pod 复用。
 
+创建推理前，控制面通过 Resource 解析租户 namespace，然后幂等准备该 namespace 的
+runtime ServiceAccount、模型下载 CA 和两个租户 RoleBinding，不自行创建 namespace。
+Chart 提供准备这些依赖的权限，运行时写权限通过租户 RoleBinding 授予；
+`inferenceRuntime.resourceServiceAccount` 指定负责共享拉取 Secret 的 Resource 账号，
+默认 `ani-resource-service`。复制 runtime ServiceAccount 时只复用拉取 Secret 引用，
+共享 Secret 仍由 Resource 统一维护。已使用独立 tenant Chart 预置的资源继续复用。
+
+启用 `gatewayAuthz` 后，进程为 `GET /v1/models` 创建精确路由到 authz adapter，
+使用 AK 当前策略及发布状态返回可调用模型列表，并共享该 AK 的请求限额。
+`/api/v1/...` 管理接口继续由 Governance BFF 提供。
+
 不会创建：
 
 - cert-manager（外部基础设施，必须预先安装并保持就绪）

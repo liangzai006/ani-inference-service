@@ -133,6 +133,15 @@ func (m *Materializer) EnsureModel(ctx context.Context, op inference.OperationCo
 				return unknown, fmt.Errorf("model download Job failed; reset for retry")
 			}
 		}
+		// Model size and transfer speed do not have a fixed completion budget.
+		// Keep an existing download running when upgrading from the old deadline.
+		if job.Spec.ActiveDeadlineSeconds != nil {
+			previous := job.DeepCopy()
+			job.Spec.ActiveDeadlineSeconds = nil
+			if err = m.Client.Patch(ctx, job, client.MergeFrom(previous)); err != nil {
+				return unknown, fmt.Errorf("remove model download Job deadline: %w", err)
+			}
+		}
 	}
 	claim := &corev1.PersistentVolumeClaim{}
 	err = reader.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, claim)
@@ -225,7 +234,7 @@ func (m *Materializer) EnsureModel(ctx context.Context, op inference.OperationCo
 		}
 		jobSpec.ServiceAccountName = strings.TrimSpace(m.ServiceAccountName)
 		kube.ApplyNonRootSecurity(&jobSpec)
-		job = &batchv1.Job{ObjectMeta: meta(name + "-fetch"), Spec: batchv1.JobSpec{BackoffLimit: ptr.To(int32(2)), ActiveDeadlineSeconds: ptr.To(int64(600)), Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: labels}, Spec: jobSpec}}}
+		job = &batchv1.Job{ObjectMeta: meta(name + "-fetch"), Spec: batchv1.JobSpec{BackoffLimit: ptr.To(int32(2)), Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: labels}, Spec: jobSpec}}}
 		if err = m.Client.Create(ctx, job); err != nil {
 			return unknown, err
 		}

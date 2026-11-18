@@ -13,6 +13,7 @@ import (
 	"time"
 
 	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
+	"github.com/liangzai006/ani-inference-service/internal/gatewayapi"
 	"github.com/liangzai006/ani-inference-service/internal/service/gatewayauthz"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -48,6 +49,7 @@ func (c Config) Validate() error {
 
 type Client struct {
 	accessKey inferencev1.InferenceAccessKeyServiceClient
+	discovery gatewayapi.ModelDiscoveryClient
 	timeout   time.Duration
 }
 
@@ -118,7 +120,30 @@ func Dial(ctx context.Context, cfg Config) (*Client, func() error, error) {
 		_ = conn.Close()
 		return nil, nil, err
 	}
+	client.discovery = gatewayapi.NewModelDiscoveryClient(conn)
 	return client, conn.Close, nil
+}
+
+func (c *Client) ListModels(ctx context.Context, apiKey string) (gatewayauthz.ModelsResult, error) {
+	if c == nil || c.discovery == nil || c.timeout <= 0 {
+		return gatewayauthz.ModelsResult{}, ErrInvalidConfig
+	}
+	callCtx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+	response, err := c.discovery.ListModels(callCtx, &gatewayapi.ListModelsRequest{ApiKey: apiKey})
+	if err != nil {
+		return gatewayauthz.ModelsResult{}, err
+	}
+	if response == nil {
+		return gatewayauthz.ModelsResult{}, errors.New("Inference returned an empty model listing")
+	}
+	result := gatewayauthz.ModelsResult{Allowed: response.GetAllowed(), DenialCode: response.GetDenialCode(), RetryAfterSeconds: response.GetRetryAfterSeconds()}
+	if result.Allowed {
+		for _, model := range response.GetModels() {
+			result.Models = append(result.Models, gatewayauthz.Model{ID: model.GetId(), Object: "model", Created: model.GetCreated(), OwnedBy: "ani"})
+		}
+	}
+	return result, nil
 }
 
 func (c *Client) Check(ctx context.Context, input gatewayauthz.CheckRequest) (gatewayauthz.CheckResult, error) {

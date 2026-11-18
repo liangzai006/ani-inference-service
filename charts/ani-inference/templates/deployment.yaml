@@ -89,6 +89,12 @@ spec:
               value: {{ .Values.higress.rateLimitNamespace | quote }}
             - name: ANI_HIGRESS_RATE_LIMIT_PLUGIN
               value: {{ .Values.higress.rateLimitPlugin | quote }}
+            {{- if .Values.gatewayAuthz.enabled }}
+            - name: ANI_GATEWAY_MODELS_SERVICE_NAME
+              value: {{ include "ani-inference.gatewayAuthzServiceName" . | quote }}
+            - name: ANI_GATEWAY_MODELS_SERVICE_PORT
+              value: {{ .Values.gatewayAuthz.servicePort | quote }}
+            {{- end }}
             - name: ANI_MODEL_GRPC_ADDR
               value: {{ required "model.grpcAddress is required" (trim .Values.model.grpcAddress) | quote }}
             {{- if .Values.imageRegistry.enabled }}
@@ -119,6 +125,14 @@ spec:
               value: {{ required "model.materializerImage is required" .Values.model.materializerImage | quote }}
             - name: ANI_KUBERNETES_SERVICE_ACCOUNT
               value: {{ include "ani-inference.runtimeServiceAccountName" . | quote }}
+            - name: ANI_INFERENCE_CONTROL_SERVICE_ACCOUNT
+              value: {{ include "ani-inference.serviceAccountName" . | quote }}
+            - name: ANI_TENANT_RUNTIME_ROLE
+              value: {{ printf "%s-runtime" (include "ani-inference.fullname" .) | quote }}
+            - name: ANI_TENANT_IMAGE_PULL_ROLE
+              value: {{ printf "%s-image-pull" (include "ani-inference.fullname" .) | quote }}
+            - name: ANI_RESOURCE_SERVICE_ACCOUNT
+              value: {{ required "inferenceRuntime.resourceServiceAccount is required" (trim .Values.inferenceRuntime.resourceServiceAccount) | quote }}
             - name: ANI_MODEL_STORAGE_CLASS
               value: {{ .Values.model.storageClass | quote }}
             {{- if .Values.model.downloadCA.configMap }}

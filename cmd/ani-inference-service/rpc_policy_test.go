@@ -56,10 +56,13 @@ func TestGovernancePolicyIncludesNonGPULifecycleReads(t *testing.T) {
 	}
 }
 
-func TestGatewayPolicyOnlyAllowsAccessCheck(t *testing.T) {
+func TestGatewayPolicyOnlyAllowsAccessCheckAndModelDiscovery(t *testing.T) {
 	policy := InferenceServicePolicy()
 	if !policy.IsAllowed(gatewayAuthzCallerDNS, checkInferenceAccessMethod) {
 		t.Fatal("gateway authz identity denied CheckInferenceAccess")
+	}
+	if !policy.IsAllowed(gatewayAuthzCallerDNS, listInferenceModelsMethod) || policy.IsAllowed(governanceCallerDNS, listInferenceModelsMethod) {
+		t.Fatal("model discovery must be gateway-only")
 	}
 	for _, method := range []string{
 		"/inference.v1.InferenceAccessKeyService/CreateInferenceAccessKey",

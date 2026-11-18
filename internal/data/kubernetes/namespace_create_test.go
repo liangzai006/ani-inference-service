@@ -8,10 +8,47 @@ import (
 	inferencev1 "github.com/liangzai006/ani-inference-service/api/inference/v1"
 	biz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
+
+func TestTenantRuntimePrerequisitesPrepareFirstUseAndReuse(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+	_ = rbacv1.AddToScheme(scheme)
+	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		&corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Namespace: "ani-system", Name: "runtime"}},
+		&corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Namespace: "ani-system", Name: "ca"}, Data: map[string]string{"ca.crt": "public-ca"}},
+	).Build()
+	p := TenantRuntimePrerequisites{Reader: kube, Writer: kube, ServiceAccountName: "runtime", DownloadCAConfigMap: "ca", DownloadCAKey: "ca.crt",
+		SourceNamespace: "ani-system", ControllerServiceAccount: "control", RuntimeRole: "runtime-role", PullSecretRole: "pull-role", ResourceServiceAccount: "resource"}
+	ns := TenantNamespace{Name: "existing-tenant", UID: "original-uid"}
+	for i := 0; i < 2; i++ {
+		if err := p.Check(context.Background(), ns); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var sa corev1.ServiceAccount
+	if err := kube.Get(context.Background(), client.ObjectKey{Namespace: ns.Name, Name: "runtime"}, &sa); err != nil || sa.AutomountServiceAccountToken == nil || *sa.AutomountServiceAccountToken {
+		t.Fatalf("missing or token-bearing runtime account: %+v %v", sa, err)
+	}
+	var ca corev1.ConfigMap
+	if err := kube.Get(context.Background(), client.ObjectKey{Namespace: ns.Name, Name: "ca"}, &ca); err != nil || ca.Data["ca.crt"] != "public-ca" {
+		t.Fatalf("public CA not prepared: %+v %v", ca, err)
+	}
+	for role, account := range map[string]string{"runtime-role": "control", "pull-role": "resource"} {
+		var binding rbacv1.RoleBinding
+		if err := kube.Get(context.Background(), client.ObjectKey{Namespace: ns.Name, Name: role + "-tenant"}, &binding); err != nil {
+			t.Fatal(err)
+		}
+		if binding.RoleRef.Kind != "ClusterRole" || binding.RoleRef.Name != role || len(binding.Subjects) != 1 || binding.Subjects[0].Namespace != "ani-system" || binding.Subjects[0].Name != account {
+			t.Fatalf("incorrect runtime binding: %+v", binding)
+		}
+	}
+}
 
 type namespaceResolverStub struct {
 	ns    TenantNamespace

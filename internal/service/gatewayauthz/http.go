@@ -13,13 +13,14 @@ import (
 )
 
 const (
-	HeaderAPIKey       = "x-api-key"
-	HeaderModel        = "x-higress-llm-model"
-	HeaderRequestID    = "x-request-id"
-	HeaderAuthzSource  = "x-ani-authz-source"
-	HeaderTenantID     = "x-ani-tenant-id"
-	HeaderInferenceKey = "x-ani-inference-key-id"
-	HeaderRetryAfter   = "Retry-After"
+	HeaderAPIKey        = "x-api-key"
+	HeaderAuthorization = "Authorization"
+	HeaderModel         = "x-higress-llm-model"
+	HeaderRequestID     = "x-request-id"
+	HeaderAuthzSource   = "x-ani-authz-source"
+	HeaderTenantID      = "x-ani-tenant-id"
+	HeaderInferenceKey  = "x-ani-inference-key-id"
+	HeaderRetryAfter    = "Retry-After"
 )
 
 var ErrInvalidRequest = errors.New("invalid gateway authorization request")
@@ -83,8 +84,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeStatus(w, http.StatusForbidden)
 		return
 	}
-	apiKey, ok := singleHeader(r.Header, HeaderAPIKey)
-	if !ok || strings.TrimSpace(apiKey) == "" {
+	// Higress forward_auth overwrites these original-method/URI headers.
+	// Only the exact listing is delegated to ModelsHandler, which authenticates
+	// the AK and consumes its rate bucket. Chat still requires its model scope.
+	if isForwardedModelListing(r.Header) {
+		writeStatus(w, http.StatusOK)
+		return
+	}
+	apiKey, ok := inferenceCredential(r.Header)
+	if !ok {
 		writeStatus(w, http.StatusUnauthorized)
 		return
 	}
@@ -123,6 +131,35 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set(HeaderRetryAfter, strconv.Itoa(int(result.RetryAfterSeconds)))
 	}
 	writeStatus(w, statusCode)
+}
+
+// inferenceCredential accepts both the original gateway header and the
+// OpenAI-compatible Bearer form. Ambiguous or conflicting credentials fail
+// closed instead of allowing different components to choose different keys.
+func inferenceCredential(header http.Header) (string, bool) {
+	keys := header.Values(HeaderAPIKey)
+	authorizations := header.Values(HeaderAuthorization)
+	if len(keys) > 1 || len(authorizations) > 1 || len(keys)+len(authorizations) == 0 {
+		return "", false
+	}
+	key := ""
+	if len(keys) == 1 {
+		key = strings.TrimSpace(keys[0])
+		if key == "" || strings.Contains(key, ",") {
+			return "", false
+		}
+	}
+	if len(authorizations) == 1 {
+		parts := strings.Fields(authorizations[0])
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") || strings.Contains(parts[1], ",") {
+			return "", false
+		}
+		if key != "" && key != parts[1] {
+			return "", false
+		}
+		key = parts[1]
+	}
+	return key, key != ""
 }
 
 func singleHeader(header http.Header, name string) (string, bool) {

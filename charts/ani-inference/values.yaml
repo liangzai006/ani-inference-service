@@ -70,6 +70,8 @@ imageRegistry:
 inferenceRuntime:
   clusterID: ""
   namespaceUID: ""
+  # Resource writes tenant image pull Secrets through a tenant-local binding.
+  resourceServiceAccount: ani-resource-service
 
 # One service identity for Accelerator, Resource image runtime and Gov quota.
 # The Model client keeps its separately registered identity below.

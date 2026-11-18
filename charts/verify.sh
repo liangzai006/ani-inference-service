@@ -78,6 +78,13 @@ test "$(grep -c '^  namespace: custom-higress-system$' "$tmp_dir/higress-rbac-cu
 grep -q '^kind: Certificate$' "$tmp_dir/inference.yaml"
 grep -q 'ANI_SERVER_TLS_CA_FILE' "$tmp_dir/inference.yaml"
 grep -q 'name: ANI_INFERENCE_RUNTIME_CLUSTER_ID' "$tmp_dir/inference-image.yaml"
+for variable in ANI_INFERENCE_CONTROL_SERVICE_ACCOUNT ANI_TENANT_RUNTIME_ROLE ANI_TENANT_IMAGE_PULL_ROLE ANI_RESOURCE_SERVICE_ACCOUNT; do
+  grep -q "name: $variable" "$tmp_dir/inference.yaml"
+done
+grep -q 'name: ani-inference-tenant-bootstrap' "$tmp_dir/inference.yaml"
+grep -q 'name: ani-inference-image-pull' "$tmp_dir/inference.yaml"
+grep -q 'ANI_GATEWAY_MODELS_SERVICE_NAME' "$tmp_dir/inference-authz.yaml"
+grep -q 'ANI_GATEWAY_MODELS_SERVICE_PORT' "$tmp_dir/inference-authz.yaml"
 grep -q 'name: ANI_INFERENCE_NAMESPACE_UID' "$tmp_dir/inference-image.yaml"
 grep -q 'ani-inference-server-tls' "$tmp_dir/inference.yaml"
 grep -q 'CREATE TABLE IF NOT EXISTS public.inference_schema_migrations' "$tmp_dir/inference.yaml"

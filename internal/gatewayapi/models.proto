@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package inference.gateway.v1;
+
+option go_package = "github.com/liangzai006/ani-inference-service/internal/gatewayapi;gatewayapi";
+
+// Private gateway protocol. The existing public management API is unchanged.
+service ModelDiscovery {
+  rpc ListModels(ListModelsRequest) returns (ListModelsResponse);
+}
+
+message ListModelsRequest {
+  string api_key = 1;
+}
+
+message Model {
+  string id = 1;
+  int64 created = 2;
+}
+
+message ListModelsResponse {
+  bool allowed = 1;
+  string denial_code = 2;
+  int32 retry_after_seconds = 3;
+  repeated Model models = 4;
+}

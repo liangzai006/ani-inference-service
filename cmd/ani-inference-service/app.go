@@ -19,6 +19,7 @@ import (
 	"github.com/liangzai006/ani-inference-service/internal/biz/gpu"
 	inferencebiz "github.com/liangzai006/ani-inference-service/internal/biz/inference"
 	"github.com/liangzai006/ani-inference-service/internal/biz/work"
+	"github.com/liangzai006/ani-inference-service/internal/gatewayapi"
 	"github.com/liangzai006/ani-inference-service/internal/server"
 	"github.com/liangzai006/ani-inference-service/internal/service"
 )
@@ -72,6 +73,7 @@ func buildAppWithAllDependenciesAndManagedGPUAndAccessKey(bc *conf.Bootstrap, lo
 	}
 	inferencev1.RegisterInferenceServiceManagerServer(grpcServer, owner)
 	inferencev1.RegisterInferenceAccessKeyServiceServer(grpcServer, service.NewInferenceAccessKeyServer(accessKeyService))
+	gatewayapi.RegisterModelDiscoveryServer(grpcServer, &service.GatewayModelsServer{Keys: service.NewInferenceAccessKeyServer(accessKeyService)})
 	diagnostics := &service.DiagnosticsServer{Read: read}
 	for _, backgroundServer := range background {
 		if provider, ok := backgroundServer.(interface{ DiagnosticsReader() diagnosticsbiz.Reader }); ok {

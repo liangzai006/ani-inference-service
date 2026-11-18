@@ -125,7 +125,7 @@ Governance key 时只迁移经过授权的元数据或由用户重新签发，�
 
 1. Higress 仅匹配 `/v1/`，不为 `/api/v1/` 建路由；TLS、请求体大小和基础方法
    校验在网关完成。
-2. AUTHN 阶段的独立 authz adapter 从 `x-api-key` 读取 key，将原始值只在内存中
+2. AUTHN 阶段的独立 authz adapter 从 `x-api-key` 或 `Authorization: Bearer <key>` 读取 key，将原始值只在内存中
    使用，并以 mTLS 身份 `ani-inference-gateway.ani.internal` 调用
    `CheckInferenceAccess`。
 3. Inference 校验前缀、哈希、撤销/过期、租户和服务/模型 scope，执行 key 级限流
@@ -148,7 +148,7 @@ P2 可评估 Higress 内置
 
 本仓库选择 Higress 官方 `ext-auth` WasmPlugin 加独立
 `ani-inference-gateway-authz` companion，而不是把动态 key 写进自定义 WasmPlugin
-consumer。ext-auth 只把 `x-api-key`、model-router 生成的模型头和请求 ID转给
+consumer。ext-auth 只把两种凭据头、model-router 生成的模型头和请求 ID转给
 adapter，并通过黑名单路径规则只匹配 `/v1/`；`/api/v1/` 管理入口不触发该
 插件。当前网关切片按 key 和 served model 做校验，不接受客户端提供的 service ID；
 服务级 scope 需要后续提供可信的 HTTPRoute 上下文后再启用。Higress `ext-auth:2.0.3`
@@ -208,7 +208,7 @@ Redis 地址/认证/TLS、键命名和失败策略；同时验证 Redis 不可�
 还是明确降级。当前仓库和验证集群的已有 `ani-request-rate-limit` 只提供模型键
 保护，不能据此推断 `cluster-key-rate-limit` 或 Redis 已安装、可用或已验收。
 
-opaque `x-api-key` 是本次冻结的公开合同，不引入 HMAC 双模式。若内置 cluster
+opaque 推理 key 支持 `x-api-key` 和 `Authorization: Bearer` 两种传递方式，不引入 HMAC 双模式。若内置 cluster
 limiter 无法提供所需维度和语义，再采用共享
 限流服务作为后备；后备方案必须保持相同的 401/403/429 合同，不得通过把 secret
 复制到 WasmPlugin consumers 来绕过缺失能力。
@@ -292,7 +292,7 @@ adapter 接入并完成真实链路验证前，不能对外宣称 Higress 已支
 
 - 目标集群是否已缓存并允许使用官方 `ext-auth:2.0.3` 镜像，以及 adapter 镜像、
   cert-manager 客户端证书和 NetworkPolicy 的现场配置；这些现场条件确认前不能
-  视作真实 `/v1` 动态 AK 已生效。公开请求合同固定为 opaque `x-api-key`，不再引入
+  视作真实 `/v1` 动态 AK 已生效。公开请求合同使用 opaque key，不再引入
   HMAC 双模式。
 - 服务级 scope 的 route context 方案：优先评估 `allowed_properties.route_name`，
   并为发布路由建立 Inference 权威的 route-name/service-id 映射；映射未冻结前，网关
